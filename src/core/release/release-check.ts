@@ -42,6 +42,15 @@ const REQUIRED_SCRIPTS = [
 ];
 const REQUIRED_PACKAGE_FILES = ["dist", "examples", "skills"];
 const FORBIDDEN_PACKAGE_FILES = ["src", "tests"];
+const FORBIDDEN_TRACKED_RELEASE_ARTIFACTS = [
+  /^artifacts\/release\//,
+  /^\.release\//,
+  /^bountypilot-[^/]+\.tgz$/,
+  /^bug-bounty-pilot\.skill\.zip$/,
+  /^bountypilot-sbom\.cdx\.json$/,
+  /^release-manifest\.json$/,
+  /^SHA256SUMS\.txt$/,
+];
 const REQUIRED_SKILL_FILES = [
   "skills/bug-bounty-pilot/SKILL.md",
   "skills/bug-bounty-pilot/policy.yml",
@@ -173,6 +182,7 @@ export function runReleaseCheck(cwd = process.cwd()): ReleaseCheckResult {
     checks.push(workflowContentCheck(workflow.name, workflowPath, workflow.snippets));
   }
   checks.push(githubRemoteCheck(cwd));
+  checks.push(trackedReleaseArtifactCheck(cwd));
   for (const communityFile of REQUIRED_GITHUB_COMMUNITY_FILES) {
     const communityPath = path.join(cwd, communityFile.name);
     checks.push(fileCheck(communityFile.name, communityPath));
@@ -392,6 +402,47 @@ function githubRemoteCheck(cwd: string): ReleaseCheckItem {
     message: githubRemote
       ? remote
       : `Origin remote is not a GitHub repository (${remote}). Public one-command installs expect a GitHub or npm release source.`,
+  };
+}
+
+function trackedReleaseArtifactCheck(cwd: string): ReleaseCheckItem {
+  if (!existsSync(path.join(cwd, ".git"))) {
+    return {
+      name: "git:tracked-release-artifacts",
+      status: "pass",
+      message: "not a git checkout; tracked release artifact check skipped",
+    };
+  }
+
+  let output = "";
+  try {
+    output = execFileSync("git", ["ls-files"], {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 2_000,
+    });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return {
+      name: "git:tracked-release-artifacts",
+      status: "warn",
+      message: `Could not inspect tracked release artifacts: ${reason}`,
+    };
+  }
+
+  const tracked = output
+    .split(/\r?\n/)
+    .map((entry) => entry.trim().replaceAll("\\", "/"))
+    .filter(Boolean);
+  const offenders = tracked.filter((entry) => FORBIDDEN_TRACKED_RELEASE_ARTIFACTS.some((pattern) => pattern.test(entry)));
+  return {
+    name: "git:tracked-release-artifacts",
+    status: offenders.length === 0 ? "pass" : "fail",
+    message:
+      offenders.length === 0
+        ? "no generated release artifacts are tracked"
+        : `Remove generated release artifacts from git: ${offenders.join(", ")}`,
   };
 }
 

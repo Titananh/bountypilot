@@ -97,6 +97,20 @@ describe("release checks", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("fails when generated release artifacts are tracked in source control", () => {
+    const root = writeReleaseFixture();
+    execFileSync("git", ["init"], { cwd: root, stdio: "ignore" });
+    writeText(root, "artifacts/release/bug-bounty-pilot.skill.zip", "stale bundle");
+    execFileSync("git", ["add", "artifacts/release/bug-bounty-pilot.skill.zip"], { cwd: root, stdio: "ignore" });
+
+    const result = runReleaseCheck(root);
+
+    expect(result.checks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "git:tracked-release-artifacts", status: "fail" })]),
+    );
+    expect(result.ok).toBe(false);
+  });
+
   it("fails when GitHub CodeQL workflow is missing", () => {
     const root = writeReleaseFixture();
     rmSync(path.join(root, ".github", "workflows", "codeql.yml"));

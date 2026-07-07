@@ -4,4 +4,5 @@ dist/
 coverage/
 *.log
 bountypilot-*.tgz
+artifacts/release/
 artifacts/tui-audit/
