@@ -28,6 +28,7 @@ export interface ReleasePublishPlanResult {
   releaseCheck: ReleaseCheckResult;
   install: {
     npm: string;
+    npmPinned: string;
     shell: string;
     powershell: string;
     shellDryRun: string;
@@ -108,6 +109,7 @@ export function buildReleasePublishPlan(input: BuildReleasePublishPlanInput): Re
   const releaseCheck = runReleaseCheck(cwd);
   const install = {
     npm: `npm install -g github:${repo.slug}`,
+    npmPinned: `npm install -g github:${repo.slug}#${branch}`,
     shell: `curl -fsSL https://raw.githubusercontent.com/${repo.slug}/${branch}/scripts/install.sh | BOUNTYPILOT_SOURCE=github:${repo.slug} bash`,
     powershell: `$env:BOUNTYPILOT_SOURCE="github:${repo.slug}"; irm https://raw.githubusercontent.com/${repo.slug}/${branch}/scripts/install.ps1 | iex`,
     shellDryRun: `curl -fsSL https://raw.githubusercontent.com/${repo.slug}/${branch}/scripts/install.sh | BOUNTYPILOT_SOURCE=github:${repo.slug} BOUNTYPILOT_INSTALL_DRY_RUN=1 bash`,
@@ -132,7 +134,7 @@ export function buildReleasePublishPlan(input: BuildReleasePublishPlanInput): Re
       `bounty release publish-status ${repo.slug} --branch ${branch} --tag ${tag} --online --actions --json`,
       `gh run list --repo ${repo.slug} --limit 10`,
     ],
-    installVerify: [install.npm, install.shellDryRun, install.powershellDryRun],
+    installVerify: [install.npm, install.npmPinned, install.shellDryRun, install.powershellDryRun],
     release: [`git tag ${tag}`, `git push origin ${tag}`],
   };
   const urls = {
@@ -330,8 +332,11 @@ ${input.commands.actionsVerify.join("\n")}
 
 ## 4. Install Commands For Users
 
+Use the default-branch npm command after the repository default branch points at the released source. Use the branch-pinned npm command to verify this exact pushed branch before changing defaults or merging.
+
 \`\`\`bash
 ${input.install.npm}
+${input.install.npmPinned}
 ${input.install.shell}
 \`\`\`
 
