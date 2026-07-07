@@ -124,7 +124,7 @@ export function buildReleasePublishPlan(input: BuildReleasePublishPlanInput): Re
     localVerify: [
       "npm ci",
       "npm run verify:release",
-      "bounty skill score bug-bounty-pilot --json",
+      `bounty skill score bug-bounty-pilot --repo ${repo.slug} --json`,
       "bounty release bundle --output .release --force --json",
       "bounty release verify-bundle .release --json",
     ],

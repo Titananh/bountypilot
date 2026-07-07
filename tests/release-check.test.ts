@@ -167,6 +167,8 @@ describe("release checks", () => {
 
     expect(plan.branch).toBe("codex/release-candidate");
     expect(plan.publicBranch).toBe("main");
+    expect(plan.commands.localVerify).toContain("bounty skill score bug-bounty-pilot --repo owner/repo --json");
+    expect(plan.markdown).toContain("bounty skill score bug-bounty-pilot --repo owner/repo --json");
     expect(plan.commands.publicBranchVerify).toEqual([
       "git push -u origin HEAD:main",
       "bounty release publish-plan owner/repo --branch main --tag v0.0.0 --write",
