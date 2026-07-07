@@ -5,8 +5,28 @@ import type { BountyDatabase } from "../src/stores/db/database.js";
 import { describe, expect, it } from "vitest";
 import { openBountyDatabase } from "../src/stores/db/database.js";
 import { ReconObservationStore } from "../src/stores/recon-observation-store.js";
-import { parseToolOutput } from "../src/integrations/tool-manager/tool-adapter-runner.js";
+import {
+  parseToolOutput,
+  TOOL_ADAPTER_SPECS,
+  toolApprovalIntegrationName,
+} from "../src/integrations/tool-manager/tool-adapter-runner.js";
 import { ToolManager } from "../src/integrations/tool-manager/tool-manager.js";
+import { runHuntRecon } from "../src/hunting/recon-engine.js";
+import { createExecutableApprovalStore } from "../src/utils/local-process-policy.js";
+import type { Runtime } from "../src/cli/runtime.js";
+import type { ProgramConfig } from "../src/core/config/program-schema.js";
+import { ensureProgramWorkspace } from "../src/core/workspace.js";
+import { ScopeGuard } from "../src/core/scope/scope-guard.js";
+import { PolicyGate } from "../src/core/policy/policy-gate.js";
+import { RateLimiter } from "../src/core/rate-limit/rate-limiter.js";
+import { FindingCandidateStore } from "../src/stores/finding-candidate-store.js";
+import { FindingStore } from "../src/stores/finding-store.js";
+import { EvidenceStore } from "../src/stores/evidence-store.js";
+import { CrawlGraphStore } from "../src/stores/crawl-graph-store.js";
+import { JobManager } from "../src/core/jobs/job-manager.js";
+import { WorkflowEventStore } from "../src/core/jobs/workflow-event-store.js";
+import { ActionQueue } from "../src/core/actions/action-queue.js";
+import { ActionReviewStore } from "../src/core/actions/action-review-store.js";
 
 describe("bug results engine foundations", () => {
   it("parses common bounty tool outputs into normalized observations", () => {
@@ -134,4 +154,115 @@ describe("bug results engine foundations", () => {
 
     expect(names).toEqual(expect.arrayContaining(["subfinder", "httpx", "katana", "nuclei", "ffuf", "dalfox"]));
   });
+
+  it("runs live recon through an approved executable and stores scoped observations", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "bountypilot-live-recon-"));
+    const runtime = createReconRuntime(dir);
+    const subfinderSpec = TOOL_ADAPTER_SPECS.find((spec) => spec.tool === "subfinder" && spec.actionType === "research.public");
+    expect(subfinderSpec).toBeDefined();
+    const originalArgs = [...subfinderSpec!.defaultArgs];
+    subfinderSpec!.defaultArgs = ["-e", "console.log('api.example.com')"];
+
+    try {
+      createExecutableApprovalStore(runtime.paths.workspace.integrationsDir).approve({
+        integration: toolApprovalIntegrationName("subfinder"),
+        command: process.execPath,
+        note: "vitest live recon fixture",
+      });
+
+      const result = await runHuntRecon(runtime, "https://api.example.com/", {
+        profile: "passive",
+        live: true,
+        tools: ["subfinder"],
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.actionsPlanned).toBe(1);
+      expect(result.tools).toEqual([
+        expect.objectContaining({
+          tool: "subfinder",
+          actionType: "research.public",
+          status: "executed",
+          approvalPresent: true,
+          observations: 1,
+        }),
+      ]);
+      expect(result.observations).toEqual([
+        expect.objectContaining({
+          kind: "host",
+          normalizedValue: "api.example.com",
+          sourceAdapter: "subfinder",
+          sourceUrl: "https://api.example.com/",
+          scopeAllowed: true,
+        }),
+      ]);
+      expect(runtime.recon.list({ jobId: result.jobId, sourceAdapter: "subfinder" })).toHaveLength(1);
+      expect(result.evidence).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ adapterName: "hunt-recon", kind: "research_note", jobId: result.jobId }),
+          expect.objectContaining({ adapterName: "subfinder", kind: "tool_output", jobId: result.jobId }),
+        ]),
+      );
+      expect(runtime.jobs.get(result.jobId)?.status).toBe("completed");
+    } finally {
+      subfinderSpec!.defaultArgs = originalArgs;
+      runtime.db.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
+
+const reconConfig: ProgramConfig = {
+  program: "recon-live-fixture",
+  platform: "hackerone",
+  in_scope: ["api.example.com", "*.example.com"],
+  out_of_scope: ["staging.example.com"],
+  rules: {
+    automated_scanning: "limited",
+    destructive_testing: false,
+    rate_limit: "100rps",
+    browser_crawling: true,
+    deep_safe_mode: true,
+    require_human_approval_for_risky_actions: true,
+  },
+  accounts: {
+    required: false,
+    use_researcher_owned_test_accounts_only: true,
+  },
+  evidence: {
+    screenshots: true,
+    har: true,
+    console_logs: true,
+    dom_snapshot: true,
+    video: "optional",
+    browser_trace: true,
+    desktop_screenshots: "optional",
+    mask_secrets: true,
+  },
+  integrations: {},
+};
+
+function createReconRuntime(root: string): Runtime {
+  const paths = ensureProgramWorkspace(reconConfig.program, root);
+  const db = openBountyDatabase(paths.dbFile);
+  return {
+    config: reconConfig,
+    paths,
+    db,
+    scopeGuard: new ScopeGuard(reconConfig),
+    policyGate: new PolicyGate(reconConfig.rules),
+    rateLimiter: new RateLimiter(reconConfig.rules.rate_limit),
+    candidates: new FindingCandidateStore(db),
+    findings: new FindingStore(db),
+    evidence: new EvidenceStore(db, paths.evidenceDir, {
+      maskSecrets: reconConfig.evidence.mask_secrets !== false,
+      trustedArtifactRoots: [paths.reportsDir],
+    }),
+    crawlGraph: new CrawlGraphStore(db),
+    recon: new ReconObservationStore(db),
+    jobs: new JobManager(db),
+    events: new WorkflowEventStore(db),
+    actions: new ActionQueue(db),
+    reviews: new ActionReviewStore(db),
+  };
+}
