@@ -92,7 +92,19 @@ const REQUIRED_GITHUB_WORKFLOWS = [
   },
   {
     name: ".github/workflows/release.yml",
-    snippets: ["npm ci", "npm run verify:release", "npm pack", "npm run --silent sbom", "bountypilot-sbom.cdx.json", "softprops/action-gh-release"],
+    snippets: [
+      "attestations: write",
+      "id-token: write",
+      "npm ci",
+      "npm run verify:release",
+      "npm pack",
+      "npm run --silent sbom",
+      "sha256sum",
+      "SHA256SUMS.txt",
+      "actions/attest-build-provenance@v2",
+      "bountypilot-sbom.cdx.json",
+      "softprops/action-gh-release",
+    ],
   },
   {
     name: ".github/workflows/codeql.yml",

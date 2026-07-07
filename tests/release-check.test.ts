@@ -186,6 +186,10 @@ jobs:
 on:
   push:
     tags: ["v*"]
+permissions:
+  attestations: write
+  contents: write
+  id-token: write
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -194,9 +198,13 @@ jobs:
       - run: npm run verify:release
       - run: npm pack
       - run: npm run --silent sbom > bountypilot-sbom.cdx.json
+      - run: sha256sum bountypilot-*.tgz bountypilot-sbom.cdx.json > SHA256SUMS.txt
+      - uses: actions/attest-build-provenance@v2
       - uses: softprops/action-gh-release@v2
         with:
-          files: bountypilot-sbom.cdx.json
+          files: |
+            bountypilot-sbom.cdx.json
+            SHA256SUMS.txt
 `,
   );
   writeText(
