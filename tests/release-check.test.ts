@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -60,6 +60,18 @@ describe("release checks", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("fails when GitHub release workflow is missing", () => {
+    const root = writeReleaseFixture();
+    rmSync(path.join(root, ".github", "workflows", "release.yml"));
+
+    const result = runReleaseCheck(root);
+
+    expect(result.checks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: ".github/workflows/release.yml", status: "fail" })]),
+    );
+    expect(result.ok).toBe(false);
+  });
+
   it("fails malformed workflow summary examples", () => {
     const root = writeReleaseFixture();
     writeText(
@@ -111,6 +123,39 @@ function writeReleaseFixture(): string {
   writeText(root, "README.md", "# fixture\n");
   writeText(root, "tsconfig.json", "{}\n");
   writeText(root, "package-lock.json", "{}\n");
+  writeText(
+    root,
+    ".github/workflows/ci.yml",
+    `name: CI
+on: [push]
+jobs:
+  verify:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: \${{ matrix.os }}
+    steps:
+      - run: npm ci
+      - run: npm run verify:release
+`,
+  );
+  writeText(
+    root,
+    ".github/workflows/release.yml",
+    `name: Release
+on:
+  push:
+    tags: ["v*"]
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm ci
+      - run: npm run verify:release
+      - run: npm pack
+      - uses: softprops/action-gh-release@v2
+`,
+  );
   writeText(root, "dist/cli/index.js", "#!/usr/bin/env node\n");
   writeText(root, "examples/local-lab-authorization.md", "Authorized local lab.\n");
   writeText(root, "examples/program.yml", programYaml("fixture", false));
@@ -150,6 +195,7 @@ function workflowSummaryExample(): Record<string, unknown> {
       { name: "safe-checks", status: "completed", target: "https://example.com/", detail: "example.com: 0 candidates." },
     ],
     findingsCreated: 0,
+    candidatesCreated: 0,
     evidenceCreated: 1,
     actionsPlanned: 1,
     actionCounts: {

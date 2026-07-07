@@ -3069,7 +3069,7 @@ const reportsCommand = program
 
 reportsCommand
   .command("score")
-  .argument("<findingId>", "Finding id or candidate id")
+  .argument("<findingOrCandidateId>", "Finding id or candidate id")
   .option("--job <jobId>", "Only score evidence from one workflow job")
   .option("--platform <platform>", "Report platform context", "hackerone")
   .option("--json", "Print machine-readable JSON")
@@ -3147,7 +3147,7 @@ reportsCommand
 
 reportsCommand
   .command("draft")
-  .argument("<findingId>", "Finding id or candidate id")
+  .argument("<findingOrCandidateId>", "Finding id or candidate id")
   .option("--platform <platform>", "Report platform", "hackerone")
   .option("--force-local-draft", "Write a local draft even when report readiness is blocked")
   .option("--json", "Print machine-readable JSON")

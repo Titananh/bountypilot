@@ -330,7 +330,9 @@ bounty results --min-score 40
 bounty hunt run https://api.example.com --profile recon --dry-run
 bounty hunt autopilot https://api.example.com --profile web --dry-run --write-plan
 bounty tools approved-executables
-bounty reports score <finding-id>
+bounty findings candidates --job <job-id>
+bounty findings candidate <candidate-id>
+bounty reports score <candidate-id>
 ```
 
 Configure an AI/API provider locally:
@@ -372,7 +374,8 @@ bounty hunt playbook xss "http://127.0.0.1:8080/search?q=%3Cbountypilot-xss%3E" 
 bounty hunt playbook graphql http://127.0.0.1:8080/graphql --live
 bounty hunt playbook idor "http://127.0.0.1:8080/api/account?id=1001" --live
 bounty hunt playbook js-secrets http://127.0.0.1:8080 --live
-bounty reports score <finding-id> --job <job-id>
+bounty findings candidates --job <job-id>
+bounty reports score <candidate-id> --job <job-id>
 ```
 
 Execute approved internal actions or low-rate safe checks after approval:
@@ -387,6 +390,8 @@ bounty evidence add --finding <finding-id> --text "Safe manual observation" --na
 bounty evidence link <evidence-id> <finding-id>
 bounty findings show <finding-id>
 bounty findings status <finding-id> validated --note "safe local validation complete"
+bounty findings candidates --reportability needs_review
+bounty findings promote-candidate <candidate-id>
 bounty check https://api.example.com --safe --mode safe
 bounty findings
 bounty evidence
@@ -419,6 +424,8 @@ bounty mcp session playwright-mcp --target https://api.example.com --steps examp
 Generate a local report draft:
 
 ```bash
+bounty reports score <candidate-id> --json
+bounty reports draft <candidate-id> --platform hackerone
 bounty triage finding-00000000-0000-0000-0000-000000000000
 bounty reports review finding-00000000-0000-0000-0000-000000000000 --write
 bounty report finding-00000000-0000-0000-0000-000000000000 --platform hackerone
@@ -426,9 +433,9 @@ bounty report finding-00000000-0000-0000-0000-000000000000 --platform hackerone
 
 ## Workflow
 
-`bounty run` is the main orchestration command. It resolves only explicit in-scope seeds, skips wildcard scope rules instead of enumerating unknown assets, records a local research note, queues actions, runs selected safe components, stores evidence, updates findings, writes structured workflow events, and writes `.bounty/programs/<program>/evidence/<job-id>/workflow-summary.json`.
+`bounty run` is the main orchestration command. It resolves only explicit in-scope seeds, skips wildcard scope rules instead of enumerating unknown assets, records a local research note, queues actions, runs selected safe components, stores evidence, updates findings and finding candidates, writes structured workflow events, and writes `.bounty/programs/<program>/evidence/<job-id>/workflow-summary.json`.
 
-The normal path is dry-run, review, approval, then live execution. `--dry-run` plans without target network execution. Live runs use `--mode safe` or `--mode deep-safe` and still pass through scope, policy, rate-limit, audit, and action gates. The JavaScript analyzer and crawl graph add scoped `plannerCandidates` such as `endpointCandidates` and `jsAssets`; the planner ranks and de-duplicates next actions from those candidates plus local evidence, findings, and action history, then writes a `planner-loop.json` evidence artifact. Actions that require approval remain `pending` until a human approves them; low-risk policy-allowed actions may be queued as `approved`, but still require an explicit execute command.
+The normal path is dry-run, review, approval, then live execution. `--dry-run` plans without target network execution. Live runs use `--mode safe` or `--mode deep-safe` and still pass through scope, policy, rate-limit, audit, and action gates. Evidence-backed signals become finding candidates first; weak signals stay as recon observations or `needs_manual_verification`, and only candidates that pass reportability checks are ready for local drafts. The JavaScript analyzer and crawl graph add scoped `plannerCandidates` such as `endpointCandidates` and `jsAssets`; the planner ranks and de-duplicates next actions from those candidates plus local evidence, findings, and action history, then writes a `planner-loop.json` evidence artifact. Actions that require approval remain `pending` until a human approves them; low-risk policy-allowed actions may be queued as `approved`, but still require an explicit execute command.
 
 Use `jobs timeline <job-id>` to inspect phase progress, skipped work, planner output, action review, execution events, and resume decisions. Human workflow output includes copy-paste next-command hints for showing the job, opening the timeline, resuming failed work, reviewing actions, or returning to the dashboard. Use `jobs resume <job-id>` to continue an incomplete checkpoint; when target, mode, and components are unchanged, already terminal global phases are recorded as skipped, while repeated seed-scoped phases record `phases[].target` and only skip the targets that completed before interruption. New summaries include `checkpointVersion: 2` and `resumeSkippedWork[]`; `resumeSkippedPhases[]` remains as a compatibility summary of skipped phase names.
 

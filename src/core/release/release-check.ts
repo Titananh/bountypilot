@@ -61,6 +61,16 @@ const REQUIRED_EXAMPLES = [
   "examples/evidence/finding-example-security-header/safe-check-output.json",
 ];
 const REQUIRED_PROGRAM_EXAMPLES = ["examples/program.yml", "examples/local-program.yml"];
+const REQUIRED_GITHUB_WORKFLOWS = [
+  {
+    name: ".github/workflows/ci.yml",
+    snippets: ["ubuntu-latest", "windows-latest", "npm ci", "npm run verify:release"],
+  },
+  {
+    name: ".github/workflows/release.yml",
+    snippets: ["npm ci", "npm run verify:release", "npm pack", "softprops/action-gh-release"],
+  },
+];
 const MIN_NODE_SQLITE_RUNTIME: [number, number, number] = [22, 13, 0];
 
 export function runReleaseCheck(cwd = process.cwd()): ReleaseCheckResult {
@@ -72,6 +82,11 @@ export function runReleaseCheck(cwd = process.cwd()): ReleaseCheckResult {
   checks.push(fileCheck("README.md", path.join(cwd, "README.md")));
   checks.push(fileCheck("tsconfig.json", path.join(cwd, "tsconfig.json")));
   checks.push(fileCheck("package-lock.json", path.join(cwd, "package-lock.json")));
+  for (const workflow of REQUIRED_GITHUB_WORKFLOWS) {
+    const workflowPath = path.join(cwd, workflow.name);
+    checks.push(fileCheck(workflow.name, workflowPath));
+    checks.push(workflowContentCheck(workflow.name, workflowPath, workflow.snippets));
+  }
 
   if (packageJson) {
     checks.push(packageFieldCheck("name", typeof packageJson.name === "string" && packageJson.name.length > 0));
@@ -366,6 +381,7 @@ function requiredJsonKeys(name: string): string[] {
       "actionsPlanned",
       "actionCounts",
       "reportsDrafted",
+      "candidatesCreated",
       "startedAt",
       "updatedAt",
       "resumeSkippedWork",
@@ -475,6 +491,22 @@ function packageFieldCheck(name: string, passed: boolean): ReleaseCheckItem {
     name: `package:${name}`,
     status: passed ? "pass" : "fail",
     message: passed ? "ok" : `Invalid or missing package field ${name}`,
+  };
+}
+
+function workflowContentCheck(name: string, filePath: string, requiredSnippets: string[]): ReleaseCheckItem {
+  const text = readText(filePath);
+  if (!text) {
+    return { name: `${name}:content`, status: "fail", message: `Missing ${filePath}` };
+  }
+  const missing = requiredSnippets.filter((snippet) => !text.includes(snippet));
+  return {
+    name: `${name}:content`,
+    status: missing.length === 0 ? "pass" : "fail",
+    message:
+      missing.length === 0
+        ? `contains required release gates: ${requiredSnippets.join(", ")}`
+        : `Missing required workflow content: ${missing.join(", ")}`,
   };
 }
 
