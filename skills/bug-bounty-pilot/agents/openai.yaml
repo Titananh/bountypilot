@@ -1,0 +1,7 @@
+interface:
+  display_name: "Bug Bounty Pilot"
+  short_description: "Safe local bug bounty workflow engine"
+  default_prompt: "Use $bug-bounty-pilot to plan a scoped, evidence-backed bug bounty workflow."
+
+policy:
+  allow_implicit_invocation: true

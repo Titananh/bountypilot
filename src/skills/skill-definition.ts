@@ -14,6 +14,7 @@ export interface SkillDefinition {
   id: string;
   root: string;
   skillMarkdown: string;
+  agentMetadata: SkillAgentMetadata;
   policy: SkillPolicy;
   workflow: SkillWorkflow;
   toolRegistry: SkillToolRegistry;
@@ -44,10 +45,12 @@ export interface SkillValidationResult {
   checks: SkillValidationCheck[];
   files: {
     required: string[];
+    agents: string[];
     prompts: string[];
     templates: string[];
     examples: string[];
   };
+  agentMetadata?: SkillAgentMetadata;
   policy?: SkillPolicy;
   workflow?: SkillWorkflow;
   toolRegistry?: SkillToolRegistry;
@@ -140,6 +143,37 @@ const SkillBundleManifestSchema = z.object({
     }),
   ),
   totalBytes: z.number(),
+});
+
+const SkillAgentMetadataSchema = z.object({
+  interface: z.object({
+    display_name: z.string().min(1),
+    short_description: z.string().min(25).max(64),
+    default_prompt: z.string().min(1),
+    icon_small: z.string().optional(),
+    icon_large: z.string().optional(),
+    brand_color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+  }),
+  dependencies: z
+    .object({
+      tools: z
+        .array(
+          z.object({
+            type: z.literal("mcp"),
+            value: z.string().min(1),
+            description: z.string().min(1),
+            transport: z.string().min(1).optional(),
+            url: z.string().min(1).optional(),
+          }),
+        )
+        .optional(),
+    })
+    .optional(),
+  policy: z
+    .object({
+      allow_implicit_invocation: z.boolean().optional(),
+    })
+    .optional(),
 });
 
 const ModePolicySchema = z.object({
@@ -248,6 +282,7 @@ export type SkillWorkflow = z.infer<typeof SkillWorkflowSchema>;
 export type SkillToolRegistry = z.infer<typeof SkillToolRegistrySchema>;
 export type SkillPlaybookRegistry = z.infer<typeof SkillPlaybookRegistrySchema>;
 export type SkillVmProfile = z.infer<typeof SkillVmProfileSchema>;
+export type SkillAgentMetadata = z.infer<typeof SkillAgentMetadataSchema>;
 
 const REQUIRED_SKILL_FILES = [
   "SKILL.md",
@@ -258,6 +293,8 @@ const REQUIRED_SKILL_FILES = [
   "playbooks.yml",
   "vm-profile.yml",
 ];
+
+const REQUIRED_AGENT_FILES = ["openai.yaml"];
 
 const REQUIRED_PROMPTS = [
   "planner.md",
@@ -416,6 +453,7 @@ export function loadSkillDefinition(id = BUG_BOUNTY_PILOT_SKILL_ID, cwd = proces
     id,
     root,
     skillMarkdown: readSkillFile(root, "SKILL.md"),
+    agentMetadata: validation.agentMetadata!,
     policy: validation.policy!,
     workflow: validation.workflow!,
     toolRegistry: validation.toolRegistry!,
@@ -434,6 +472,9 @@ export function validateSkillDefinition(id = BUG_BOUNTY_PILOT_SKILL_ID, cwd = pr
   for (const file of REQUIRED_SKILL_FILES) {
     checks.push(fileCheck(file, path.join(root, file)));
   }
+  for (const file of REQUIRED_AGENT_FILES) {
+    checks.push(fileCheck(`agents/${file}`, path.join(root, "agents", file)));
+  }
   for (const file of REQUIRED_PROMPTS) {
     checks.push(fileCheck(`prompts/${file}`, path.join(root, "prompts", file)));
   }
@@ -444,11 +485,29 @@ export function validateSkillDefinition(id = BUG_BOUNTY_PILOT_SKILL_ID, cwd = pr
     checks.push(fileCheck(`examples/${file}`, path.join(root, "examples", file)));
   }
 
+  const agentMetadata = parseYamlSchema(path.join(root, "agents", "openai.yaml"), SkillAgentMetadataSchema, "agents/openai.yaml", checks);
   const policy = parseYamlSchema(path.join(root, "policy.yml"), SkillPolicySchema, "policy.yml", checks);
   const workflow = parseYamlSchema(path.join(root, "workflow.yml"), SkillWorkflowSchema, "workflow.yml", checks);
   const toolRegistry = parseYamlSchema(path.join(root, "tool-registry.yml"), SkillToolRegistrySchema, "tool-registry.yml", checks);
   const playbooks = parseYamlSchema(path.join(root, "playbooks.yml"), SkillPlaybookRegistrySchema, "playbooks.yml", checks);
   const vmProfile = parseYamlSchema(path.join(root, "vm-profile.yml"), SkillVmProfileSchema, "vm-profile.yml", checks);
+
+  if (agentMetadata) {
+    const defaultPrompt = agentMetadata.interface.default_prompt;
+    checks.push({
+      name: "agents/openai.yaml:default_prompt",
+      status: defaultPrompt.includes(`$${id}`) ? "pass" : "fail",
+      message: defaultPrompt.includes(`$${id}`) ? `default prompt invokes $${id}` : `default_prompt must mention $${id}`,
+    });
+    checks.push({
+      name: "agents/openai.yaml:invocation",
+      status: agentMetadata.policy?.allow_implicit_invocation === false ? "fail" : "pass",
+      message:
+        agentMetadata.policy?.allow_implicit_invocation === false
+          ? "implicit invocation should remain enabled for bundled discovery"
+          : "implicit invocation enabled",
+    });
+  }
 
   if (policy) {
     pushSetCheck(checks, "policy:modes", REQUIRED_MODES, Object.keys(policy.modes));
@@ -518,10 +577,12 @@ export function validateSkillDefinition(id = BUG_BOUNTY_PILOT_SKILL_ID, cwd = pr
     checks,
     files: {
       required: REQUIRED_SKILL_FILES,
+      agents: REQUIRED_AGENT_FILES.map((file) => `agents/${file}`),
       prompts: REQUIRED_PROMPTS.map((file) => `prompts/${file}`),
       templates: REQUIRED_TEMPLATES.map((file) => `templates/${file}`),
       examples: REQUIRED_EXAMPLES.map((file) => `examples/${file}`),
     },
+    agentMetadata,
     policy,
     workflow,
     toolRegistry,
