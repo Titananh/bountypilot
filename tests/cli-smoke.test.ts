@@ -420,6 +420,11 @@ integrations: {}
       expect(parsedPublishStatus.nextCommands.join("\n")).toMatch(/bounty release publish-plan octo\/bountypilot --write|git remote set-url origin https:\/\/github\.com\/octo\/bountypilot\.git/);
       expect(parsedPublishStatus.nextCommands).toContain("gh auth login");
       expect(parsedPublishStatus.nextCommands).toContain("gh repo create octo/bountypilot --public --source . --remote origin --push");
+      expect(parsedPublishStatus.install).toMatchObject({
+        npm: "npm install -g github:octo/bountypilot",
+        npmPinned: "npm install -g github:octo/bountypilot#main",
+      });
+      expect(parsedPublishStatus.installVerify).toContain("npm install -g github:octo/bountypilot#main");
 
       const deepDoctorJson = runCli(["doctor", "--deep", "--json"], repoRoot);
     expectCommand(deepDoctorJson).toExit(0);

@@ -5699,6 +5699,8 @@ release
       ui.blank();
       ui.commandList("next commands", result.nextCommands);
     }
+    ui.blank();
+    ui.commandList("install verify", result.installVerify);
     process.exitCode = result.ok ? 0 : 1;
   });
 

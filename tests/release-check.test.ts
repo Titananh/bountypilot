@@ -122,6 +122,17 @@ describe("release checks", () => {
     );
     expect(result.nextCommands).toContain("bounty release publish-status owner/repo --branch main --tag v0.0.0 --online --json");
     expect(result.nextCommands).toContain("bounty release publish-status owner/repo --branch main --tag v0.0.0 --online --actions --json");
+    expect(result.install).toMatchObject({
+      npm: "npm install -g github:owner/repo",
+      npmPinned: "npm install -g github:owner/repo#main",
+    });
+    expect(result.installVerify).toEqual(
+      expect.arrayContaining([
+        "npm install -g github:owner/repo",
+        "npm install -g github:owner/repo#main",
+        expect.stringContaining("BOUNTYPILOT_INSTALL_DRY_RUN=1"),
+      ]),
+    );
   });
 
   it("verifies required GitHub Actions workflows through an injected gh command", () => {

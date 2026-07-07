@@ -78,6 +78,8 @@ export interface ReleasePublishStatusResult {
   online: boolean;
   remote: ReleasePublishPlanResult["remote"];
   releaseCheck: ReleaseCheckResult;
+  install: ReleasePublishPlanResult["install"];
+  installVerify: string[];
   checks: ReleasePublishStatusCheck[];
   nextCommands: string[];
   urls: ReleasePublishPlanResult["urls"];
@@ -107,14 +109,7 @@ export function buildReleasePublishPlan(input: BuildReleasePublishPlanInput): Re
   const targetRemote = remotePreference === "ssh" ? repo.sshRemote : repo.httpsRemote;
   const origin = currentOrigin(cwd);
   const releaseCheck = runReleaseCheck(cwd);
-  const install = {
-    npm: `npm install -g github:${repo.slug}`,
-    npmPinned: `npm install -g github:${repo.slug}#${branch}`,
-    shell: `curl -fsSL https://raw.githubusercontent.com/${repo.slug}/${branch}/scripts/install.sh | BOUNTYPILOT_SOURCE=github:${repo.slug} bash`,
-    powershell: `$env:BOUNTYPILOT_SOURCE="github:${repo.slug}"; irm https://raw.githubusercontent.com/${repo.slug}/${branch}/scripts/install.ps1 | iex`,
-    shellDryRun: `curl -fsSL https://raw.githubusercontent.com/${repo.slug}/${branch}/scripts/install.sh | BOUNTYPILOT_SOURCE=github:${repo.slug} BOUNTYPILOT_INSTALL_DRY_RUN=1 bash`,
-    powershellDryRun: `$env:BOUNTYPILOT_SOURCE="github:${repo.slug}"; $env:BOUNTYPILOT_INSTALL_DRY_RUN="1"; irm https://raw.githubusercontent.com/${repo.slug}/${branch}/scripts/install.ps1 | iex`,
-  };
+  const install = releaseInstallCommands(repo, branch);
   const commands = {
     localVerify: [
       "npm ci",
@@ -134,7 +129,7 @@ export function buildReleasePublishPlan(input: BuildReleasePublishPlanInput): Re
       `bounty release publish-status ${repo.slug} --branch ${branch} --tag ${tag} --online --actions --json`,
       `gh run list --repo ${repo.slug} --limit 10`,
     ],
-    installVerify: [install.npm, install.npmPinned, install.shellDryRun, install.powershellDryRun],
+    installVerify: releaseInstallVerifyCommands(install),
     release: [`git tag ${tag}`, `git push origin ${tag}`],
   };
   const urls = {
@@ -180,6 +175,8 @@ export function buildReleasePublishStatus(input: BuildReleasePublishStatusInput)
   const targetRemote = remotePreference === "ssh" ? repo.sshRemote : repo.httpsRemote;
   const origin = currentOrigin(cwd);
   const releaseCheck = runReleaseCheck(cwd);
+  const install = releaseInstallCommands(repo, branch);
+  const installVerify = releaseInstallVerifyCommands(install);
   const checks: ReleasePublishStatusCheck[] = [
     {
       name: "release:check",
@@ -248,10 +245,27 @@ export function buildReleasePublishStatus(input: BuildReleasePublishStatusInput)
     online: Boolean(input.online),
     remote,
     releaseCheck,
+    install,
+    installVerify,
     checks,
     nextCommands: publishStatusNextCommands({ repo, branch, tag, remote, checks, online: Boolean(input.online), actions: Boolean(input.actions) }),
     urls,
   };
+}
+
+function releaseInstallCommands(repo: GitHubRepoRef, branch: string): ReleasePublishPlanResult["install"] {
+  return {
+    npm: `npm install -g github:${repo.slug}`,
+    npmPinned: `npm install -g github:${repo.slug}#${branch}`,
+    shell: `curl -fsSL https://raw.githubusercontent.com/${repo.slug}/${branch}/scripts/install.sh | BOUNTYPILOT_SOURCE=github:${repo.slug} bash`,
+    powershell: `$env:BOUNTYPILOT_SOURCE="github:${repo.slug}"; irm https://raw.githubusercontent.com/${repo.slug}/${branch}/scripts/install.ps1 | iex`,
+    shellDryRun: `curl -fsSL https://raw.githubusercontent.com/${repo.slug}/${branch}/scripts/install.sh | BOUNTYPILOT_SOURCE=github:${repo.slug} BOUNTYPILOT_INSTALL_DRY_RUN=1 bash`,
+    powershellDryRun: `$env:BOUNTYPILOT_SOURCE="github:${repo.slug}"; $env:BOUNTYPILOT_INSTALL_DRY_RUN="1"; irm https://raw.githubusercontent.com/${repo.slug}/${branch}/scripts/install.ps1 | iex`,
+  };
+}
+
+function releaseInstallVerifyCommands(install: ReleasePublishPlanResult["install"]): string[] {
+  return [install.npm, install.npmPinned, install.shellDryRun, install.powershellDryRun];
 }
 
 function parseGitHubRepo(value: string): GitHubRepoRef {
