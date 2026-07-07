@@ -103,6 +103,8 @@ describe("CLI skill commands", () => {
           "gh auth status",
           "gh auth login",
           "gh repo create OWNER/REPO --public --source . --remote origin --push",
+          "git tag v0.1.0",
+          "git push origin v0.1.0",
           "bounty release publish-status OWNER/REPO --online --actions --json",
         ]),
       );

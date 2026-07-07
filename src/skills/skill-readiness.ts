@@ -77,7 +77,7 @@ export function scoreSkillReadiness(input: { id?: string; cwd?: string; generate
     readiness,
     blockers,
     warnings,
-    nextSteps: readinessNextSteps({ id, blockers, warnings }),
+    nextSteps: readinessNextSteps({ id, blockers, warnings, releaseTag: release.version ? `v${release.version}` : "v0.1.0" }),
     validation: {
       checks: validation.checks.length,
       failures: validationFailures,
@@ -149,6 +149,7 @@ function readinessNextSteps(input: {
   id: string;
   blockers: SkillReadinessIssue[];
   warnings: SkillReadinessIssue[];
+  releaseTag: string;
 }): string[] {
   if (input.blockers.length === 0 && input.warnings.length === 0) {
     return [`bounty skill bundle ${input.id} --output ${input.id}.skill.zip`, "npm run verify:release"];
@@ -172,6 +173,8 @@ function readinessNextSteps(input: {
     steps.add("gh repo create OWNER/REPO --public --source . --remote origin --push");
     steps.add("git remote add origin https://github.com/OWNER/REPO.git");
     steps.add("git push -u origin HEAD");
+    steps.add(`git tag ${input.releaseTag}`);
+    steps.add(`git push origin ${input.releaseTag}`);
     steps.add("bounty release publish-status OWNER/REPO --online --actions --json");
   }
   if (steps.size === 0) {
