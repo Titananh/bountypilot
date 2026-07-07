@@ -661,13 +661,13 @@ function publishStatusNextCommands(input: {
     commands.add(input.remote.origin ? input.remote.setUrlCommand : input.remote.addCommand);
   }
   if (byName.get("git:remote-branch")?.status === "fail") commands.add(`git push -u origin ${input.branch}`);
-  if (byName.get("git:local-tag")?.status === "warn") commands.add(`git tag ${input.tag}`);
-  if (byName.get("git:remote-tag")?.status !== "pass") commands.add(`git push origin ${input.tag}`);
   if (byName.get("publish:public-branch")?.status === "warn") {
     commands.add(`git push -u origin HEAD:${input.publicBranch}`);
     commands.add(`bounty release publish-plan ${input.repo.slug} --branch ${input.publicBranch} --tag ${input.tag} --write`);
     commands.add(`bounty release publish-status ${input.repo.slug} --branch ${input.publicBranch} --tag ${input.tag} --online --actions --json`);
   }
+  if (byName.get("git:local-tag")?.status === "warn") commands.add(`git tag ${input.tag}`);
+  if (byName.get("git:remote-tag")?.status !== "pass") commands.add(`git push origin ${input.tag}`);
   if (!input.online) commands.add(`bounty release publish-status ${input.repo.slug} --branch ${input.branch} --tag ${input.tag} --online --json`);
   if (githubActionsGhFailed) {
     for (const command of GITHUB_CLI_INSTALL_COMMANDS) commands.add(command);
