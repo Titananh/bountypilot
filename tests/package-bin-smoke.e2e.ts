@@ -32,6 +32,18 @@ describe("packaged bugbounty bin", () => {
       expectCommand(help).toExit(0);
       expect(outputOf(help)).toContain("BountyPilot safe, local-first");
 
+      const skillValidate = runBounty(binPath, ["skill", "validate", "bug-bounty-pilot", "--json"], consumerDir);
+      expectCommand(skillValidate).toExit(0);
+      expect(JSON.parse(skillValidate.stdout).ok).toBe(true);
+
+      const skillBundlePath = path.join(consumerDir, "bug-bounty-pilot.skill.zip");
+      const skillBundle = runBounty(binPath, ["skill", "bundle", "bug-bounty-pilot", "--output", skillBundlePath, "--json"], consumerDir);
+      expectCommand(skillBundle).toExit(0);
+      expect(JSON.parse(skillBundle.stdout)).toMatchObject({ ok: true, output: skillBundlePath });
+      const skillVerify = runBounty(binPath, ["skill", "verify-bundle", skillBundlePath, "--json"], consumerDir);
+      expectCommand(skillVerify).toExit(0);
+      expect(JSON.parse(skillVerify.stdout)).toMatchObject({ ok: true, files: { missing: [], mismatched: [], extra: [] } });
+
       const freshQuickstart = runBounty(binPath, ["quickstart", "--json"], consumerDir);
       expectCommand(freshQuickstart).toExit(0);
       const parsedFreshQuickstart = JSON.parse(freshQuickstart.stdout);
