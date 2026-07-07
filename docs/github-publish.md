@@ -31,6 +31,7 @@ The release check also verifies the public repository contract:
 - `CONTRIBUTING.md`
 - `.github/workflows/ci.yml`
 - `.github/workflows/release.yml`
+- `.github/workflows/codeql.yml`
 - `.github/pull_request_template.md`
 - `.github/dependabot.yml`
 - `.github/ISSUE_TEMPLATE/bug_report.yml`

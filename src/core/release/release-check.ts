@@ -93,6 +93,10 @@ const REQUIRED_GITHUB_WORKFLOWS = [
     name: ".github/workflows/release.yml",
     snippets: ["npm ci", "npm run verify:release", "npm pack", "softprops/action-gh-release"],
   },
+  {
+    name: ".github/workflows/codeql.yml",
+    snippets: ["github/codeql-action/init@v3", "javascript-typescript", "security-extended", "npm run build"],
+  },
 ];
 const MIN_NODE_SQLITE_RUNTIME: [number, number, number] = [22, 13, 0];
 

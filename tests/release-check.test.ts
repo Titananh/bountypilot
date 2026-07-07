@@ -72,6 +72,18 @@ describe("release checks", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("fails when GitHub CodeQL workflow is missing", () => {
+    const root = writeReleaseFixture();
+    rmSync(path.join(root, ".github", "workflows", "codeql.yml"));
+
+    const result = runReleaseCheck(root);
+
+    expect(result.checks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: ".github/workflows/codeql.yml", status: "fail" })]),
+    );
+    expect(result.ok).toBe(false);
+  });
+
   it("fails when public repository files are missing", () => {
     const root = writeReleaseFixture();
     rmSync(path.join(root, "LICENSE"));
@@ -181,6 +193,20 @@ jobs:
       - run: npm run verify:release
       - run: npm pack
       - uses: softprops/action-gh-release@v2
+`,
+  );
+  writeText(
+    root,
+    ".github/workflows/codeql.yml",
+    `name: CodeQL
+jobs:
+  analyze:
+    steps:
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+      - run: npm run build
 `,
   );
   writeText(
