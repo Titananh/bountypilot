@@ -148,6 +148,7 @@ Dry-run is the recommended first command for every target because it exercises s
 | Health | `bounty doctor --json` | No | Prints workspace, program, check, release, and next-command guidance as machine-readable JSON. |
 | Release | `bounty release check` | No | Checks whether the built local CLI package is ready for handoff or local release. |
 | Release | `bounty release check --json` | No | Prints release readiness checks as machine-readable JSON, including structured example validation. |
+| Release | `bounty release bundle --output .release` | No | Creates local release artifacts: npm tarball, standalone skill ZIP, SBOM, release manifest, and `SHA256SUMS.txt`. |
 | Release | `npm run verify:release` | No | Runs build, docs command-snippet verification, tests, fresh-install package-bin smoke, release checks, and dry-run pack as one gate. |
 | Release | `npm run test:external-tools` | Local fixture executables only | Exercises trusted external tool parsing, approval, scoped recon execution, review-required scanner gates, and crawl graph wiring without touching the internet. |
 | Release | `npm run test:vm-lab` | Local loopback only | Installs the packed CLI into a clean consumer project, starts the demo lab, runs live lab E2E, and verifies beta readiness from the installed binary. |

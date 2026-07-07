@@ -318,6 +318,24 @@ integrations: {}
     expect(parsedRelease.ok).toBe(true);
     expect(parsedRelease.checks.length).toBeGreaterThan(0);
 
+    const releaseBundleDir = path.join(workspace, "release-artifacts");
+    const releaseBundle = runCli(["release", "bundle", "--output", releaseBundleDir, "--skip-sbom", "--json"], repoRoot);
+    expectCommand(releaseBundle).toExit(0);
+    expect(releaseBundle.stderr).toBe("");
+    const parsedReleaseBundle = JSON.parse(releaseBundle.stdout);
+    expect(parsedReleaseBundle).toMatchObject({
+      ok: true,
+      outputDir: releaseBundleDir,
+      manifestPath: path.join(releaseBundleDir, "release-manifest.json"),
+      checksumsPath: path.join(releaseBundleDir, "SHA256SUMS.txt"),
+    });
+    expect(parsedReleaseBundle.artifacts.map((artifact: { kind: string }) => artifact.kind)).toEqual(
+      expect.arrayContaining(["npm-tarball", "skill-bundle", "manifest", "checksums"]),
+    );
+    expect(existsSync(path.join(releaseBundleDir, "release-manifest.json"))).toBe(true);
+    expect(readFileSync(path.join(releaseBundleDir, "SHA256SUMS.txt"), "utf8")).toContain("bug-bounty-pilot.skill.zip");
+    expect(readdirSync(releaseBundleDir).some((entry) => /^bountypilot-.*\.tgz$/.test(entry))).toBe(true);
+
     const deepDoctorJson = runCli(["doctor", "--deep", "--json"], repoRoot);
     expectCommand(deepDoctorJson).toExit(0);
     expect(outputOf(deepDoctorJson).trimStart().startsWith("{")).toBe(true);

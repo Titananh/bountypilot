@@ -22,6 +22,7 @@ your-name/bountypilot
 npm ci
 npm run verify:release
 bounty skill score bug-bounty-pilot --json
+bounty release bundle --output .release --json
 npm run test:external-tools
 npm run test:vm-lab
 npm run test:vm-real-tools
@@ -99,7 +100,7 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The workflow verifies the release gate, creates an npm tarball, bundles `bug-bounty-pilot.skill.zip`, generates `SHA256SUMS.txt`, attests release provenance, and attaches the artifacts to the GitHub release.
+The workflow verifies the release gate, creates an npm tarball, bundles `bug-bounty-pilot.skill.zip`, generates `SHA256SUMS.txt`, attests release provenance, and attaches the artifacts to the GitHub release. Locally, `bounty release bundle --output .release` creates the same handoff set before you tag.
 It also generates and attaches `bountypilot-sbom.cdx.json` as a CycloneDX SBOM for supply-chain review. The standalone skill ZIP includes `MANIFEST.bountypilot.json` with SHA-256 hashes for every skill file; verify it with `bounty skill verify-bundle bug-bounty-pilot.skill.zip`.
 
 The separate VM Lab Smoke workflow runs `npm run test:vm-lab` on `ubuntu-latest`. It installs the packed CLI into a clean consumer project, starts the loopback-only demo lab, runs `lab e2e --live` against that local lab, and checks beta readiness from the installed binary.

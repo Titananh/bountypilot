@@ -26,6 +26,7 @@ import { McpClientManager } from "../integrations/mcp/mcp-client-manager.js";
 import { McpStdioExecutor, type McpSessionStepInput } from "../integrations/mcp/mcp-stdio-executor.js";
 import { ToolManager } from "../integrations/tool-manager/tool-manager.js";
 import { latestToolApproval, toolApprovalIntegrationName } from "../integrations/tool-manager/tool-adapter-runner.js";
+import { buildReleaseBundle } from "../core/release/release-bundle.js";
 import {
   ARSENAL_TOOLS,
   HUNT_PROFILES,
@@ -5504,6 +5505,44 @@ release
       printReleaseCheck(result);
     }
     process.exitCode = result.ok ? 0 : 1;
+  });
+
+release
+  .command("bundle")
+  .option("--output <path>", "Release artifact directory. Defaults to .bounty/release.")
+  .option("--force", "Replace an existing non-empty release artifact directory")
+  .option("--skip-sbom", "Skip SBOM generation for offline smoke tests")
+  .option("--json", "Print machine-readable JSON")
+  .description("Create local release artifacts: npm tarball, skill ZIP, optional SBOM, manifest, and SHA256SUMS")
+  .action((...args: unknown[]) => {
+    const command = commandFromArgs(args);
+    const options = command.opts<{ output?: string; force?: boolean; skipSbom?: boolean; json?: boolean }>();
+    const result = buildReleaseBundle({
+      cwd: process.cwd(),
+      output: options.output,
+      force: options.force,
+      skipSbom: options.skipSbom,
+    });
+    if (options.json || requestedJsonOutput(process.argv)) {
+      ui.json(result);
+      return;
+    }
+    ui.header("release bundle");
+    ui.status("ok", `wrote ${result.outputDir}`);
+    ui.panel("release", [
+      ui.kv("output", result.outputDir),
+      ui.kv("manifest", result.manifestPath),
+      ui.kv("checksums", result.checksumsPath),
+      ui.kv("artifacts", result.artifacts.length),
+      ui.kv("release warnings", result.releaseCheck.checks.filter((check) => check.status === "warn").length),
+    ]);
+    ui.blank();
+    ui.table(
+      ["kind", "bytes", "sha256", "name"],
+      result.artifacts.map((artifact) => [artifact.kind, artifact.bytes, artifact.sha256.slice(0, 16), artifact.name]),
+    );
+    ui.blank();
+    ui.commandList("next commands", result.nextCommands);
   });
 
 const beta = program.command("beta").description("Prepare and inspect beta readiness");
