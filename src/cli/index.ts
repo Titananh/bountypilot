@@ -26,7 +26,7 @@ import { McpClientManager } from "../integrations/mcp/mcp-client-manager.js";
 import { McpStdioExecutor, type McpSessionStepInput } from "../integrations/mcp/mcp-stdio-executor.js";
 import { ToolManager } from "../integrations/tool-manager/tool-manager.js";
 import { latestToolApproval, toolApprovalIntegrationName } from "../integrations/tool-manager/tool-adapter-runner.js";
-import { buildReleaseBundle } from "../core/release/release-bundle.js";
+import { buildReleaseBundle, verifyReleaseBundle } from "../core/release/release-bundle.js";
 import { buildReleasePublishPlan } from "../core/release/release-publish-plan.js";
 import {
   ARSENAL_TOOLS,
@@ -5544,6 +5544,37 @@ release
     );
     ui.blank();
     ui.commandList("next commands", result.nextCommands);
+  });
+
+release
+  .command("verify-bundle")
+  .argument("<dir>", "Release artifact directory containing release-manifest.json and SHA256SUMS.txt")
+  .option("--json", "Print machine-readable JSON")
+  .description("Verify local release artifacts, checksums, manifest metadata, and the standalone skill ZIP")
+  .action((dir: string, ...args: unknown[]) => {
+    const command = commandFromArgs(args);
+    const options = command.opts<{ json?: boolean }>();
+    const result = verifyReleaseBundle({ bundleDir: dir, cwd: process.cwd() });
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
+    if (options.json || requestedJsonOutput(process.argv)) {
+      ui.json(result);
+      return;
+    }
+    ui.header("release verify-bundle");
+    ui.status(result.ok ? "ok" : "blocked", result.ok ? "release artifacts verified" : "release artifacts failed verification");
+    ui.panel("bundle", [
+      ui.kv("dir", result.bundleDir),
+      ui.kv("manifest", result.manifestPath),
+      ui.kv("checksums", result.checksumsPath),
+      ui.kv("files", `${result.files.verified}/${result.files.expected}`),
+    ]);
+    ui.blank();
+    ui.table(
+      ["status", "check", "message"],
+      result.checks.map((check) => [check.status, check.name, check.message]),
+    );
   });
 
 release

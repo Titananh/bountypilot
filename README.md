@@ -149,6 +149,7 @@ Dry-run is the recommended first command for every target because it exercises s
 | Release | `bounty release check` | No | Checks whether the built local CLI package is ready for handoff or local release. |
 | Release | `bounty release check --json` | No | Prints release readiness checks as machine-readable JSON, including structured example validation. |
 | Release | `bounty release bundle --output .release` | No | Creates local release artifacts: npm tarball, standalone skill ZIP, SBOM, release manifest, and `SHA256SUMS.txt`. |
+| Release | `bounty release verify-bundle .release` | No | Verifies release manifest, SHA256SUMS, artifact hashes/sizes, and the standalone skill ZIP before upload. |
 | Release | `bounty release publish-plan OWNER/REPO --write` | No | Writes a GitHub publish plan with remote, push, tag, install, Actions, and release artifact commands. |
 | Release | `npm run verify:release` | No | Runs build, docs command-snippet verification, tests, fresh-install package-bin smoke, release checks, and dry-run pack as one gate. |
 | Release | `npm run test:external-tools` | Local fixture executables only | Exercises trusted external tool parsing, approval, scoped recon execution, review-required scanner gates, and crawl graph wiring without touching the internet. |

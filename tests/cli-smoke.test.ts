@@ -335,6 +335,25 @@ integrations: {}
     expect(existsSync(path.join(releaseBundleDir, "release-manifest.json"))).toBe(true);
     expect(readFileSync(path.join(releaseBundleDir, "SHA256SUMS.txt"), "utf8")).toContain("bug-bounty-pilot.skill.zip");
     expect(readdirSync(releaseBundleDir).some((entry) => /^bountypilot-.*\.tgz$/.test(entry))).toBe(true);
+    const releaseManifest = JSON.parse(readFileSync(path.join(releaseBundleDir, "release-manifest.json"), "utf8"));
+    expect(releaseManifest.artifacts.every((artifact: { path: string }) => !path.isAbsolute(artifact.path))).toBe(true);
+
+    const releaseBundleVerify = runCli(["release", "verify-bundle", releaseBundleDir, "--json"], repoRoot);
+    expectCommand(releaseBundleVerify).toExit(0);
+    expect(releaseBundleVerify.stderr).toBe("");
+    const parsedReleaseBundleVerify = JSON.parse(releaseBundleVerify.stdout);
+    expect(parsedReleaseBundleVerify).toMatchObject({
+      ok: true,
+      bundleDir: releaseBundleDir,
+      files: { missing: [], mismatched: [], extra: [] },
+    });
+    expect(parsedReleaseBundleVerify.checks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "skill-bundle:verify", status: "pass" })]),
+    );
+    writeFileSync(path.join(releaseBundleDir, "unexpected.txt"), "tamper\n", "utf8");
+    const tamperedReleaseBundleVerify = runCli(["release", "verify-bundle", releaseBundleDir, "--json"], repoRoot);
+    expectCommand(tamperedReleaseBundleVerify).toExit(1);
+    expect(JSON.parse(tamperedReleaseBundleVerify.stdout).files.extra).toContain("unexpected.txt");
 
     const publishPlanPath = path.join(workspace, "github-publish-plan.md");
     const publishPlan = runCli(
