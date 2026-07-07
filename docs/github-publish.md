@@ -21,6 +21,7 @@ your-name/bountypilot
 ```bash
 npm ci
 npm run verify:release
+bounty skill score bug-bounty-pilot --json
 npm run test:external-tools
 npm run test:vm-lab
 npm run test:vm-real-tools

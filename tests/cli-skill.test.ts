@@ -81,6 +81,22 @@ describe("CLI skill commands", () => {
     expect(JSON.parse(outputOf(tampered))).toMatchObject({ ok: false });
   });
 
+  it("scores bundled skill readiness across validation, bundle verification, and release gates", () => {
+    const result = runCli(["skill", "score", "bug-bounty-pilot", "--json"], repoRoot);
+    expectCommand(result).toExit(0);
+    const parsed = JSON.parse(outputOf(result));
+    expect(parsed).toMatchObject({
+      ok: true,
+      id: "bug-bounty-pilot",
+      validation: { failures: [] },
+      bundle: { ok: true },
+      release: { ok: true },
+    });
+    expect(parsed.score).toBeGreaterThanOrEqual(90);
+    expect(["ultimate", "ready_with_warnings"]).toContain(parsed.readiness);
+    expect(parsed.nextSteps.length).toBeGreaterThan(0);
+  }, 60_000);
+
   it("runs passive skill workflow as dry-run against imported scope", () => {
     const workspace = createWorkspace();
     writeFileSync(path.join(workspace, "program.yml"), programYaml(), "utf8");

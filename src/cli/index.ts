@@ -49,6 +49,7 @@ import {
   verifySkillBundle,
   type SkillRunMode,
 } from "../skills/skill-definition.js";
+import { scoreSkillReadiness } from "../skills/skill-readiness.js";
 import { runSkill, type SkillRunResult } from "../skills/skill-runner.js";
 import { ActionExecutor } from "../workflows/action-executor.js";
 import { writeHandoffBundle } from "../workflows/handoff-bundle.js";
@@ -1151,6 +1152,7 @@ skill
     ui.blank();
     ui.commandList("next commands", [
       `bounty skill validate ${definition.id}`,
+      `bounty skill score ${definition.id}`,
       `bounty skill run ${definition.id} <in-scope-target> --mode passive --dry-run`,
       `bounty skill export ${definition.id} --output .bounty/skills/${definition.id}`,
     ]);
@@ -1185,6 +1187,51 @@ skill
       ["status", "check", "message"],
       result.checks.map((check) => [check.status, check.name, check.message]),
     );
+  });
+
+skill
+  .command("score")
+  .argument("[id]", "Skill id", BUG_BOUNTY_PILOT_SKILL_ID)
+  .option("--json", "Print machine-readable JSON")
+  .description("Score skill readiness across validation, bundle verification, and release gates")
+  .action((id: string, ...args: unknown[]) => {
+    const command = commandFromArgs(args);
+    const options = command.opts<{ json?: boolean }>();
+    const result = scoreSkillReadiness({ id, cwd: process.cwd() });
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
+    if (options.json || requestedJsonOutput(process.argv)) {
+      ui.json(result);
+      return;
+    }
+    ui.header("skill score");
+    ui.status(result.ok ? "ok" : "blocked", `${result.score}/100 ${result.readiness}`);
+    ui.panel("readiness", [
+      ui.kv("id", result.id),
+      ui.kv("root", result.root),
+      ui.kv("score", `${result.score}/100`),
+      ui.kv("ultimate", result.ultimate),
+      ui.kv("validation", `${result.validation.checks} checks, ${result.validation.failures.length} failure(s)`),
+      ui.kv("bundle", result.bundle.ok ? `${result.bundle.files} files verified` : "failed"),
+      ui.kv("release", `${result.release.checks} checks, ${result.release.failures.length} failure(s), ${result.release.warnings.length} warning(s)`),
+    ]);
+    if (result.blockers.length > 0) {
+      ui.blank();
+      ui.table(
+        ["blocker", "message"],
+        result.blockers.map((issue) => [issue.name, issue.message]),
+      );
+    }
+    if (result.warnings.length > 0) {
+      ui.blank();
+      ui.table(
+        ["warning", "message"],
+        result.warnings.map((issue) => [issue.name, issue.message]),
+      );
+    }
+    ui.blank();
+    ui.commandList("next commands", result.nextSteps);
   });
 
 skill
