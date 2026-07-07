@@ -100,6 +100,9 @@ describe("CLI skill commands", () => {
         expect.arrayContaining([
           "bounty release publish-plan OWNER/REPO --write",
           "bounty release github-bootstrap OWNER/REPO --write",
+          "winget install --id GitHub.cli -e",
+          "brew install gh",
+          "sudo apt-get update && sudo apt-get install -y gh",
           "gh --version",
           "gh auth status",
           "gh auth login",

@@ -60,6 +60,12 @@ export interface SkillReadinessResult {
   };
 }
 
+const GITHUB_CLI_INSTALL_COMMANDS = [
+  "winget install --id GitHub.cli -e",
+  "brew install gh",
+  "sudo apt-get update && sudo apt-get install -y gh",
+];
+
 export function scoreSkillReadiness(
   input: {
     id?: string;
@@ -227,6 +233,7 @@ function readinessNextSteps(input: {
     steps.add(`bounty release github-bootstrap ${repo} --write`);
     steps.add(`bounty release publish-plan ${repo} --write`);
     if (!input.githubNextCommands) {
+      GITHUB_CLI_INSTALL_COMMANDS.forEach((command) => steps.add(command));
       steps.add("gh --version");
       steps.add("gh auth status");
       steps.add("gh auth login");
