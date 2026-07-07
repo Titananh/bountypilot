@@ -99,6 +99,8 @@ const REQUIRED_GITHUB_WORKFLOWS = [
       "npm run verify:release",
       "npm pack",
       "npm run --silent sbom",
+      "skill bundle bug-bounty-pilot",
+      "bug-bounty-pilot.skill.zip",
       "sha256sum",
       "SHA256SUMS.txt",
       "actions/attest-build-provenance@v2",

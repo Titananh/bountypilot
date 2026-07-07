@@ -38,15 +38,19 @@ jobs:
       - name: Generate SBOM
         run: npm run --silent sbom > bountypilot-sbom.cdx.json
 
+      - name: Bundle standalone skill
+        run: node dist/cli/index.js skill bundle bug-bounty-pilot --output bug-bounty-pilot.skill.zip --json
+
       - name: Generate checksums
         shell: bash
-        run: sha256sum bountypilot-*.tgz bountypilot-sbom.cdx.json > SHA256SUMS.txt
+        run: sha256sum bountypilot-*.tgz bug-bounty-pilot.skill.zip bountypilot-sbom.cdx.json > SHA256SUMS.txt
 
       - name: Attest release artifacts
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: |
             bountypilot-*.tgz
+            bug-bounty-pilot.skill.zip
             bountypilot-sbom.cdx.json
 
       - name: Upload release artifacts
@@ -55,6 +59,7 @@ jobs:
           name: bountypilot-release-artifacts
           path: |
             bountypilot-*.tgz
+            bug-bounty-pilot.skill.zip
             bountypilot-sbom.cdx.json
             SHA256SUMS.txt
           if-no-files-found: error
@@ -65,6 +70,7 @@ jobs:
         with:
           files: |
             bountypilot-*.tgz
+            bug-bounty-pilot.skill.zip
             bountypilot-sbom.cdx.json
             SHA256SUMS.txt
           generate_release_notes: true
