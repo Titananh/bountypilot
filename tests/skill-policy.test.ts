@@ -20,6 +20,7 @@ describe("bug-bounty-pilot skill policy", () => {
         expect.objectContaining({ name: "SKILL.md:name", status: "pass" }),
         expect.objectContaining({ name: "agents/openai.yaml:schema", status: "pass" }),
         expect.objectContaining({ name: "agents/openai.yaml:default_prompt", status: "pass" }),
+        expect.objectContaining({ name: "templates:syntax", status: "pass" }),
         expect.objectContaining({ name: "skill:placeholder-targets", status: "pass" }),
       ]),
     );
@@ -135,6 +136,30 @@ describe("bug-bounty-pilot skill policy", () => {
             name: "skill:placeholder-targets",
             status: "fail",
             message: expect.stringContaining("templates/report.md"),
+          }),
+        ]),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails validation when a structured skill template has invalid syntax", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "bountypilot-skill-template-syntax-"));
+    try {
+      const skillRoot = path.join(root, "skills", BUG_BOUNTY_PILOT_SKILL_ID);
+      cpSync(path.join(repoRoot, "skills", BUG_BOUNTY_PILOT_SKILL_ID), skillRoot, { recursive: true });
+      writeFileSync(path.join(skillRoot, "templates", "finding.json"), "{ invalid json", "utf8");
+
+      const result = validateSkillDefinition(BUG_BOUNTY_PILOT_SKILL_ID, root);
+
+      expect(result.ok).toBe(false);
+      expect(result.checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "templates:syntax",
+            status: "fail",
+            message: expect.stringContaining("templates/finding.json"),
           }),
         ]),
       );

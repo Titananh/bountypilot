@@ -500,6 +500,7 @@ export function validateSkillDefinition(id = BUG_BOUNTY_PILOT_SKILL_ID, cwd = pr
   for (const file of REQUIRED_EXAMPLES) {
     checks.push(fileCheck(`examples/${file}`, path.join(root, "examples", file)));
   }
+  checks.push(skillTemplateSyntaxCheck(root));
   checks.push(skillPlaceholderTargetCheck(root));
 
   const frontmatter = parseSkillFrontmatter(path.join(root, "SKILL.md"), id, checks);
@@ -954,6 +955,31 @@ function skillPlaceholderTargetCheck(root: string): SkillValidationCheck {
       offenders.length === 0
         ? "templates, prompts, and examples use explicit placeholders instead of sample public domains"
         : `Replace sample public domains with placeholders: ${offenders.join(", ")}`,
+  };
+}
+
+function skillTemplateSyntaxCheck(root: string): SkillValidationCheck {
+  const failures: string[] = [];
+  for (const template of REQUIRED_TEMPLATES) {
+    const relativePath = `templates/${template}`;
+    const filePath = path.join(root, relativePath);
+    const text = readText(filePath);
+    if (text === undefined) continue;
+    try {
+      if (template.endsWith(".json")) {
+        JSON.parse(text);
+      } else if (template.endsWith(".yml") || template.endsWith(".yaml")) {
+        YAML.parse(text);
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      failures.push(`${relativePath}: ${reason}`);
+    }
+  }
+  return {
+    name: "templates:syntax",
+    status: failures.length === 0 ? "pass" : "fail",
+    message: failures.length === 0 ? "structured JSON/YAML templates parse successfully" : failures.join("; "),
   };
 }
 
