@@ -5,7 +5,7 @@
 - Job ID: `job_example`
 - Program: `example-program`
 - Mode: `safe`
-- Target: `https://example.com/`
+- Target: `<in-scope-target-url>`
 
 ## Findings And Candidates
 
@@ -28,4 +28,3 @@
 2. Record missing evidence.
 3. Score report readiness.
 4. Draft local report only when ready.
-

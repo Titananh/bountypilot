@@ -6,7 +6,7 @@ Describe the vulnerability in one or two sentences.
 
 ## Asset
 
-- URL: `https://example.com/`
+- URL: `<in-scope-target-url>`
 - Scope status: in scope
 
 ## Safe Testing Statement
@@ -34,4 +34,3 @@ Describe a practical fix.
 ## Open Questions
 
 - Manual validation still required.
-

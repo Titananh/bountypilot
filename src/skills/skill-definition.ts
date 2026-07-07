@@ -335,6 +335,12 @@ const REQUIRED_EXAMPLES = [
   "public-program-workflow.md",
   "report-example.md",
 ];
+const SKILL_PLACEHOLDER_SCAN_FILES = [
+  ...REQUIRED_PROMPTS.map((file) => `prompts/${file}`),
+  ...REQUIRED_TEMPLATES.map((file) => `templates/${file}`),
+  ...REQUIRED_EXAMPLES.map((file) => `examples/${file}`),
+];
+const PUBLIC_SAMPLE_TARGET_PATTERN = /\b(?:https?:\/\/)?(?:[a-z0-9-]+\.)*example\.(?:com|org|net)\b/i;
 
 const REQUIRED_MODES: SkillRunMode[] = ["passive", "safe", "deep-safe", "lab-offensive"];
 const REQUIRED_WORKFLOW_STEPS = [
@@ -494,6 +500,7 @@ export function validateSkillDefinition(id = BUG_BOUNTY_PILOT_SKILL_ID, cwd = pr
   for (const file of REQUIRED_EXAMPLES) {
     checks.push(fileCheck(`examples/${file}`, path.join(root, "examples", file)));
   }
+  checks.push(skillPlaceholderTargetCheck(root));
 
   const frontmatter = parseSkillFrontmatter(path.join(root, "SKILL.md"), id, checks);
   const agentMetadata = parseYamlSchema(path.join(root, "agents", "openai.yaml"), SkillAgentMetadataSchema, "agents/openai.yaml", checks);
@@ -933,6 +940,21 @@ function pushSetCheck(checks: SkillValidationCheck[], name: string, required: st
     status: missing.length === 0 ? "pass" : "fail",
     message: missing.length === 0 ? `${required.length}/${required.length} required entries present` : `Missing: ${missing.join(", ")}`,
   });
+}
+
+function skillPlaceholderTargetCheck(root: string): SkillValidationCheck {
+  const offenders = SKILL_PLACEHOLDER_SCAN_FILES.filter((relativePath) => {
+    const text = readText(path.join(root, relativePath));
+    return text ? PUBLIC_SAMPLE_TARGET_PATTERN.test(text) : false;
+  });
+  return {
+    name: "skill:placeholder-targets",
+    status: offenders.length === 0 ? "pass" : "fail",
+    message:
+      offenders.length === 0
+        ? "templates, prompts, and examples use explicit placeholders instead of sample public domains"
+        : `Replace sample public domains with placeholders: ${offenders.join(", ")}`,
+  };
 }
 
 function workflowCliCommandContractCheck(workflow: SkillWorkflow): SkillValidationCheck {

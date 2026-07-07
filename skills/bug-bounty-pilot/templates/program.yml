@@ -2,7 +2,7 @@ program: example-program
 platform: hackerone
 
 in_scope:
-  - "example.com"
+  - "<in-scope-host-or-url>"
 
 out_of_scope: []
 
@@ -29,4 +29,3 @@ evidence:
   mask_secrets: true
 
 integrations: {}
-

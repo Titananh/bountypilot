@@ -20,6 +20,7 @@ describe("bug-bounty-pilot skill policy", () => {
         expect.objectContaining({ name: "SKILL.md:name", status: "pass" }),
         expect.objectContaining({ name: "agents/openai.yaml:schema", status: "pass" }),
         expect.objectContaining({ name: "agents/openai.yaml:default_prompt", status: "pass" }),
+        expect.objectContaining({ name: "skill:placeholder-targets", status: "pass" }),
       ]),
     );
   });
@@ -105,6 +106,35 @@ describe("bug-bounty-pilot skill policy", () => {
             name: "SKILL.md:name",
             status: "fail",
             message: expect.stringContaining("bug-bounty-pilot"),
+          }),
+        ]),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails validation when skill assets include sample public domains instead of placeholders", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "bountypilot-skill-placeholder-targets-"));
+    try {
+      const skillRoot = path.join(root, "skills", BUG_BOUNTY_PILOT_SKILL_ID);
+      cpSync(path.join(repoRoot, "skills", BUG_BOUNTY_PILOT_SKILL_ID), skillRoot, { recursive: true });
+      const templatePath = path.join(skillRoot, "templates", "report.md");
+      writeFileSync(
+        templatePath,
+        `${readFileSync(templatePath, "utf8")}\nUnsafe sample: https://example.com/\n`,
+        "utf8",
+      );
+
+      const result = validateSkillDefinition(BUG_BOUNTY_PILOT_SKILL_ID, root);
+
+      expect(result.ok).toBe(false);
+      expect(result.checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "skill:placeholder-targets",
+            status: "fail",
+            message: expect.stringContaining("templates/report.md"),
           }),
         ]),
       );

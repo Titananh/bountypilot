@@ -1,7 +1,7 @@
 # Action Review
 
 - Action ID: `act_example`
-- Target: `https://example.com/`
+- Target: `<in-scope-target-url>`
 - Mode: `deep-safe`
 - Adapter: `nuclei`
 - Risk: `medium`
@@ -16,4 +16,3 @@ The action uses a review-required tool or capability. It must remain pending unt
 - [ ] approve
 - [ ] reject
 - [ ] needs more context
-

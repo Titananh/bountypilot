@@ -2,7 +2,7 @@
   "id": "cand_example",
   "jobId": "job_example",
   "title": "Evidence-backed finding candidate",
-  "asset": "https://example.com",
+  "asset": "<in-scope-asset>",
   "category": "security_headers",
   "severityEstimate": "low",
   "confidence": "medium",
@@ -19,4 +19,3 @@
     "Run report readiness score."
   ]
 }
-
