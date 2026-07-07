@@ -128,7 +128,7 @@ export function buildReleasePublishPlan(input: BuildReleasePublishPlanInput): Re
       "bounty release bundle --output .release --force --json",
       "bounty release verify-bundle .release --json",
     ],
-    githubCliPreflight: ["gh --version", "gh auth status"],
+    githubCliPreflight: ["gh --version", "gh auth status", "gh auth login"],
     repositoryCreate: [`gh repo create ${repo.slug} --public --source . --remote origin --push`],
     remoteSetup: [
       origin ? `git remote set-url origin ${targetRemote}` : `git remote add origin ${targetRemote}`,
@@ -344,7 +344,7 @@ ${input.commands.localVerify.join("\n")}
 
 ## 2. GitHub CLI Preflight
 
-If you want the one-command repository creation path, verify GitHub CLI is installed and authenticated:
+If you want the one-command repository creation path, verify GitHub CLI is installed and authenticated. Run \`gh auth login\` when \`gh auth status\` reports no active session:
 
 \`\`\`bash
 ${input.commands.githubCliPreflight.join("\n")}

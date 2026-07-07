@@ -6061,6 +6061,8 @@ release
     ui.blank();
     ui.commandList("local verify", result.commands.localVerify);
     ui.blank();
+    ui.commandList("github cli preflight", result.commands.githubCliPreflight);
+    ui.blank();
     ui.commandList("create repository", result.commands.repositoryCreate);
     ui.blank();
     ui.commandList("remote setup", result.commands.remoteSetup);

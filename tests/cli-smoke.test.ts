@@ -383,7 +383,7 @@ integrations: {}
       outputPath: publishPlanPath,
       });
       expect(parsedPublishPlan.commands.remoteSetup.join("\n")).toContain("https://github.com/octo/bountypilot.git");
-      expect(parsedPublishPlan.commands.githubCliPreflight).toEqual(["gh --version", "gh auth status"]);
+      expect(parsedPublishPlan.commands.githubCliPreflight).toEqual(["gh --version", "gh auth status", "gh auth login"]);
       expect(parsedPublishPlan.commands.repositoryCreate).toContain("gh repo create octo/bountypilot --public --source . --remote origin --push");
       expect(parsedPublishPlan.commands.postPushVerify).toContain("bounty release publish-status octo/bountypilot --branch main --tag v0.1.0 --online --json");
       expect(parsedPublishPlan.commands.actionsVerify).toContain("bounty release publish-status octo/bountypilot --branch main --tag v0.1.0 --online --actions --json");
@@ -398,12 +398,18 @@ integrations: {}
       expect(existsSync(publishPlanPath)).toBe(true);
       expect(readFileSync(publishPlanPath, "utf8")).toContain("bounty release verify-bundle .release --json");
       expect(readFileSync(publishPlanPath, "utf8")).toContain("gh auth status");
+      expect(readFileSync(publishPlanPath, "utf8")).toContain("gh auth login");
       expect(readFileSync(publishPlanPath, "utf8")).toContain("gh repo create octo/bountypilot");
       expect(readFileSync(publishPlanPath, "utf8")).toContain("npm install -g github:octo/bountypilot#main");
       expect(readFileSync(publishPlanPath, "utf8")).toContain("bounty release publish-status octo/bountypilot --branch main --tag v0.1.0 --online --json");
       expect(readFileSync(publishPlanPath, "utf8")).toContain("bounty release publish-status octo/bountypilot --branch main --tag v0.1.0 --online --actions --json");
     expect(readFileSync(publishPlanPath, "utf8")).toContain("Verify installer resolution");
     expect(readFileSync(publishPlanPath, "utf8")).toContain("git push origin v0.1.0");
+
+    const publishPlanHuman = runCli(["release", "publish-plan", "octo/bountypilot", "--branch", "main", "--tag", "v0.1.0"], repoRoot);
+    expectCommand(publishPlanHuman).toExit(0);
+    expect(outputOf(publishPlanHuman)).toContain("github cli preflight");
+    expect(outputOf(publishPlanHuman)).toContain("gh auth login");
 
     const fakeGh = writeFakeGh(mkdtempSync(path.join(os.tmpdir(), "bountypilot-cli-fake-gh-")));
     const bootstrapDir = path.join(workspace, "github-bootstrap");
