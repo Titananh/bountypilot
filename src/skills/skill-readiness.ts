@@ -166,8 +166,13 @@ function readinessNextSteps(input: {
   }
   if (input.warnings.some((issue) => issue.name === "github:origin")) {
     steps.add("bounty release publish-plan OWNER/REPO --write");
+    steps.add("gh --version");
+    steps.add("gh auth status");
+    steps.add("gh auth login");
+    steps.add("gh repo create OWNER/REPO --public --source . --remote origin --push");
     steps.add("git remote add origin https://github.com/OWNER/REPO.git");
     steps.add("git push -u origin HEAD");
+    steps.add("bounty release publish-status OWNER/REPO --online --actions --json");
   }
   if (steps.size === 0) {
     steps.add("Review warnings, then rerun `bounty skill score bug-bounty-pilot`.");

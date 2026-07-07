@@ -56,6 +56,21 @@ The release check also verifies the public repository contract:
 
 ## 3. Push Source To GitHub
 
+If GitHub CLI is installed and authenticated, verify it first:
+
+```bash
+gh --version
+gh auth status
+```
+
+Then create the public repository, set `origin`, and push in one command:
+
+```bash
+gh repo create OWNER/REPO --public --source . --remote origin --push
+```
+
+If GitHub CLI is not available, use the manual Git flow below.
+
 If this folder has not been initialized as a Git repository yet:
 
 ```bash

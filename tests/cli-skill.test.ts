@@ -96,7 +96,16 @@ describe("CLI skill commands", () => {
     expect(["ultimate", "ready_with_warnings"]).toContain(parsed.readiness);
     expect(parsed.nextSteps.length).toBeGreaterThan(0);
     if (parsed.warnings.some((warning: any) => warning.name === "github:origin")) {
-      expect(parsed.nextSteps).toEqual(expect.arrayContaining(["bounty release publish-plan OWNER/REPO --write"]));
+      expect(parsed.nextSteps).toEqual(
+        expect.arrayContaining([
+          "bounty release publish-plan OWNER/REPO --write",
+          "gh --version",
+          "gh auth status",
+          "gh auth login",
+          "gh repo create OWNER/REPO --public --source . --remote origin --push",
+          "bounty release publish-status OWNER/REPO --online --actions --json",
+        ]),
+      );
     }
   }, 60_000);
 
