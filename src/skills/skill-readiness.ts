@@ -166,6 +166,7 @@ function readinessNextSteps(input: {
     steps.add("npm run verify:release");
   }
   if (input.warnings.some((issue) => issue.name === "github:origin")) {
+    steps.add("bounty release github-bootstrap OWNER/REPO --write");
     steps.add("bounty release publish-plan OWNER/REPO --write");
     steps.add("gh --version");
     steps.add("gh auth status");

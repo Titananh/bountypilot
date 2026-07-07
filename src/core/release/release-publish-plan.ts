@@ -292,7 +292,7 @@ function releaseInstallVerifyCommands(install: ReleasePublishPlanResult["install
   return [install.npm, install.npmPinned, "bugbounty release install-check --json", install.shellDryRun, install.powershellDryRun];
 }
 
-function parseGitHubRepo(value: string): GitHubRepoRef {
+export function parseGitHubRepo(value: string): GitHubRepoRef {
   const trimmed = value.trim();
   const normalized = trimmed
     .replace(/^https:\/\/github\.com\//i, "")
@@ -633,6 +633,7 @@ function publishStatusNextCommands(input: {
   const commands = new Set<string>();
   if (byName.get("release:check")?.status === "fail") commands.add("npm run verify:release");
   if (byName.get("git:origin")?.status === "fail") {
+    commands.add(`bounty release github-bootstrap ${input.repo.slug} --branch ${input.branch} --tag ${input.tag} --write`);
     commands.add(`bounty release publish-plan ${input.repo.slug} --write`);
     commands.add("gh auth login");
     commands.add(`gh repo create ${input.repo.slug} --public --source . --remote origin --push`);

@@ -27,6 +27,7 @@ import { McpStdioExecutor, type McpSessionStepInput } from "../integrations/mcp/
 import { ToolManager } from "../integrations/tool-manager/tool-manager.js";
 import { latestToolApproval, toolApprovalIntegrationName } from "../integrations/tool-manager/tool-adapter-runner.js";
 import { buildReleaseBundle, verifyReleaseBundle } from "../core/release/release-bundle.js";
+import { buildReleaseGithubBootstrap } from "../core/release/release-github-bootstrap.js";
 import { buildReleaseInstallCheck } from "../core/release/release-install-check.js";
 import { buildReleasePublishPlan, buildReleasePublishStatus } from "../core/release/release-publish-plan.js";
 import {
@@ -5615,6 +5616,86 @@ release
     ui.blank();
     ui.commandList("next commands", result.nextCommands);
     process.exitCode = result.ok ? 0 : 1;
+  });
+
+release
+  .command("github-bootstrap")
+  .argument("<repo>", "GitHub repository as OWNER/REPO, https://github.com/OWNER/REPO, or git@github.com:OWNER/REPO.git")
+  .option("--branch <branch>", "Branch to push and use for raw installer URLs. Defaults to the current branch or main.")
+  .option("--tag <tag>", "Release tag to push. Defaults to v<package.version>.")
+  .option("--remote <kind>", "Preferred remote style: https or ssh", "https")
+  .option("--gh-command <command>", "GitHub CLI command to probe", "gh")
+  .option("--gh-command-arg <arg>", "Argument to prepend before gh probe arguments. Repeat for wrappers.", collectOption, [] as string[])
+  .option("--timeout-ms <ms>", "Per-command timeout in milliseconds", "8000")
+  .option("--write", "Write bootstrap README and scripts to disk")
+  .option("--output <path>", "Output directory when --write is used. Defaults to .bounty/release/github-bootstrap.")
+  .option("--json", "Print machine-readable JSON")
+  .description("Generate a GitHub CLI/auth/remote bootstrap plan and idempotent publish scripts")
+  .action((repo: string, ...args: unknown[]) => {
+    const command = commandFromArgs(args);
+    const options = command.opts<{
+      branch?: string;
+      tag?: string;
+      remote: string;
+      ghCommand: string;
+      ghCommandArg: string[];
+      timeoutMs: string;
+      write?: boolean;
+      output?: string;
+      json?: boolean;
+    }>();
+    const timeoutMs = parsePositiveIntegerOption(options.timeoutMs, "timeout-ms", 8_000);
+    const result = buildReleaseGithubBootstrap({
+      cwd: process.cwd(),
+      repo,
+      branch: options.branch,
+      tag: options.tag,
+      remote: parseReleaseRemotePreference(options.remote),
+      ghCommand: options.ghCommand,
+      ghArgsPrefix: options.ghCommandArg,
+      timeoutMs,
+      write: options.write,
+      output: options.output,
+    });
+    if (options.json || requestedJsonOutput(process.argv)) {
+      ui.json(result);
+      return;
+    }
+    ui.header("release github-bootstrap");
+    ui.status(result.ok ? "ok" : "warn", result.ok ? "GitHub publish bootstrap is ready" : "GitHub publish bootstrap has setup steps");
+    ui.panel("github", [
+      ui.kv("repo", result.repo.webUrl),
+      ui.kv("branch", result.branch),
+      ui.kv("public branch", result.publicBranch),
+      ui.kv("tag", result.tag),
+      ui.kv("origin", result.remote.origin ?? "not configured"),
+      ui.kv("output", result.outputDir),
+    ]);
+    ui.blank();
+    ui.table(
+      ["status", "check", "message"],
+      result.checks.map((check) => [check.status, check.name, check.message]),
+    );
+    ui.blank();
+    ui.commandList("install gh", result.commands.installGh);
+    ui.blank();
+    ui.commandList("auth", result.commands.auth);
+    ui.blank();
+    ui.commandList("create repository", result.commands.createRepository);
+    ui.blank();
+    ui.commandList("push", result.commands.push);
+    ui.blank();
+    ui.commandList("tag", result.commands.tag);
+    ui.blank();
+    ui.commandList("verify", result.commands.verify);
+    if (result.outputFiles) {
+      ui.blank();
+      ui.panel("files", [
+        ui.kv("readme", result.outputFiles.markdown),
+        ui.kv("powershell", result.outputFiles.powershell),
+        ui.kv("shell", result.outputFiles.shell),
+      ]);
+    }
   });
 
 release

@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { nodeEngineSupportsSqliteRuntime, runReleaseCheck } from "../src/core/release/release-check.js";
+import { buildReleaseGithubBootstrap } from "../src/core/release/release-github-bootstrap.js";
 import { buildReleaseInstallCheck } from "../src/core/release/release-install-check.js";
 import { buildReleasePublishPlan, buildReleasePublishStatus } from "../src/core/release/release-publish-plan.js";
 
@@ -221,6 +222,33 @@ describe("release checks", () => {
       ]),
     );
     expect(result.nextCommands).not.toContain("gh run list --repo owner/repo --limit 10");
+  });
+
+  it("builds a GitHub bootstrap bundle with gh/auth probes and publish scripts", () => {
+    const root = writeReleaseFixture();
+    const fakeGh = writeFakeGh(mkdtempSync(path.join(os.tmpdir(), "bountypilot-fake-gh-bootstrap-")));
+    const outputDir = path.join(root, "bootstrap-output");
+
+    const result = buildReleaseGithubBootstrap({
+      cwd: root,
+      repo: "owner/repo",
+      branch: "main",
+      tag: "v0.0.0",
+      ghCommand: process.execPath,
+      ghArgsPrefix: [fakeGh],
+      write: true,
+      output: outputDir,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.gh.version.status).toBe("pass");
+    expect(result.gh.auth.status).toBe("pass");
+    expect(result.checks).toEqual(expect.arrayContaining([expect.objectContaining({ name: "git:origin", status: "fail" })]));
+    expect(result.nextCommands).toContain("gh repo create owner/repo --public --source . --remote origin --push");
+    expect(result.commands.verify).toContain("bugbounty release install-check --json");
+    expect(result.outputFiles?.markdown).toBe(path.join(outputDir, "README.md"));
+    expect(readFileSync(result.outputFiles!.powershell, "utf8")).toContain("bounty release publish-status 'owner/repo'");
+    expect(readFileSync(result.outputFiles!.shell, "utf8")).toContain("bugbounty release install-check --json");
   });
 
   it("fails when generated release artifacts are tracked in source control", () => {
@@ -608,6 +636,10 @@ function writeFakeGh(root: string): string {
     `const args = process.argv.slice(2);
 if (args.includes("--version")) {
   console.log("gh version 2.0.0");
+  process.exit(0);
+}
+if (args[0] === "auth" && args[1] === "status") {
+  console.log("Logged in to github.com as bountypilot-test");
   process.exit(0);
 }
 if (args[0] === "run" && args[1] === "list") {

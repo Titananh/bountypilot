@@ -99,6 +99,7 @@ describe("CLI skill commands", () => {
       expect(parsed.nextSteps).toEqual(
         expect.arrayContaining([
           "bounty release publish-plan OWNER/REPO --write",
+          "bounty release github-bootstrap OWNER/REPO --write",
           "gh --version",
           "gh auth status",
           "gh auth login",

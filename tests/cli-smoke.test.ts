@@ -405,6 +405,38 @@ integrations: {}
     expect(readFileSync(publishPlanPath, "utf8")).toContain("Verify installer resolution");
     expect(readFileSync(publishPlanPath, "utf8")).toContain("git push origin v0.1.0");
 
+    const fakeGh = writeFakeGh(mkdtempSync(path.join(os.tmpdir(), "bountypilot-cli-fake-gh-")));
+    const bootstrapDir = path.join(workspace, "github-bootstrap");
+    const bootstrap = runCli(
+      [
+        "release",
+        "github-bootstrap",
+        "octo/bountypilot",
+        "--branch",
+        "main",
+        "--tag",
+        "v0.1.0",
+        "--gh-command",
+        process.execPath,
+        "--gh-command-arg",
+        fakeGh,
+        "--write",
+        "--output",
+        bootstrapDir,
+        "--json",
+      ],
+      repoRoot,
+    );
+    expectCommand(bootstrap).toExit(0);
+    expect(bootstrap.stderr).toBe("");
+    const parsedGithubBootstrap = JSON.parse(bootstrap.stdout);
+    expect(parsedGithubBootstrap.repo.slug).toBe("octo/bountypilot");
+    expect(parsedGithubBootstrap.gh.version.status).toBe("pass");
+    expect(parsedGithubBootstrap.gh.auth.status).toBe("pass");
+    expect(parsedGithubBootstrap.commands.verify).toContain("bugbounty release install-check --json");
+    expect(parsedGithubBootstrap.outputFiles.markdown).toBe(path.join(bootstrapDir, "README.md"));
+    expect(readFileSync(parsedGithubBootstrap.outputFiles.shell, "utf8")).toContain("gh repo create 'octo/bountypilot'");
+
     const publishStatus = runCli(["release", "publish-status", "octo/bountypilot", "--branch", "main", "--tag", "v0.1.0", "--json"], repoRoot);
     expectCommand(publishStatus).toExit(1);
     expect(publishStatus.stderr).toBe("");
@@ -418,6 +450,7 @@ integrations: {}
       ]),
       );
       expect(parsedPublishStatus.nextCommands.join("\n")).toMatch(/bounty release publish-plan octo\/bountypilot --write|git remote set-url origin https:\/\/github\.com\/octo\/bountypilot\.git/);
+      expect(parsedPublishStatus.nextCommands).toContain("bounty release github-bootstrap octo/bountypilot --branch main --tag v0.1.0 --write");
       expect(parsedPublishStatus.nextCommands).toContain("gh auth login");
       expect(parsedPublishStatus.nextCommands).toContain("gh repo create octo/bountypilot --public --source . --remote origin --push");
       expect(parsedPublishStatus.install).toMatchObject({
@@ -1526,6 +1559,28 @@ if (args.join(" ") === "quickstart --json") {
   process.exit(0);
 }
 console.error("unexpected fake bugbounty args " + args.join(" "));
+process.exit(1);
+`,
+    "utf8",
+  );
+  return scriptPath;
+}
+
+function writeFakeGh(root: string): string {
+  mkdirSync(root, { recursive: true });
+  const scriptPath = path.join(root, "fake-gh.mjs");
+  writeFileSync(
+    scriptPath,
+    `const args = process.argv.slice(2);
+if (args.includes("--version")) {
+  console.log("gh version 2.0.0");
+  process.exit(0);
+}
+if (args[0] === "auth" && args[1] === "status") {
+  console.log("Logged in to github.com as bountypilot-test");
+  process.exit(0);
+}
+console.error("unexpected fake gh args " + args.join(" "));
 process.exit(1);
 `,
     "utf8",

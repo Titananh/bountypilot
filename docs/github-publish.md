@@ -19,6 +19,7 @@ your-name/bountypilot
 Generate the exact local plan for that repository:
 
 ```bash
+bounty release github-bootstrap OWNER/REPO --write
 bounty release publish-plan OWNER/REPO --write
 ```
 
@@ -30,6 +31,7 @@ npm run verify:release
 bounty skill score bug-bounty-pilot --json
 bounty release bundle --output .release --force --json
 bounty release verify-bundle .release --json
+bounty release github-bootstrap OWNER/REPO --write
 bounty release publish-plan OWNER/REPO --write
 npm run test:external-tools
 npm run test:vm-lab
