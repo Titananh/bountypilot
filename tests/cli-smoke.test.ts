@@ -435,6 +435,11 @@ integrations: {}
     expect(parsedGithubBootstrap.gh.auth.status).toBe("pass");
     expect(parsedGithubBootstrap.commands.verify).toContain("bugbounty release install-check --json");
     expect(parsedGithubBootstrap.outputFiles.markdown).toBe(path.join(bootstrapDir, "README.md"));
+    expect(readFileSync(parsedGithubBootstrap.outputFiles.markdown, "utf8")).toContain("## Local Verification");
+    expect(readFileSync(parsedGithubBootstrap.outputFiles.powershell, "utf8")).toContain("npm run verify:release");
+    expect(readFileSync(parsedGithubBootstrap.outputFiles.powershell, "utf8")).toContain("node dist/cli/index.js release verify-bundle .release --json");
+    expect(readFileSync(parsedGithubBootstrap.outputFiles.shell, "utf8")).toContain("npm run verify:release");
+    expect(readFileSync(parsedGithubBootstrap.outputFiles.shell, "utf8")).toContain("node dist/cli/index.js release verify-bundle .release --json");
     expect(readFileSync(parsedGithubBootstrap.outputFiles.shell, "utf8")).toContain("gh repo create 'octo/bountypilot'");
 
     const publishStatus = runCli(["release", "publish-status", "octo/bountypilot", "--branch", "main", "--tag", "v0.1.0", "--json"], repoRoot);

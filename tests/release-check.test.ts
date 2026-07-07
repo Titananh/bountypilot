@@ -247,7 +247,13 @@ describe("release checks", () => {
     expect(result.nextCommands).toContain("gh repo create owner/repo --public --source . --remote origin --push");
     expect(result.commands.verify).toContain("bugbounty release install-check --json");
     expect(result.outputFiles?.markdown).toBe(path.join(outputDir, "README.md"));
+    expect(readFileSync(result.outputFiles!.markdown, "utf8")).toContain("## Local Verification");
+    expect(readFileSync(result.outputFiles!.markdown, "utf8")).toContain("bounty release verify-bundle .release --json");
+    expect(readFileSync(result.outputFiles!.powershell, "utf8")).toContain("npm run verify:release");
+    expect(readFileSync(result.outputFiles!.powershell, "utf8")).toContain("node dist/cli/index.js release verify-bundle .release --json");
     expect(readFileSync(result.outputFiles!.powershell, "utf8")).toContain("bounty release publish-status 'owner/repo'");
+    expect(readFileSync(result.outputFiles!.shell, "utf8")).toContain("npm run verify:release");
+    expect(readFileSync(result.outputFiles!.shell, "utf8")).toContain("node dist/cli/index.js release verify-bundle .release --json");
     expect(readFileSync(result.outputFiles!.shell, "utf8")).toContain("bugbounty release install-check --json");
   });
 

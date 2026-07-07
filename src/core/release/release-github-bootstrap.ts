@@ -282,6 +282,14 @@ ${input.commands.installGh.join("\n")}
 ${input.commands.auth.join("\n")}
 \`\`\`
 
+## Local Verification
+
+The generated publish scripts run these checks before creating a repository, pushing a branch, or tagging a release:
+
+\`\`\`bash
+${input.plan.commands.localVerify.join("\n")}
+\`\`\`
+
 ## Publish
 
 \`\`\`bash
@@ -310,6 +318,10 @@ function renderPowershellScript(plan: ReleasePublishPlanResult): string {
   const branch = quotePowerShell(plan.branch);
   const tag = quotePowerShell(plan.tag);
   return `$ErrorActionPreference = "Stop"
+
+npm run verify:release
+node dist/cli/index.js release bundle --output .release --force --json
+node dist/cli/index.js release verify-bundle .release --json
 
 if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
   Write-Error "GitHub CLI is not installed. Install it with: ${GH_INSTALL.windows}"
@@ -346,6 +358,10 @@ function renderShellScript(plan: ReleasePublishPlanResult): string {
   const targetRemote = quoteShell(plan.remote.preferred === "ssh" ? plan.repo.sshRemote : plan.repo.httpsRemote);
   return `#!/usr/bin/env bash
 set -euo pipefail
+
+npm run verify:release
+node dist/cli/index.js release bundle --output .release --force --json
+node dist/cli/index.js release verify-bundle .release --json
 
 if ! command -v gh >/dev/null 2>&1; then
   echo "GitHub CLI is not installed. Install it first: ${GH_INSTALL.docs}" >&2
