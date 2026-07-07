@@ -66,7 +66,8 @@ echo
 echo "Installed:"
 bugbounty --version
 bugbounty skill validate bug-bounty-pilot --json >/dev/null
-echo "Skill package verified: bug-bounty-pilot"
+bugbounty release install-check --json >/dev/null
+echo "Install verified: bug-bounty-pilot skill, metadata, and fresh-user quickstart"
 echo
 echo "Next:"
 echo "  bugbounty --help"

@@ -548,6 +548,7 @@ if [[ "\${BOUNTYPILOT_INSTALL_DRY_RUN:-}" == "1" ]]; then
 fi
 npm install -g bountypilot
 bugbounty skill validate bug-bounty-pilot --json
+bugbounty release install-check --json
 `,
   );
   writeText(
@@ -567,6 +568,7 @@ if ($env:BOUNTYPILOT_INSTALL_DRY_RUN -eq "1") {
 npm install -g bountypilot
 if ($LASTEXITCODE -ne 0) { Write-Error "npm install failed" }
 bugbounty skill validate bug-bounty-pilot --json
+bugbounty release install-check --json
 `,
   );
   writeText(

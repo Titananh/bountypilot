@@ -67,7 +67,11 @@ $SkillValidation = bugbounty skill validate bug-bounty-pilot --json
 if ($LASTEXITCODE -ne 0) {
   Write-Error "bug-bounty-pilot skill validation failed after install."
 }
-Write-Host "Skill package verified: bug-bounty-pilot"
+$InstallCheck = bugbounty release install-check --json
+if ($LASTEXITCODE -ne 0) {
+  Write-Error "BountyPilot install verification failed after install."
+}
+Write-Host "Install verified: bug-bounty-pilot skill, metadata, and fresh-user quickstart"
 Write-Host ""
 Write-Host "Next:"
 Write-Host "  bugbounty --help"

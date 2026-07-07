@@ -87,6 +87,7 @@ const REQUIRED_INSTALLER_FILES = [
       "BOUNTYPILOT_INSTALL_DRY_RUN",
       "npm install -g",
       "skill validate bug-bounty-pilot",
+      "release install-check",
     ],
   },
   {
@@ -99,6 +100,7 @@ const REQUIRED_INSTALLER_FILES = [
       "$LASTEXITCODE",
       "npm install -g",
       "skill validate bug-bounty-pilot",
+      "release install-check",
     ],
   },
 ];
