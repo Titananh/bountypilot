@@ -35,6 +35,7 @@ export interface ReleasePublishPlanResult {
   };
   commands: {
     localVerify: string[];
+    githubCliPreflight: string[];
     repositoryCreate: string[];
     remoteSetup: string[];
     postPushVerify: string[];
@@ -120,6 +121,7 @@ export function buildReleasePublishPlan(input: BuildReleasePublishPlanInput): Re
       "bounty release bundle --output .release --force --json",
       "bounty release verify-bundle .release --json",
     ],
+    githubCliPreflight: ["gh --version", "gh auth status"],
     repositoryCreate: [`gh repo create ${repo.slug} --public --source . --remote origin --push`],
     remoteSetup: [
       origin ? `git remote set-url origin ${targetRemote}` : `git remote add origin ${targetRemote}`,
@@ -292,7 +294,15 @@ Release check: ${input.releaseCheck.ok ? "pass" : "blocked"} (${input.releaseChe
 ${input.commands.localVerify.join("\n")}
 \`\`\`
 
-## 2. GitHub Remote
+## 2. GitHub CLI Preflight
+
+If you want the one-command repository creation path, verify GitHub CLI is installed and authenticated:
+
+\`\`\`bash
+${input.commands.githubCliPreflight.join("\n")}
+\`\`\`
+
+## 3. GitHub Remote
 
 If GitHub CLI is installed and authenticated, this single command can create the public repository, set \`origin\`, and push the branch:
 
@@ -318,7 +328,7 @@ Verify GitHub Actions before announcing the install command:
 ${input.commands.actionsVerify.join("\n")}
 \`\`\`
 
-## 3. Install Commands For Users
+## 4. Install Commands For Users
 
 \`\`\`bash
 ${input.install.npm}
@@ -339,13 +349,13 @@ ${input.install.shellDryRun}
 ${input.install.powershellDryRun}
 \`\`\`
 
-## 4. Release Tag
+## 5. Release Tag
 
 \`\`\`bash
 ${input.commands.release.join("\n")}
 \`\`\`
 
-## 5. Links
+## 6. Links
 
 - Repository: ${input.urls.repository}
 - Actions: ${input.urls.actions}
@@ -559,7 +569,11 @@ function publishStatusNextCommands(input: {
   const byName = new Map(input.checks.map((check) => [check.name, check]));
   const commands = new Set<string>();
   if (byName.get("release:check")?.status === "fail") commands.add("npm run verify:release");
-  if (byName.get("git:origin")?.status === "fail") commands.add(`bounty release publish-plan ${input.repo.slug} --write`);
+  if (byName.get("git:origin")?.status === "fail") {
+    commands.add(`bounty release publish-plan ${input.repo.slug} --write`);
+    commands.add("gh auth login");
+    commands.add(`gh repo create ${input.repo.slug} --public --source . --remote origin --push`);
+  }
   if (byName.get("git:origin-target")?.status === "fail") {
     commands.add(input.remote.origin ? input.remote.setUrlCommand : input.remote.addCommand);
   }

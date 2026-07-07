@@ -381,22 +381,24 @@ integrations: {}
       branch: "main",
       tag: "v0.1.0",
       outputPath: publishPlanPath,
-    });
-    expect(parsedPublishPlan.commands.remoteSetup.join("\n")).toContain("https://github.com/octo/bountypilot.git");
-    expect(parsedPublishPlan.commands.repositoryCreate).toContain("gh repo create octo/bountypilot --public --source . --remote origin --push");
-    expect(parsedPublishPlan.commands.postPushVerify).toContain("bounty release publish-status octo/bountypilot --branch main --tag v0.1.0 --online --json");
-    expect(parsedPublishPlan.commands.actionsVerify).toContain("bounty release publish-status octo/bountypilot --branch main --tag v0.1.0 --online --actions --json");
+      });
+      expect(parsedPublishPlan.commands.remoteSetup.join("\n")).toContain("https://github.com/octo/bountypilot.git");
+      expect(parsedPublishPlan.commands.githubCliPreflight).toEqual(["gh --version", "gh auth status"]);
+      expect(parsedPublishPlan.commands.repositoryCreate).toContain("gh repo create octo/bountypilot --public --source . --remote origin --push");
+      expect(parsedPublishPlan.commands.postPushVerify).toContain("bounty release publish-status octo/bountypilot --branch main --tag v0.1.0 --online --json");
+      expect(parsedPublishPlan.commands.actionsVerify).toContain("bounty release publish-status octo/bountypilot --branch main --tag v0.1.0 --online --actions --json");
     expect(parsedPublishPlan.commands.actionsVerify).toContain("gh run list --repo octo/bountypilot --limit 10");
     expect(parsedPublishPlan.commands.localVerify).toContain("bounty release verify-bundle .release --json");
     expect(parsedPublishPlan.commands.installVerify.join("\n")).toContain("BOUNTYPILOT_INSTALL_DRY_RUN=1");
     expect(parsedPublishPlan.install.npm).toBe("npm install -g github:octo/bountypilot");
     expect(parsedPublishPlan.install.shellDryRun).toContain("BOUNTYPILOT_INSTALL_DRY_RUN=1");
     expect(parsedPublishPlan.install.powershellDryRun).toContain('BOUNTYPILOT_INSTALL_DRY_RUN="1"');
-    expect(existsSync(publishPlanPath)).toBe(true);
-    expect(readFileSync(publishPlanPath, "utf8")).toContain("bounty release verify-bundle .release --json");
-    expect(readFileSync(publishPlanPath, "utf8")).toContain("gh repo create octo/bountypilot");
-    expect(readFileSync(publishPlanPath, "utf8")).toContain("bounty release publish-status octo/bountypilot --branch main --tag v0.1.0 --online --json");
-    expect(readFileSync(publishPlanPath, "utf8")).toContain("bounty release publish-status octo/bountypilot --branch main --tag v0.1.0 --online --actions --json");
+      expect(existsSync(publishPlanPath)).toBe(true);
+      expect(readFileSync(publishPlanPath, "utf8")).toContain("bounty release verify-bundle .release --json");
+      expect(readFileSync(publishPlanPath, "utf8")).toContain("gh auth status");
+      expect(readFileSync(publishPlanPath, "utf8")).toContain("gh repo create octo/bountypilot");
+      expect(readFileSync(publishPlanPath, "utf8")).toContain("bounty release publish-status octo/bountypilot --branch main --tag v0.1.0 --online --json");
+      expect(readFileSync(publishPlanPath, "utf8")).toContain("bounty release publish-status octo/bountypilot --branch main --tag v0.1.0 --online --actions --json");
     expect(readFileSync(publishPlanPath, "utf8")).toContain("Verify installer resolution");
     expect(readFileSync(publishPlanPath, "utf8")).toContain("git push origin v0.1.0");
 
@@ -411,10 +413,12 @@ integrations: {}
         expect.objectContaining({ name: "git:origin-target", status: "fail" }),
         expect.objectContaining({ name: "github:actions", status: "warn" }),
       ]),
-    );
-    expect(parsedPublishStatus.nextCommands.join("\n")).toMatch(/bounty release publish-plan octo\/bountypilot --write|git remote set-url origin https:\/\/github\.com\/octo\/bountypilot\.git/);
+      );
+      expect(parsedPublishStatus.nextCommands.join("\n")).toMatch(/bounty release publish-plan octo\/bountypilot --write|git remote set-url origin https:\/\/github\.com\/octo\/bountypilot\.git/);
+      expect(parsedPublishStatus.nextCommands).toContain("gh auth login");
+      expect(parsedPublishStatus.nextCommands).toContain("gh repo create octo/bountypilot --public --source . --remote origin --push");
 
-    const deepDoctorJson = runCli(["doctor", "--deep", "--json"], repoRoot);
+      const deepDoctorJson = runCli(["doctor", "--deep", "--json"], repoRoot);
     expectCommand(deepDoctorJson).toExit(0);
     expect(outputOf(deepDoctorJson).trimStart().startsWith("{")).toBe(true);
     const parsedDeepDoctor = JSON.parse(outputOf(deepDoctorJson));
