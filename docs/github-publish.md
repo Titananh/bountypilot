@@ -77,6 +77,12 @@ git push -u origin main
 
 If `bounty release check --json` reports `github:origin` as `warn`, add or fix the `origin` remote before announcing the GitHub install command.
 
+After the branch is pushed, verify publish readiness from the CLI:
+
+```bash
+bounty release publish-status OWNER/REPO --branch main --tag v0.1.0 --online --json
+```
+
 ## 4. One-Line Install
 
 After `main` is pushed, users can install from GitHub with:

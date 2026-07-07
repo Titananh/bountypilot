@@ -37,6 +37,7 @@ export interface ReleasePublishPlanResult {
     localVerify: string[];
     repositoryCreate: string[];
     remoteSetup: string[];
+    postPushVerify: string[];
     installVerify: string[];
     release: string[];
   };
@@ -58,6 +59,35 @@ export interface BuildReleasePublishPlanInput {
   remote?: "https" | "ssh";
   write?: boolean;
   output?: string;
+}
+
+export interface ReleasePublishStatusCheck {
+  name: string;
+  status: "pass" | "warn" | "fail";
+  message: string;
+}
+
+export interface ReleasePublishStatusResult {
+  ok: boolean;
+  repo: GitHubRepoRef;
+  branch: string;
+  tag: string;
+  online: boolean;
+  remote: ReleasePublishPlanResult["remote"];
+  releaseCheck: ReleaseCheckResult;
+  checks: ReleasePublishStatusCheck[];
+  nextCommands: string[];
+  urls: ReleasePublishPlanResult["urls"];
+}
+
+export interface BuildReleasePublishStatusInput {
+  cwd?: string;
+  repo: string;
+  branch?: string;
+  tag?: string;
+  remote?: "https" | "ssh";
+  online?: boolean;
+  timeoutMs?: number;
 }
 
 export function buildReleasePublishPlan(input: BuildReleasePublishPlanInput): ReleasePublishPlanResult {
@@ -91,6 +121,7 @@ export function buildReleasePublishPlan(input: BuildReleasePublishPlanInput): Re
       origin ? `git remote set-url origin ${targetRemote}` : `git remote add origin ${targetRemote}`,
       `git push -u origin ${branch}`,
     ],
+    postPushVerify: [`bounty release publish-status ${repo.slug} --branch ${branch} --tag ${tag} --online --json`],
     installVerify: [install.npm, install.shellDryRun, install.powershellDryRun],
     release: [`git tag ${tag}`, `git push origin ${tag}`],
   };
@@ -123,6 +154,76 @@ export function buildReleasePublishPlan(input: BuildReleasePublishPlanInput): Re
     ...resultWithoutMarkdown,
     markdown,
     outputPath,
+  };
+}
+
+export function buildReleasePublishStatus(input: BuildReleasePublishStatusInput): ReleasePublishStatusResult {
+  const cwd = input.cwd ?? process.cwd();
+  const repo = parseGitHubRepo(input.repo);
+  const packageJson = readPackageJson(cwd);
+  const version = typeof packageJson.version === "string" && packageJson.version.trim() ? packageJson.version.trim() : "0.1.0";
+  const branch = input.branch?.trim() || currentGitBranch(cwd) || "main";
+  const tag = input.tag?.trim() || `v${version}`;
+  const remotePreference = input.remote ?? "https";
+  const targetRemote = remotePreference === "ssh" ? repo.sshRemote : repo.httpsRemote;
+  const origin = currentOrigin(cwd);
+  const releaseCheck = runReleaseCheck(cwd);
+  const checks: ReleasePublishStatusCheck[] = [
+    {
+      name: "release:check",
+      status: releaseCheck.ok ? "pass" : "fail",
+      message: releaseCheck.ok ? `${releaseCheck.checks.length} release checks passed` : "Run npm run verify:release before publishing.",
+    },
+    origin
+      ? { name: "git:origin", status: "pass", message: origin }
+      : { name: "git:origin", status: "fail", message: "No origin remote configured." },
+    origin && sameRemote(origin, targetRemote)
+      ? { name: "git:origin-target", status: "pass", message: `origin matches ${targetRemote}` }
+      : {
+          name: "git:origin-target",
+          status: "fail",
+          message: origin ? `origin is ${origin}, expected ${targetRemote}` : `Set origin to ${targetRemote}`,
+        },
+    workingTreeStatus(cwd),
+    currentBranchStatus(cwd, branch),
+    localTagStatus(cwd, tag),
+  ];
+
+  if (input.online) {
+    checks.push(remoteRefStatus(cwd, "git:remote-branch", `refs/heads/${branch}`, `Remote branch ${branch} is published.`, input.timeoutMs));
+    checks.push(remoteRefStatus(cwd, "git:remote-tag", `refs/tags/${tag}`, `Remote tag ${tag} is published.`, input.timeoutMs, "warn"));
+  } else {
+    checks.push({
+      name: "publish:online",
+      status: "warn",
+      message: "Online GitHub branch/tag checks were skipped. Re-run with --online after pushing.",
+    });
+  }
+
+  const remote = {
+    preferred: remotePreference,
+    origin,
+    matchesTarget: Boolean(origin) && sameRemote(origin!, targetRemote),
+    addCommand: `git remote add origin ${targetRemote}`,
+    setUrlCommand: `git remote set-url origin ${targetRemote}`,
+  };
+  const urls = {
+    repository: repo.webUrl,
+    actions: `${repo.webUrl}/actions`,
+    releases: `${repo.webUrl}/releases`,
+    latestRelease: `${repo.webUrl}/releases/latest`,
+  };
+  return {
+    ok: checks.every((check) => check.status !== "fail"),
+    repo,
+    branch,
+    tag,
+    online: Boolean(input.online),
+    remote,
+    releaseCheck,
+    checks,
+    nextCommands: publishStatusNextCommands({ repo, branch, tag, remote, checks, online: Boolean(input.online) }),
+    urls,
   };
 }
 
@@ -180,6 +281,12 @@ If the repository already exists or GitHub CLI is unavailable, use the explicit 
 
 \`\`\`bash
 ${input.commands.remoteSetup.join("\n")}
+\`\`\`
+
+Verify the pushed branch and release readiness:
+
+\`\`\`bash
+${input.commands.postPushVerify.join("\n")}
 \`\`\`
 
 ## 3. Install Commands For Users
@@ -256,6 +363,101 @@ function currentOrigin(cwd: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function workingTreeStatus(cwd: string): ReleasePublishStatusCheck {
+  if (!existsSync(path.join(cwd, ".git"))) {
+    return { name: "git:working-tree", status: "fail", message: "Not a git checkout." };
+  }
+  try {
+    const status = execFileSync("git", ["status", "--porcelain"], {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 2_000,
+    }).trim();
+    return status
+      ? { name: "git:working-tree", status: "fail", message: "Working tree has uncommitted changes." }
+      : { name: "git:working-tree", status: "pass", message: "working tree clean" };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { name: "git:working-tree", status: "fail", message: `Could not inspect working tree: ${reason}` };
+  }
+}
+
+function currentBranchStatus(cwd: string, expectedBranch: string): ReleasePublishStatusCheck {
+  const branch = currentGitBranch(cwd);
+  if (!branch) {
+    return { name: "git:branch", status: "warn", message: `Could not determine current branch; expected ${expectedBranch}.` };
+  }
+  return branch === expectedBranch
+    ? { name: "git:branch", status: "pass", message: branch }
+    : { name: "git:branch", status: "warn", message: `Current branch is ${branch}; publish plan targets ${expectedBranch}.` };
+}
+
+function localTagStatus(cwd: string, tag: string): ReleasePublishStatusCheck {
+  if (!existsSync(path.join(cwd, ".git"))) {
+    return { name: "git:local-tag", status: "warn", message: "Not a git checkout; local tag check skipped." };
+  }
+  try {
+    execFileSync("git", ["rev-parse", "-q", "--verify", `refs/tags/${tag}`], {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "ignore", "pipe"],
+      timeout: 2_000,
+    });
+    return { name: "git:local-tag", status: "pass", message: tag };
+  } catch {
+    return { name: "git:local-tag", status: "warn", message: `Local tag ${tag} has not been created yet.` };
+  }
+}
+
+function remoteRefStatus(
+  cwd: string,
+  name: string,
+  ref: string,
+  passMessage: string,
+  timeoutMs = 8_000,
+  missingStatus: "warn" | "fail" = "fail",
+): ReleasePublishStatusCheck {
+  try {
+    execFileSync("git", ["ls-remote", "--exit-code", "origin", ref], {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "ignore", "pipe"],
+      timeout: timeoutMs,
+    });
+    return { name, status: "pass", message: passMessage };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message.split(/\r?\n/)[0] : String(error);
+    return { name, status: missingStatus, message: `Could not verify ${ref} on origin: ${reason}` };
+  }
+}
+
+function publishStatusNextCommands(input: {
+  repo: GitHubRepoRef;
+  branch: string;
+  tag: string;
+  remote: ReleasePublishStatusResult["remote"];
+  checks: ReleasePublishStatusCheck[];
+  online: boolean;
+}): string[] {
+  const byName = new Map(input.checks.map((check) => [check.name, check]));
+  const commands = new Set<string>();
+  if (byName.get("release:check")?.status === "fail") commands.add("npm run verify:release");
+  if (byName.get("git:origin")?.status === "fail") commands.add(`bounty release publish-plan ${input.repo.slug} --write`);
+  if (byName.get("git:origin-target")?.status === "fail") {
+    commands.add(input.remote.origin ? input.remote.setUrlCommand : input.remote.addCommand);
+  }
+  if (byName.get("git:working-tree")?.status === "fail") {
+    commands.add("git status --short");
+    commands.add("git add . && git commit -m \"Prepare BountyPilot release\"");
+  }
+  if (byName.get("git:remote-branch")?.status === "fail") commands.add(`git push -u origin ${input.branch}`);
+  if (byName.get("git:local-tag")?.status === "warn") commands.add(`git tag ${input.tag}`);
+  if (byName.get("git:remote-tag")?.status !== "pass") commands.add(`git push origin ${input.tag}`);
+  if (!input.online) commands.add(`bounty release publish-status ${input.repo.slug} --branch ${input.branch} --tag ${input.tag} --online --json`);
+  return [...commands];
 }
 
 function sameRemote(left: string, right: string): boolean {

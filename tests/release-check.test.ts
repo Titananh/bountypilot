@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { nodeEngineSupportsSqliteRuntime, runReleaseCheck } from "../src/core/release/release-check.js";
+import { buildReleasePublishStatus } from "../src/core/release/release-publish-plan.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -95,6 +96,30 @@ describe("release checks", () => {
       expect.arrayContaining([expect.objectContaining({ name: "github:origin", status: "pass" })]),
     );
     expect(result.ok).toBe(true);
+  });
+
+  it("builds publish status for a clean GitHub checkout", () => {
+    const root = writeReleaseFixture();
+    execFileSync("git", ["init", "-b", "main"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "bountypilot@example.test"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "BountyPilot Test"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["add", "."], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "fixture"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["remote", "add", "origin", "https://github.com/owner/repo.git"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["tag", "v0.0.0"], { cwd: root, stdio: "ignore" });
+
+    const result = buildReleasePublishStatus({ cwd: root, repo: "owner/repo", branch: "main", tag: "v0.0.0" });
+
+    expect(result.ok).toBe(true);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "git:origin-target", status: "pass" }),
+        expect.objectContaining({ name: "git:working-tree", status: "pass" }),
+        expect.objectContaining({ name: "git:local-tag", status: "pass" }),
+        expect.objectContaining({ name: "publish:online", status: "warn" }),
+      ]),
+    );
+    expect(result.nextCommands).toContain("bounty release publish-status owner/repo --branch main --tag v0.0.0 --online --json");
   });
 
   it("fails when generated release artifacts are tracked in source control", () => {

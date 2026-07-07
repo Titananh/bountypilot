@@ -27,7 +27,7 @@ import { McpStdioExecutor, type McpSessionStepInput } from "../integrations/mcp/
 import { ToolManager } from "../integrations/tool-manager/tool-manager.js";
 import { latestToolApproval, toolApprovalIntegrationName } from "../integrations/tool-manager/tool-adapter-runner.js";
 import { buildReleaseBundle, verifyReleaseBundle } from "../core/release/release-bundle.js";
-import { buildReleasePublishPlan } from "../core/release/release-publish-plan.js";
+import { buildReleasePublishPlan, buildReleasePublishStatus } from "../core/release/release-publish-plan.js";
 import {
   ARSENAL_TOOLS,
   HUNT_PROFILES,
@@ -5627,6 +5627,8 @@ release
     ui.blank();
     ui.commandList("remote setup", result.commands.remoteSetup);
     ui.blank();
+    ui.commandList("post-push verify", result.commands.postPushVerify);
+    ui.blank();
     ui.commandList("install verify", result.commands.installVerify);
     ui.blank();
     ui.commandList("release", result.commands.release);
@@ -5641,6 +5643,58 @@ release
     if (!result.ok) {
       process.exitCode = 1;
     }
+  });
+
+release
+  .command("publish-status")
+  .argument("<repo>", "GitHub repository as OWNER/REPO, https://github.com/OWNER/REPO, or git@github.com:OWNER/REPO.git")
+  .option("--branch <branch>", "Branch expected to be published. Defaults to the current branch or main.")
+  .option("--tag <tag>", "Release tag expected to be published. Defaults to v<package.version>.")
+  .option("--remote <kind>", "Preferred remote style: https or ssh", "https")
+  .option("--online", "Use git ls-remote to verify the branch/tag on origin")
+  .option("--json", "Print machine-readable JSON")
+  .description("Check whether the local checkout is ready for GitHub one-line install and release publishing")
+  .action((repo: string, ...args: unknown[]) => {
+    const command = commandFromArgs(args);
+    const options = command.opts<{
+      branch?: string;
+      tag?: string;
+      remote: string;
+      online?: boolean;
+      json?: boolean;
+    }>();
+    const result = buildReleasePublishStatus({
+      cwd: process.cwd(),
+      repo,
+      branch: options.branch,
+      tag: options.tag,
+      remote: parseReleaseRemotePreference(options.remote),
+      online: options.online,
+    });
+    if (options.json || requestedJsonOutput(process.argv)) {
+      ui.json(result);
+      process.exitCode = result.ok ? 0 : 1;
+      return;
+    }
+    ui.header("release publish-status");
+    ui.status(result.ok ? "ok" : "blocked", result.ok ? `${result.repo.slug} publish preflight passed` : `${result.repo.slug} publish preflight has blockers`);
+    ui.panel("github", [
+      ui.kv("repo", result.repo.webUrl),
+      ui.kv("branch", result.branch),
+      ui.kv("tag", result.tag),
+      ui.kv("origin", result.remote.origin ?? "not configured"),
+      ui.kv("online", result.online),
+    ]);
+    ui.blank();
+    ui.table(
+      ["status", "check", "message"],
+      result.checks.map((check) => [check.status, check.name, check.message]),
+    );
+    if (result.nextCommands.length > 0) {
+      ui.blank();
+      ui.commandList("next commands", result.nextCommands);
+    }
+    process.exitCode = result.ok ? 0 : 1;
   });
 
 const beta = program.command("beta").description("Prepare and inspect beta readiness");
