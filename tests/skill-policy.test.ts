@@ -20,6 +20,7 @@ describe("bug-bounty-pilot skill policy", () => {
         expect.objectContaining({ name: "SKILL.md:name", status: "pass" }),
         expect.objectContaining({ name: "agents/openai.yaml:schema", status: "pass" }),
         expect.objectContaining({ name: "agents/openai.yaml:default_prompt", status: "pass" }),
+        expect.objectContaining({ name: "skill:allowed-files", status: "pass" }),
         expect.objectContaining({ name: "skill:no-auxiliary-docs", status: "pass" }),
         expect.objectContaining({ name: "prompts:contracts", status: "pass" }),
         expect.objectContaining({ name: "templates:syntax", status: "pass" }),
@@ -215,6 +216,30 @@ describe("bug-bounty-pilot skill policy", () => {
             name: "skill:no-auxiliary-docs",
             status: "fail",
             message: expect.stringContaining("README.md"),
+          }),
+        ]),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails validation when an unexpected file would be bundled with the skill", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "bountypilot-skill-unexpected-file-"));
+    try {
+      const skillRoot = path.join(root, "skills", BUG_BOUNTY_PILOT_SKILL_ID);
+      cpSync(path.join(repoRoot, "skills", BUG_BOUNTY_PILOT_SKILL_ID), skillRoot, { recursive: true });
+      writeFileSync(path.join(skillRoot, ".env"), "SECRET=do-not-bundle\n", "utf8");
+
+      const result = validateSkillDefinition(BUG_BOUNTY_PILOT_SKILL_ID, root);
+
+      expect(result.ok).toBe(false);
+      expect(result.checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "skill:allowed-files",
+            status: "fail",
+            message: expect.stringContaining(".env"),
           }),
         ]),
       );

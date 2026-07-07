@@ -340,6 +340,13 @@ const SKILL_PLACEHOLDER_SCAN_FILES = [
   ...REQUIRED_TEMPLATES.map((file) => `templates/${file}`),
   ...REQUIRED_EXAMPLES.map((file) => `examples/${file}`),
 ];
+const REQUIRED_SKILL_RELATIVE_FILES = [
+  ...REQUIRED_SKILL_FILES,
+  ...REQUIRED_AGENT_FILES.map((file) => `agents/${file}`),
+  ...REQUIRED_PROMPTS.map((file) => `prompts/${file}`),
+  ...REQUIRED_TEMPLATES.map((file) => `templates/${file}`),
+  ...REQUIRED_EXAMPLES.map((file) => `examples/${file}`),
+];
 const PUBLIC_SAMPLE_TARGET_PATTERN = /\b(?:https?:\/\/)?(?:[a-z0-9-]+\.)*example\.(?:com|org|net)\b/i;
 const FORBIDDEN_SKILL_AUXILIARY_DOCS = new Set([
   "readme.md",
@@ -557,6 +564,7 @@ export function validateSkillDefinition(id = BUG_BOUNTY_PILOT_SKILL_ID, cwd = pr
   for (const file of REQUIRED_EXAMPLES) {
     checks.push(fileCheck(`examples/${file}`, path.join(root, "examples", file)));
   }
+  checks.push(skillAllowedFilesCheck(root));
   checks.push(skillAuxiliaryDocsCheck(root));
   checks.push(skillPromptContractCheck(root));
   checks.push(skillTemplateSyntaxCheck(root));
@@ -1028,6 +1036,19 @@ function skillAuxiliaryDocsCheck(root: string): SkillValidationCheck {
       offenders.length === 0
         ? "skill package contains only required instructions and bundled resources"
         : `Remove auxiliary docs from skill package: ${offenders.join(", ")}`,
+  };
+}
+
+function skillAllowedFilesCheck(root: string): SkillValidationCheck {
+  const allowed = new Set(REQUIRED_SKILL_RELATIVE_FILES);
+  const unexpected = collectSkillRelativeFiles(root).filter((relativePath) => !allowed.has(relativePath));
+  return {
+    name: "skill:allowed-files",
+    status: unexpected.length === 0 ? "pass" : "fail",
+    message:
+      unexpected.length === 0
+        ? `${allowed.size} required skill files and no unexpected bundle payload`
+        : `Unexpected files in skill package: ${unexpected.join(", ")}`,
   };
 }
 
