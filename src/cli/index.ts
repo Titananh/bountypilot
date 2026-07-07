@@ -3362,6 +3362,59 @@ reportsCommand
   });
 
 reportsCommand
+  .command("bundle")
+  .argument("<findingOrCandidateId>", "Finding id or candidate id")
+  .option("--job <jobId>", "Workflow job id to bundle. Defaults to the candidate job or the finding evidence job when unambiguous.")
+  .option("--output <dir>", "Output directory. Defaults to the program exports directory.")
+  .option("--include-artifacts", "Copy readable evidence artifact files into the bundle")
+  .option("--json", "Print machine-readable JSON")
+  .description("Write a job-scoped handoff bundle for a report candidate or finding")
+  .action((findingOrCandidateId: string, ...args: unknown[]) => {
+    const command = commandFromArgs(args);
+    const options = command.opts<{ job?: string; output?: string; includeArtifacts?: boolean; json?: boolean }>();
+    const runtime = createRuntime(rootProgramName());
+    const candidate = runtime.candidates.get(findingOrCandidateId);
+    const finding = candidate ? undefined : runtime.findings.get(findingOrCandidateId);
+    if (!candidate && !finding) {
+      throw new BountyPilotError(`Finding or candidate not found: ${findingOrCandidateId}`, "FINDING_NOT_FOUND");
+    }
+    const target = resolveReportBundleTarget(runtime, findingOrCandidateId, options.job);
+    const result = writeHandoffBundle(runtime, {
+      output: options.output,
+      jobId: target.jobId,
+      includeArtifacts: options.includeArtifacts,
+    });
+    const payload = {
+      ok: true,
+      subject: target.subject,
+      findingId: target.findingId,
+      candidateId: target.candidateId,
+      jobId: target.jobId,
+      evidence: target.evidence.length,
+      bundle: result,
+      nextCommands: [
+        `bounty export bundle --job ${target.jobId}`,
+        `bounty export bundle --job ${target.jobId} --include-artifacts`,
+      ],
+    };
+    if (options.json || requestedJsonOutput(process.argv)) {
+      ui.json(payload);
+      return;
+    }
+    ui.header("reports bundle");
+    ui.status("ok", "report handoff bundle exported");
+    ui.panel("bundle", [
+      ui.kv("subject", target.subject),
+      ui.kv("finding", target.findingId ?? "-"),
+      ui.kv("candidate", target.candidateId ?? "-"),
+      ui.kv("job", target.jobId),
+      ui.kv("path", result.outputDir),
+      ui.kv("files", result.files.length),
+      ui.kv("artifacts", result.artifactsCopied),
+    ]);
+  });
+
+reportsCommand
   .command("review")
   .argument("<findingId>", "Finding id")
   .option("--job <jobId>", "Only review evidence from one workflow job")
@@ -8046,12 +8099,71 @@ function evidenceForCandidate(runtime: Runtime, candidate: FindingCandidate, job
   return filterEvidenceByJob([...unique.values()], jobId);
 }
 
+interface ReportBundleTarget {
+  subject: "candidate" | "finding";
+  candidateId?: string;
+  findingId?: string;
+  jobId: string;
+  evidence: EvidenceArtifact[];
+}
+
+function resolveReportBundleTarget(runtime: Runtime, findingOrCandidateId: string, explicitJobId?: string): ReportBundleTarget {
+  const candidate = runtime.candidates.get(findingOrCandidateId);
+  const finding = candidate ? undefined : runtime.findings.get(findingOrCandidateId);
+  if (!candidate && !finding) {
+    throw new BountyPilotError(`Finding or candidate not found: ${findingOrCandidateId}`, "FINDING_NOT_FOUND");
+  }
+  if (candidate?.jobId && explicitJobId && explicitJobId !== candidate.jobId) {
+    throw new BountyPilotError(
+      `Candidate ${candidate.id} belongs to job ${candidate.jobId}; remove --job or use that job id.`,
+      "REPORT_BUNDLE_JOB_MISMATCH",
+    );
+  }
+
+  const allEvidence = candidate ? evidenceForCandidate(runtime, candidate) : runtime.evidence.list(findingOrCandidateId);
+  const jobId = explicitJobId ?? candidate?.jobId ?? inferSingleEvidenceJobId(allEvidence, findingOrCandidateId);
+  requireJob(runtime, jobId);
+  const evidence = candidate ? evidenceForCandidate(runtime, candidate, jobId) : filterEvidenceByJob(allEvidence, jobId);
+  if (evidence.length === 0) {
+    throw new BountyPilotError(
+      `No evidence artifacts for ${findingOrCandidateId} in job ${jobId}; run reports score or evidence verify first.`,
+      "REPORT_BUNDLE_EVIDENCE_NOT_FOUND",
+    );
+  }
+
+  return {
+    subject: candidate ? "candidate" : "finding",
+    candidateId: candidate?.id,
+    findingId: candidate?.findingId ?? finding?.id,
+    jobId,
+    evidence,
+  };
+}
+
+function inferSingleEvidenceJobId(evidence: EvidenceArtifact[], subjectId: string): string {
+  const jobIds = [...new Set(evidence.map((artifact) => artifact.jobId).filter((jobId): jobId is string => Boolean(jobId)))];
+  if (jobIds.length === 1) {
+    return jobIds[0] as string;
+  }
+  if (jobIds.length === 0) {
+    throw new BountyPilotError(
+      `Cannot infer a workflow job for ${subjectId}; pass --job <job-id> or use export bundle for a workspace-wide handoff.`,
+      "REPORT_BUNDLE_JOB_REQUIRED",
+    );
+  }
+  throw new BountyPilotError(
+    `Multiple workflow jobs contain evidence for ${subjectId}; pass --job <job-id> to choose one.`,
+    "REPORT_BUNDLE_JOB_AMBIGUOUS",
+  );
+}
+
 function candidateNextCommands(candidate: FindingCandidate, jobId?: string): string[] {
   const selectedJobId = jobId ?? candidate.jobId;
   const jobOption = selectedJobId ? ` --job ${selectedJobId}` : "";
   const commands = [
     `bounty findings candidate ${candidate.id}`,
     `bounty reports score ${candidate.id}${jobOption}`,
+    ...(selectedJobId ? [`bounty reports bundle ${candidate.id}${jobOption}`] : []),
   ];
   if (!candidate.findingId) {
     commands.push(`bounty findings promote-candidate ${candidate.id}`);
@@ -9064,6 +9176,7 @@ function reportReviewCommands(
     const commands = [
       `bounty findings candidate ${findingId}`,
       `bounty reports score ${findingId}${jobOption}`,
+      ...(jobId ? [`bounty reports bundle ${findingId}${jobOption}`] : []),
     ];
     if (promotedFindingId) {
       commands.push(`bounty findings show ${promotedFindingId}`);
@@ -9083,6 +9196,7 @@ function reportReviewCommands(
     `bounty reproduce ${findingId}`,
     `bounty reports score ${findingId}${jobOption}`,
     `bounty reports review ${findingId}${jobOption} --write`,
+    ...(jobId ? [`bounty reports bundle ${findingId}${jobOption}`] : []),
   ];
   if (readiness !== "blocked") {
     commands.push(`bounty report ${findingId} --platform hackerone`);

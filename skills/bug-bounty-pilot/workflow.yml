@@ -236,6 +236,6 @@ steps:
     requires_scope: false
     requires_approval: false
     blocked_capabilities: [secret_leak]
-    cli_commands: ["bounty export bundle --job <job-id> --include-artifacts"]
+    cli_commands: ["bounty reports bundle <candidate-id> --include-artifacts", "bounty export bundle --job <job-id> --include-artifacts"]
     failure_behavior: Redact and warn on unreadable evidence.
     artifacts: [handoff_summary]

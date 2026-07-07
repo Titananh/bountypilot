@@ -190,6 +190,27 @@ describe("CLI action execution", () => {
         findingId: parsedCorsPlaybook.findingsCreated[0].id,
       });
       expect(parsedCandidateScore.score).toBeGreaterThan(0);
+      expect(parsedCandidateScore.nextCommands).toEqual(expect.arrayContaining([expect.stringContaining("bounty reports bundle")]));
+
+      const candidateBundleDir = path.join(workspace, "candidate-report-bundle");
+      const candidateBundle = await runCli(
+        ["reports", "bundle", corsCandidateId, "--job", parsedCorsPlaybook.jobId, "--output", candidateBundleDir, "--include-artifacts", "--json"],
+        workspace,
+      );
+      expectCommand(candidateBundle).toExit(0);
+      expect(candidateBundle.stderr).toBe("");
+      const parsedCandidateBundle = JSON.parse(candidateBundle.stdout);
+      expect(parsedCandidateBundle).toMatchObject({
+        ok: true,
+        subject: "candidate",
+        candidateId: corsCandidateId,
+        findingId: parsedCorsPlaybook.findingsCreated[0].id,
+        jobId: parsedCorsPlaybook.jobId,
+      });
+      expect(parsedCandidateBundle.bundle.outputDir).toBe(candidateBundleDir);
+      expect(parsedCandidateBundle.bundle.artifactsCopied).toBeGreaterThan(0);
+      expect(existsSync(path.join(candidateBundleDir, "manifest.json"))).toBe(true);
+      expect(existsSync(path.join(candidateBundleDir, "evidence-manifest.json"))).toBe(true);
 
       const candidateDraft = await runCli(["reports", "draft", corsCandidateId, "--json"], workspace);
       expectCommand(candidateDraft).toExit(0);

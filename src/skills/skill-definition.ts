@@ -373,6 +373,7 @@ const SKILL_WORKFLOW_CLI_COMMAND_SPECS: SkillWorkflowCliCommandSpec[] = [
   { path: ["triage"] },
   { path: ["reports", "score"], flags: ["--json"] },
   { path: ["reports", "draft"], flags: ["--json"], flagsWithValue: ["--platform"] },
+  { path: ["reports", "bundle"], flags: ["--include-artifacts", "--json"], flagsWithValue: ["--job", "--output"] },
   { path: ["export", "bundle"], flags: ["--include-artifacts", "--json"], flagsWithValue: ["--job", "--output"] },
   { path: ["jobs", "show"] },
   { path: ["jobs", "timeline"] },

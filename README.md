@@ -233,6 +233,7 @@ Dry-run is the recommended first command for every target because it exercises s
 | Evidence | `bounty evidence verify [finding-id] [--job <job-id>]` | No | Checks local evidence readability, file size, and SHA-256 metadata. |
 | Reporting | `bounty reports score <finding-id> [--job <job-id>]` | No | Prints reportability score, readiness, evidence counts/checks, blockers, warnings, next steps, and next commands. |
 | Reporting | `bounty reports review <finding-id> [--job <job-id>]` | No | Runs a local pre-submit checklist for report readiness, evidence quality, duplicate risk, and safety blockers. |
+| Reporting | `bounty reports bundle <candidate-id> [--job <job-id>] [--include-artifacts]` | No | Writes a job-scoped handoff bundle for the report candidate or linked finding. |
 | Reporting | `bounty report <finding-id> --platform hackerone|bugcrowd` | No | Writes a local Markdown report draft only when report readiness is not blocked. |
 | Reporting | `bounty report <finding-id> --platform hackerone|bugcrowd --force-local-draft` | No | Writes a local-only draft even when readiness is blocked, for manual repair and review. |
 | Triage | `bounty triage <finding-id>` | No | Scores local evidence quality and duplicate risk. |
@@ -444,6 +445,7 @@ Generate a local report draft:
 bounty reports score <candidate-id> --json
 bounty reports draft <candidate-id> --platform hackerone
 bounty reports draft <candidate-id> --platform bugcrowd
+bounty reports bundle <candidate-id> --include-artifacts
 bounty triage finding-00000000-0000-0000-0000-000000000000
 bounty reports review finding-00000000-0000-0000-0000-000000000000 --write
 bounty report finding-00000000-0000-0000-0000-000000000000 --platform hackerone
