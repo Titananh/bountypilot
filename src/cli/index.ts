@@ -4915,6 +4915,47 @@ program
     });
   });
 
+const aiCommand = program
+  .command("ai")
+  .description("Use configured AI providers for safe planning and local report assistance");
+
+aiCommand
+  .command("plan")
+  .requiredOption("--target <target>", "In-scope target to plan for")
+  .option("--job <jobId>", "Use local job context without executing actions")
+  .option("--provider <id>", "Provider id to use")
+  .option("--model <model>", "Override the configured provider model")
+  .option("--temperature <number>", "Sampling temperature", "0.2")
+  .option("--max-tokens <tokens>", "Maximum response tokens", "1200")
+  .option("--write", "Store the AI plan as a local evidence note")
+  .option("--json", "Print machine-readable JSON")
+  .description("Generate a scoped, dry-run-safe plan from local workspace context")
+  .action(async (...args: unknown[]) => {
+    const command = commandFromArgs(args);
+    const options = command.opts<AiPlanCommandOptions>();
+    const result = await runAiPlanCommand(options);
+    printAiAssistantResult("ai plan", result, options.json === true);
+  });
+
+aiCommand
+  .command("report")
+  .argument("<candidateId>", "Finding candidate id")
+  .option("--job <jobId>", "Only use evidence from one workflow job")
+  .option("--platform <platform>", "Report platform context", "hackerone")
+  .option("--provider <id>", "Provider id to use")
+  .option("--model <model>", "Override the configured provider model")
+  .option("--temperature <number>", "Sampling temperature", "0.2")
+  .option("--max-tokens <tokens>", "Maximum response tokens", "1600")
+  .option("--write", "Store the AI report assistance as a local evidence note")
+  .option("--json", "Print machine-readable JSON")
+  .description("Generate local report prose for an evidence-backed candidate without submitting it")
+  .action(async (candidateId: string, ...args: unknown[]) => {
+    const command = commandFromArgs(args);
+    const options = command.opts<AiReportCommandOptions>();
+    const result = await runAiReportCommand(candidateId, options);
+    printAiAssistantResult("ai report", result, options.json === true);
+  });
+
 providers
   .command("catalog")
   .option("--json", "Print machine-readable JSON")
@@ -6539,6 +6580,53 @@ interface ChatCommandOptions {
   json?: boolean;
 }
 
+interface AiBaseCommandOptions {
+  provider?: string;
+  model?: string;
+  temperature?: string;
+  maxTokens?: string;
+  write?: boolean;
+  json?: boolean;
+}
+
+interface AiPlanCommandOptions extends AiBaseCommandOptions {
+  target: string;
+  job?: string;
+}
+
+interface AiReportCommandOptions extends AiBaseCommandOptions {
+  job?: string;
+  platform?: string;
+}
+
+interface AiAssistantResult {
+  ok: true;
+  kind: "plan" | "report";
+  provider: string;
+  model: string;
+  target?: string;
+  jobId?: string;
+  candidateId?: string;
+  findingId?: string;
+  platform?: string;
+  message: string;
+  usage?: Record<string, unknown>;
+  artifact?: EvidenceArtifact;
+  review?: {
+    score: number;
+    readiness: ReportReadiness;
+    blockers: string[];
+    warnings: string[];
+  };
+  safety: {
+    assistantOnly: true;
+    execution: "none";
+    approvalBypass: false;
+    autoSubmit: false;
+  };
+  nextCommands: string[];
+}
+
 async function runChatCommand(input: {
   messageParts?: string[];
   options: ChatCommandOptions;
@@ -6626,6 +6714,370 @@ async function runChatCommand(input: {
     }
     throw error;
   }
+}
+
+async function runAiPlanCommand(options: AiPlanCommandOptions): Promise<AiAssistantResult> {
+  const runtime = createRuntime(rootProgramName());
+  const target = parseNonEmptyTextOption(options.target, "target");
+  runtime.scopeGuard.assertAllowed(target);
+  const job = options.job ? requireJob(runtime, options.job) : undefined;
+  const providerResult = await completeAiAssistant({
+    options,
+    systemPrompt: aiAssistantSystemPrompt("plan"),
+    userPrompt: buildAiPlanPrompt(runtime, target, job?.id),
+  });
+  const message = maskSecrets(providerResult.message);
+  const artifact = options.write
+    ? writeAiAssistantArtifact(runtime, {
+        kind: "plan",
+        target,
+        jobId: job?.id,
+        title: "AI safe plan",
+        content: message,
+      })
+    : undefined;
+  return {
+    ok: true,
+    kind: "plan",
+    provider: providerResult.provider.id,
+    model: providerResult.model,
+    target,
+    jobId: job?.id,
+    message,
+    usage: providerResult.usage,
+    artifact,
+    safety: aiAssistantSafety(),
+    nextCommands: aiPlanNextCommands(target, job?.id, artifact?.id),
+  };
+}
+
+async function runAiReportCommand(candidateId: string, options: AiReportCommandOptions): Promise<AiAssistantResult> {
+  const runtime = createRuntime(rootProgramName());
+  if (options.job) {
+    requireJob(runtime, options.job);
+  }
+  const candidate = runtime.candidates.get(candidateId);
+  if (!candidate) {
+    throw new BountyPilotError(`Finding candidate not found: ${candidateId}`, "FINDING_CANDIDATE_NOT_FOUND");
+  }
+  runtime.scopeGuard.assertAllowed(candidate.url);
+  const evidence = evidenceForCandidate(runtime, candidate, options.job);
+  const finding = candidate.findingId
+    ? runtime.findings.get(candidate.findingId) ?? candidateAsFinding(candidate, evidence)
+    : candidateAsFinding(candidate, evidence);
+  const manifest = runtime.evidence.buildManifestForArtifacts(evidence, {
+    findingId: candidate.findingId ?? candidate.id,
+    jobId: options.job,
+  });
+  const duplicate = new DuplicateRiskEngine().estimate(
+    finding,
+    runtime.findings.list().filter((item) => item.id !== finding.id && item.id !== candidate.findingId),
+  );
+  const triage = new TriageEngine().triage({ ...finding, duplicateRisk: duplicate.risk }, evidence);
+  const platform = options.platform ?? "hackerone";
+  const review = buildReportReview({ finding, evidence, manifest, duplicate, triage, platform });
+  const providerResult = await completeAiAssistant({
+    options,
+    systemPrompt: aiAssistantSystemPrompt("report"),
+    userPrompt: buildAiReportPrompt({ candidate, finding, evidence, review, platform, jobId: options.job }),
+  });
+  const message = maskSecrets(providerResult.message);
+  const artifact = options.write
+    ? writeAiAssistantArtifact(runtime, {
+        kind: "report",
+        target: candidate.url,
+        jobId: options.job ?? candidate.jobId,
+        findingId: candidate.findingId,
+        candidateId: candidate.id,
+        title: "AI report assistance",
+        content: message,
+      })
+    : undefined;
+  if (artifact) {
+    runtime.candidates.linkEvidence(candidate.id, artifact.id);
+    if (candidate.findingId) {
+      runtime.findings.linkEvidencePath(candidate.findingId, artifact.path);
+    }
+  }
+  return {
+    ok: true,
+    kind: "report",
+    provider: providerResult.provider.id,
+    model: providerResult.model,
+    target: candidate.url,
+    jobId: options.job ?? candidate.jobId,
+    candidateId: candidate.id,
+    findingId: candidate.findingId,
+    platform,
+    message,
+    usage: providerResult.usage,
+    artifact,
+    review: {
+      score: review.score,
+      readiness: review.readiness,
+      blockers: review.blockers,
+      warnings: review.warnings,
+    },
+    safety: aiAssistantSafety(),
+    nextCommands: aiReportNextCommands(candidate, options.job, review.readiness, artifact?.id),
+  };
+}
+
+async function completeAiAssistant(input: {
+  options: AiBaseCommandOptions;
+  systemPrompt: string;
+  userPrompt: string;
+}) {
+  const temperature = parseNumberOption(input.options.temperature, "temperature", 0.2, 0, 2);
+  const maxTokens = parsePositiveIntegerOption(input.options.maxTokens, "max-tokens", 1200);
+  const client = new ProviderChatClient(new ProviderManager(process.cwd()));
+  return client.complete({
+    providerId: input.options.provider,
+    model: input.options.model,
+    messages: [
+      { role: "system", content: input.systemPrompt },
+      { role: "user", content: input.userPrompt },
+    ],
+    temperature,
+    maxTokens,
+  });
+}
+
+function printAiAssistantResult(title: string, result: AiAssistantResult, json: boolean): void {
+  if (json || requestedJsonOutput(process.argv)) {
+    ui.json(result);
+    return;
+  }
+  ui.header(title);
+  ui.status("ok", `${result.provider}/${result.model}`);
+  ui.panel("context", [
+    ui.kv("target", result.target ?? "-"),
+    ui.kv("job", result.jobId ?? "-"),
+    ui.kv("candidate", result.candidateId ?? "-"),
+    ui.kv("finding", result.findingId ?? "-"),
+    ui.kv("artifact", result.artifact?.id ?? "-"),
+    ui.kv("policy", "assistant only; no execution"),
+  ]);
+  if (result.review) {
+    ui.blank();
+    ui.panel("readiness", [
+      ui.kv("score", `${result.review.score}/100`),
+      ui.kv("status", result.review.readiness),
+      ui.kv("blockers", result.review.blockers.length),
+      ui.kv("warnings", result.review.warnings.length),
+    ]);
+  }
+  ui.blank();
+  ui.textBlock("assistant", result.message);
+  ui.blank();
+  ui.commandList("next commands", result.nextCommands);
+}
+
+function aiAssistantSystemPrompt(kind: "plan" | "report"): string {
+  const task =
+    kind === "plan"
+      ? "Generate a scoped, dry-run-first bug bounty plan from local context."
+      : "Generate local report assistance from existing candidate and evidence metadata.";
+  return [
+    "You are BountyPilot's safe AI assistant for authorized security research.",
+    task,
+    "You are assistant-only: do not claim to execute tools, approve actions, bypass scope, validate exploits, access accounts, exfiltrate data, or submit reports.",
+    "Treat intrusive, live, scanner, fuzzer, auth, data access, and lab-offensive steps as pending human review unless the provided context explicitly says they are approved.",
+    "Prefer concrete local next steps using BountyPilot CLI commands, dry-run defaults, evidence quality checks, and report-readiness blockers.",
+    "Do not include secrets. If a value looks sensitive, redact it.",
+    "Return concise Markdown.",
+  ].join(" ");
+}
+
+function buildAiPlanPrompt(runtime: Runtime, target: string, jobId?: string): string {
+  const job = jobId ? requireJob(runtime, jobId) : undefined;
+  const evidence = filterEvidenceByJob(runtime.evidence.list(), jobId).slice(0, 20).map(aiEvidenceSummary);
+  const context = {
+    task: "safe-plan",
+    target,
+    program: runtime.config.program,
+    rules: {
+      dryRunFirst: true,
+      labMode: runtime.config.rules.lab_mode === true,
+    },
+    job: job
+      ? {
+          id: job.id,
+          type: job.type,
+          target: job.target,
+          mode: job.mode,
+          status: job.status,
+        }
+      : undefined,
+    actionSummary: job ? runtime.actions.summarize(job.id) : undefined,
+    recon: runtime.recon.list({ jobId, scopeAllowed: true, limit: 20 }).map(aiReconSummary),
+    candidates: runtime.candidates.list({ jobId, limit: 10 }).map(aiCandidateSummary),
+    evidence,
+    recentJobs: runtime.jobs.list(5).map((item) => ({
+      id: item.id,
+      type: item.type,
+      target: item.target,
+      mode: item.mode,
+      status: item.status,
+    })),
+  };
+  return [
+    "Create a safe next-step plan for this authorized target.",
+    "Use only the local context below. Do not invent completed execution or evidence.",
+    "Include: scope/risk assumptions, best next BountyPilot commands, evidence gaps, approval gates, and report-readiness path.",
+    "Context JSON:",
+    JSON.stringify(maskSecretsDeep(context), null, 2),
+  ].join("\n\n");
+}
+
+function buildAiReportPrompt(input: {
+  candidate: FindingCandidate;
+  finding: NormalizedFinding;
+  evidence: EvidenceArtifact[];
+  review: ReturnType<typeof buildReportReview>;
+  platform: string;
+  jobId?: string;
+}): string {
+  const context = {
+    task: "report-assistance",
+    platform: input.platform,
+    jobId: input.jobId,
+    candidate: aiCandidateSummary(input.candidate),
+    finding: {
+      id: input.finding.id,
+      title: input.finding.title,
+      url: input.finding.url,
+      category: input.finding.category,
+      severityEstimate: input.finding.severityEstimate,
+      confidence: input.finding.confidence,
+      status: input.finding.status,
+      duplicateRisk: input.finding.duplicateRisk,
+    },
+    evidence: input.evidence.map(aiEvidenceSummary),
+    review: {
+      score: input.review.score,
+      readiness: input.review.readiness,
+      recommendation: input.review.recommendation,
+      blockers: input.review.blockers,
+      warnings: input.review.warnings,
+      nextSteps: input.review.nextSteps,
+      counts: input.review.counts,
+    },
+  };
+  return [
+    "Write local report assistance for the candidate below.",
+    "Do not submit anything. Do not claim exploit validation beyond the evidence metadata. Call out blockers and missing evidence clearly.",
+    "Include: title, summary, affected asset, evidence-backed reproduction outline, impact, limitations/false-positive risk, remediation, and next local commands.",
+    "Context JSON:",
+    JSON.stringify(maskSecretsDeep(context), null, 2),
+  ].join("\n\n");
+}
+
+function writeAiAssistantArtifact(
+  runtime: Runtime,
+  input: {
+    kind: "plan" | "report";
+    target: string;
+    jobId?: string;
+    findingId?: string;
+    candidateId?: string;
+    title: string;
+    content: string;
+  },
+): EvidenceArtifact {
+  const subject = input.candidateId ?? input.findingId ?? input.jobId ?? input.target;
+  return runtime.evidence.writeTextArtifact({
+    findingId: input.findingId,
+    jobId: input.jobId,
+    adapterName: input.kind === "plan" ? "ai-plan" : "ai-report",
+    kind: "evidence_note",
+    sourceUrl: input.target,
+    relativePath: path.join("ai", `${safeFileName(subject)}-${input.kind}-${Date.now()}.md`),
+    content: [`# ${input.title}`, "", input.content.trim(), ""].join("\n"),
+  });
+}
+
+function aiAssistantSafety(): AiAssistantResult["safety"] {
+  return {
+    assistantOnly: true,
+    execution: "none",
+    approvalBypass: false,
+    autoSubmit: false,
+  };
+}
+
+function aiPlanNextCommands(target: string, jobId?: string, artifactId?: string): string[] {
+  const commands = [
+    `bounty hunt recon ${target} --profile passive --dry-run`,
+    `bounty hunt recon ${target} --profile web --dry-run`,
+    `bounty hunt playbook headers ${target} --dry-run`,
+    `bounty evidence verify${jobId ? ` --job ${jobId}` : ""}`,
+    ...(jobId ? [`bounty review --job ${jobId}`, `bounty export bundle --job ${jobId}`] : []),
+    ...(artifactId ? [`bounty evidence show ${artifactId}`] : []),
+  ];
+  return [...new Set(commands)];
+}
+
+function aiReportNextCommands(
+  candidate: FindingCandidate,
+  jobId: string | undefined,
+  readiness: ReportReadiness,
+  artifactId?: string,
+): string[] {
+  return [
+    ...reportReviewCommands(candidate.id, jobId ?? candidate.jobId, readiness, "candidate", candidate.findingId),
+    `bounty ai report ${candidate.id}${jobId ? ` --job ${jobId}` : ""} --write`,
+    ...(artifactId ? [`bounty evidence show ${artifactId}`] : []),
+  ];
+}
+
+function aiCandidateSummary(candidate: FindingCandidate): Record<string, unknown> {
+  return {
+    id: candidate.id,
+    jobId: candidate.jobId,
+    findingId: candidate.findingId,
+    title: candidate.title,
+    asset: candidate.asset,
+    url: candidate.url,
+    category: candidate.category,
+    severityEstimate: candidate.severityEstimate,
+    confidence: candidate.confidence,
+    status: candidate.status,
+    reportability: candidate.reportability,
+    falsePositiveRisk: candidate.falsePositiveRisk,
+    duplicateRisk: candidate.duplicateRisk,
+    evidenceIds: candidate.evidenceIds,
+    observationIds: candidate.observationIds,
+    reasoningSummary: candidate.reasoningSummary,
+    nextManualSteps: candidate.nextManualSteps,
+  };
+}
+
+function aiEvidenceSummary(artifact: EvidenceArtifact): Record<string, unknown> {
+  return {
+    id: artifact.id,
+    findingId: artifact.findingId,
+    jobId: artifact.jobId,
+    adapterName: artifact.adapterName,
+    kind: artifact.kind,
+    sourceUrl: artifact.sourceUrl,
+    path: artifact.path,
+    createdAt: artifact.createdAt,
+  };
+}
+
+function aiReconSummary(observation: ReconObservation): Record<string, unknown> {
+  return {
+    id: observation.id,
+    jobId: observation.jobId,
+    kind: observation.kind,
+    value: observation.value,
+    sourceAdapter: observation.sourceAdapter,
+    scopeAllowed: observation.scopeAllowed,
+    confidence: observation.confidence,
+    riskHint: observation.riskHint,
+    lastSeenAt: observation.lastSeenAt,
+  };
 }
 
 function shouldLaunchInteractiveTui(): boolean {

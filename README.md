@@ -245,7 +245,9 @@ Dry-run is the recommended first command for every target because it exercises s
 | Reproduction | `bounty reproduce <finding-id> --with playwright-mcp` | No external MCP execution | Writes notes and records a Playwright MCP reproduction plan with `execute=false`. |
 | Planning | `bounty agent plan <url> [--from-job <job-id>]` | No external tool execution | Queues ranked, de-duplicated safe next actions for human review. |
 | Planning | `bounty agent run --goal "<goal>"` | No external tool execution | Converts a goal into a local planner artifact. |
-| JSON output | `--json` on crawl/browser/desktop/research/check/js/report/reports/triage/reproduce/agent/release commands | No behavior change | Prints command results, planned actions, and artifact paths as machine-readable JSON where supported. |
+| AI assistant | `bounty ai plan --target <target> [--job <job-id>] [--write]` | Provider call only | Generates a scoped dry-run plan from local context; it cannot execute tools, approve actions, or bypass scope. |
+| AI assistant | `bounty ai report <candidate-id> [--platform hackerone|bugcrowd] [--write]` | Provider call only | Generates local report prose from candidate/evidence metadata; it never submits reports or claims validation without artifacts. |
+| JSON output | `--json` on crawl/browser/desktop/research/check/js/report/reports/triage/reproduce/agent/ai/release commands | No behavior change | Prints command results, planned actions, and artifact paths as machine-readable JSON where supported. |
 | Jobs | `bounty jobs list` | No | Lists local workflow and command jobs. |
 | Jobs | `bounty jobs show <job-id>` | No | Shows job details, action counts, checkpoint path, and workflow phases. |
 | Jobs | `bounty jobs timeline <job-id>` | No | Shows structured workflow events for progress review, recovery, and handoff. |

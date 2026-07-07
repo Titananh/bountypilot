@@ -56,7 +56,7 @@ steps:
     requires_scope: false
     requires_approval: false
     blocked_capabilities: [ai_action_execution]
-    cli_commands: ["bounty providers doctor"]
+    cli_commands: ["bounty providers doctor", "bounty providers models openai"]
     failure_behavior: Continue without AI assistance.
     artifacts: [doctor_output]
   - id: arsenal_readiness
@@ -140,7 +140,7 @@ steps:
     requires_scope: true
     requires_approval: false
     blocked_capabilities: []
-    cli_commands: ["bounty hunt playbook headers <target> --dry-run"]
+    cli_commands: ["bounty hunt playbook headers <target> --dry-run", "bounty ai plan --target <target> --job <job-id>"]
     failure_behavior: No matching playbook becomes a blocker.
     artifacts: [playbook_plan]
   - id: playbook_execution
@@ -224,7 +224,9 @@ steps:
     requires_scope: true
     requires_approval: false
     blocked_capabilities: [auto_submit_report]
-    cli_commands: ["bounty reports draft <candidate-id> --platform hackerone|bugcrowd"]
+    cli_commands:
+      - "bounty reports draft <candidate-id> --platform hackerone|bugcrowd"
+      - "bounty ai report <candidate-id> --platform hackerone --write"
     failure_behavior: Block unless ready_for_draft.
     artifacts: [report_md]
   - id: handoff_bundle

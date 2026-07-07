@@ -1,10 +1,14 @@
 import { spawn, spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { createServer, type IncomingMessage, type Server } from "node:http";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { programWorkspace } from "../src/core/workspace.js";
+import { openBountyDatabase } from "../src/stores/db/database.js";
+import { EvidenceStore } from "../src/stores/evidence-store.js";
+import { FindingCandidateStore } from "../src/stores/finding-candidate-store.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const bountyCli = path.join(repoRoot, "dist", "cli", "index.js");
@@ -97,6 +101,111 @@ describe("CLI chat", () => {
           expect.objectContaining({ role: "user", content: "What should I do next?" }),
         ]),
       );
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  it("generates assistant-only AI plans through a configured provider", async () => {
+    const workspace = createWorkspace();
+    importAiProgram(workspace);
+    let requestBody: any;
+    const server = createServer(async (request, response) => {
+      if (request.method !== "POST" || request.url !== "/v1/chat/completions") {
+        response.writeHead(404).end();
+        return;
+      }
+      requestBody = JSON.parse(await readRequestText(request));
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          choices: [{ message: { role: "assistant", content: "Plan: run passive recon, verify evidence, then review blockers." } }],
+        }),
+      );
+    });
+
+    try {
+      const baseURL = await listen(server);
+      connectMockProvider(workspace, baseURL);
+
+      const plan = await runCliAsync(
+        ["ai", "plan", "--target", "https://api.example.com/app", "--provider", "mock", "--json"],
+        workspace,
+      );
+
+      expectCommand(plan).toExit(0);
+      const parsed = JSON.parse(plan.stdout);
+      expect(parsed).toMatchObject({
+        ok: true,
+        kind: "plan",
+        provider: "mock",
+        model: "mock-model",
+        target: "https://api.example.com/app",
+        safety: {
+          assistantOnly: true,
+          execution: "none",
+          approvalBypass: false,
+          autoSubmit: false,
+        },
+      });
+      expect(parsed.message).toContain("passive recon");
+      expect(parsed.nextCommands).toEqual(expect.arrayContaining([expect.stringContaining("bounty hunt recon")]));
+      expect(requestBody.messages[0].content).toContain("assistant-only");
+      expect(requestBody.messages[1].content).toContain("safe-plan");
+      expect(requestBody.messages[1].content).toContain("https://api.example.com/app");
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  it("generates local AI report assistance and writes it as evidence", async () => {
+    const workspace = createWorkspace();
+    importAiProgram(workspace);
+    const candidateId = createAiCandidateFixture(workspace);
+    let requestBody: any;
+    const server = createServer(async (request, response) => {
+      if (request.method !== "POST" || request.url !== "/v1/chat/completions") {
+        response.writeHead(404).end();
+        return;
+      }
+      requestBody = JSON.parse(await readRequestText(request));
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          choices: [{ message: { role: "assistant", content: "Draft: evidence-backed open redirect candidate needs manual review." } }],
+        }),
+      );
+    });
+
+    try {
+      const baseURL = await listen(server);
+      connectMockProvider(workspace, baseURL);
+
+      const report = await runCliAsync(["ai", "report", candidateId, "--provider", "mock", "--write", "--json"], workspace);
+
+      expectCommand(report).toExit(0);
+      const parsed = JSON.parse(report.stdout);
+      expect(parsed).toMatchObject({
+        ok: true,
+        kind: "report",
+        provider: "mock",
+        model: "mock-model",
+        candidateId,
+        safety: {
+          assistantOnly: true,
+          execution: "none",
+          approvalBypass: false,
+          autoSubmit: false,
+        },
+      });
+      expect(parsed.review.score).toBeGreaterThanOrEqual(0);
+      expect(parsed.artifact.kind).toBe("evidence_note");
+      expect(existsSync(parsed.artifact.path)).toBe(true);
+      expect(readFileSync(parsed.artifact.path, "utf8")).toContain("evidence-backed open redirect");
+      expect(parsed.nextCommands).toEqual(expect.arrayContaining([expect.stringContaining("bounty reports score")]));
+      expect(requestBody.messages[0].content).toContain("assistant-only");
+      expect(requestBody.messages[1].content).toContain(candidateId);
+      expect(requestBody.messages[1].content).not.toContain("sk-chat-test");
     } finally {
       await closeServer(server);
     }
@@ -200,6 +309,103 @@ function createWorkspace(): string {
   const workspace = mkdtempSync(path.join(os.tmpdir(), "bountypilot-chat-"));
   workspaces.push(workspace);
   return workspace;
+}
+
+function importAiProgram(workspace: string): void {
+  const programFile = path.join(workspace, "ai-program.yml");
+  writeFileSync(programFile, aiProgramYaml(), "utf8");
+  expectCommand(runCli(["init"], workspace)).toExit(0);
+  expectCommand(runCli(["import", programFile], workspace)).toExit(0);
+}
+
+function connectMockProvider(workspace: string, baseURL: string): void {
+  const connect = runCli(
+    [
+      "providers",
+      "connect",
+      "mock",
+      "--openai-compatible",
+      "--base-url",
+      `${baseURL}/v1`,
+      "--api-key",
+      "sk-chat-test",
+      "--model",
+      "mock-model",
+      "--json",
+    ],
+    workspace,
+  );
+  expectCommand(connect).toExit(0);
+}
+
+function createAiCandidateFixture(workspace: string): string {
+  const paths = programWorkspace("ai-cli", workspace);
+  const db = openBountyDatabase(paths.dbFile);
+  const evidence = new EvidenceStore(db, paths.evidenceDir, {
+    maskSecrets: true,
+    trustedArtifactRoots: [paths.reportsDir],
+  });
+  const artifact = evidence.writeTextArtifact({
+    adapterName: "test-fixture",
+    kind: "response_sample",
+    sourceUrl: "https://api.example.com/redirect?next=https://example.org",
+    relativePath: "fixtures/open-redirect-response.txt",
+    content: "HTTP/1.1 302 Found\nLocation: https://example.org\n",
+  });
+  const candidate = new FindingCandidateStore(db).create({
+    title: "Open redirect candidate",
+    asset: "api.example.com",
+    url: "https://api.example.com/redirect?next=https://example.org",
+    category: "open_redirect",
+    severityEstimate: "medium",
+    confidence: "high",
+    status: "ready_for_draft",
+    evidenceIds: [artifact.id],
+    observationIds: [],
+    falsePositiveRisk: "medium",
+    duplicateRisk: "unknown",
+    reportability: "ready_for_draft",
+    reasoningSummary: "Redirect response points to an external host with evidence.",
+    nextManualSteps: ["Confirm program policy treats open redirects as reportable."],
+  });
+  db.close();
+  return candidate.id;
+}
+
+function aiProgramYaml(): string {
+  return `program: ai-cli
+platform: hackerone
+
+in_scope:
+  - "api.example.com"
+  - "https://api.example.com/*"
+
+out_of_scope: []
+
+rules:
+  automated_scanning: limited
+  destructive_testing: false
+  rate_limit: "100rps"
+  browser_crawling: true
+  deep_safe_mode: true
+  require_human_approval_for_risky_actions: true
+
+accounts:
+  required: false
+  use_researcher_owned_test_accounts_only: true
+
+evidence:
+  screenshots: true
+  har: true
+  console_logs: true
+  dom_snapshot: true
+  video: optional
+  browser_trace: true
+  desktop_screenshots: optional
+  mask_secrets: true
+
+integrations: {}
+`;
 }
 
 function runCli(args: string[], cwd: string): SpawnSyncReturns<string> {
