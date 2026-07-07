@@ -227,7 +227,8 @@ function nextCommandsForBootstrap(input: {
   }
   if (byName.get("git:working-tree")?.status === "fail") {
     commands.add("git status --short");
-    commands.add("git add . && git commit -m \"Prepare BountyPilot release\"");
+    commands.add("git add .");
+    commands.add("git commit -m \"Prepare BountyPilot release\"");
   }
   if (byName.get("git:local-tag")?.status === "warn") {
     input.commands.tag.forEach((command) => commands.add(command));

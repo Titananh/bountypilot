@@ -637,10 +637,16 @@ function publishStatusNextCommands(input: {
 }): string[] {
   const byName = new Map(input.checks.map((check) => [check.name, check]));
   const commands = new Set<string>();
+  const githubActionsGhFailed = byName.get("github:actions-gh")?.status === "fail";
   if (byName.get("release:check")?.status === "fail") commands.add("npm run verify:release");
   if (byName.get("git:origin")?.status === "fail") {
     commands.add(`bounty release github-bootstrap ${input.repo.slug} --branch ${input.branch} --tag ${input.tag} --write`);
     commands.add(`bounty release publish-plan ${input.repo.slug} --write`);
+    if (githubActionsGhFailed) {
+      for (const command of GITHUB_CLI_INSTALL_COMMANDS) commands.add(command);
+      commands.add("gh --version");
+      commands.add("gh auth status");
+    }
     commands.add("gh auth login");
     commands.add(`gh repo create ${input.repo.slug} --public --source . --remote origin --push`);
   }
@@ -649,7 +655,8 @@ function publishStatusNextCommands(input: {
   }
   if (byName.get("git:working-tree")?.status === "fail") {
     commands.add("git status --short");
-    commands.add("git add . && git commit -m \"Prepare BountyPilot release\"");
+    commands.add("git add .");
+    commands.add("git commit -m \"Prepare BountyPilot release\"");
   }
   if (byName.get("git:remote-branch")?.status === "fail") commands.add(`git push -u origin ${input.branch}`);
   if (byName.get("git:local-tag")?.status === "warn") commands.add(`git tag ${input.tag}`);
@@ -659,7 +666,7 @@ function publishStatusNextCommands(input: {
     commands.add(`bounty release publish-status ${input.repo.slug} --branch ${input.publicBranch} --tag ${input.tag} --online --actions --json`);
   }
   if (!input.online) commands.add(`bounty release publish-status ${input.repo.slug} --branch ${input.branch} --tag ${input.tag} --online --json`);
-  if (byName.get("github:actions-gh")?.status === "fail") {
+  if (githubActionsGhFailed) {
     for (const command of GITHUB_CLI_INSTALL_COMMANDS) commands.add(command);
     commands.add("gh --version");
     commands.add("gh auth status");

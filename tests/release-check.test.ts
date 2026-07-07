@@ -257,6 +257,64 @@ describe("release checks", () => {
     ]));
   });
 
+  it("orders GitHub CLI setup before repo creation when origin is missing", () => {
+    const root = writeReleaseFixture();
+    execFileSync("git", ["init", "-b", "main"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "bountypilot@example.test"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "BountyPilot Test"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["add", "."], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "fixture"], { cwd: root, stdio: "ignore" });
+
+    const result = buildReleasePublishStatus({
+      cwd: root,
+      repo: "owner/repo",
+      branch: "main",
+      tag: "v0.0.0",
+      actions: true,
+      ghCommand: "bountypilot-missing-gh-command",
+      timeoutMs: 500,
+    });
+
+    const installIndex = result.nextCommands.indexOf("winget install --id GitHub.cli -e");
+    const authIndex = result.nextCommands.indexOf("gh auth login");
+    const createIndex = result.nextCommands.indexOf("gh repo create owner/repo --public --source . --remote origin --push");
+    expect(installIndex).toBeGreaterThanOrEqual(0);
+    expect(authIndex).toBeGreaterThan(installIndex);
+    expect(createIndex).toBeGreaterThan(authIndex);
+  });
+
+  it("prints shell-neutral commit commands for dirty release worktrees", () => {
+    const root = writeReleaseFixture();
+    const fakeGh = writeFakeGh(mkdtempSync(path.join(os.tmpdir(), "bountypilot-fake-gh-dirty-")));
+    execFileSync("git", ["init", "-b", "main"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "bountypilot@example.test"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "BountyPilot Test"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["add", "."], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "fixture"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["remote", "add", "origin", "https://github.com/owner/repo.git"], { cwd: root, stdio: "ignore" });
+    writeFileSync(path.join(root, "README.md"), "# dirty release fixture\n", "utf8");
+
+    const publishStatus = buildReleasePublishStatus({
+      cwd: root,
+      repo: "owner/repo",
+      branch: "main",
+      tag: "v0.0.0",
+    });
+    expect(publishStatus.nextCommands).toEqual(expect.arrayContaining(["git status --short", "git add .", "git commit -m \"Prepare BountyPilot release\""]));
+    expect(publishStatus.nextCommands.join("\n")).not.toContain("git add . && git commit");
+
+    const bootstrap = buildReleaseGithubBootstrap({
+      cwd: root,
+      repo: "owner/repo",
+      branch: "main",
+      tag: "v0.0.0",
+      ghCommand: process.execPath,
+      ghArgsPrefix: [fakeGh],
+    });
+    expect(bootstrap.nextCommands).toEqual(expect.arrayContaining(["git status --short", "git add .", "git commit -m \"Prepare BountyPilot release\""]));
+    expect(bootstrap.nextCommands.join("\n")).not.toContain("git add . && git commit");
+  });
+
   it("builds a GitHub bootstrap bundle with gh/auth probes and publish scripts", () => {
     const root = writeReleaseFixture();
     const fakeGh = writeFakeGh(mkdtempSync(path.join(os.tmpdir(), "bountypilot-fake-gh-bootstrap-")));
