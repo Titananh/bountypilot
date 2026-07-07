@@ -303,7 +303,7 @@ function recommendNextActions(input: {
     recommendations.push("Use `bounty triage <finding-id>` and `bounty reproduce <finding-id>` before drafting reports.");
   }
   if (input.triageResults.some((result) => result.recommendation === "ready_for_draft")) {
-    recommendations.push("Draft ready findings with `bounty report <finding-id> --platform hackerone`.");
+    recommendations.push("Draft ready findings with `bounty report <finding-id> --platform hackerone|bugcrowd`.");
   }
   if (input.evidenceTotal > 0) {
     recommendations.push("Create an evidence manifest with `bounty evidence --manifest` before sharing artifacts.");

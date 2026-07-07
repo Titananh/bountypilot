@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateHackerOneReport, generateReproductionNote } from "../src/engines/report-generator/report-generator.js";
+import { generateBugcrowdReport, generateHackerOneReport, generateReproductionNote } from "../src/engines/report-generator/report-generator.js";
 import { buildReportReview } from "../src/engines/report-generator/report-review.js";
 import { TriageEngine } from "../src/engines/triage/triage-engine.js";
 import type { DuplicateRiskResult } from "../src/engines/duplicate-risk/duplicate-risk-engine.js";
@@ -42,6 +42,29 @@ describe("ReportGenerator", () => {
     expect(report).toContain("## Evidence Manifest");
     expect(report).toContain("Private HackerOne duplicate visibility cannot be checked locally");
     expect(report).toContain("## Safe Testing Statement");
+    expect(report).toContain("token=[REDACTED]");
+    expect(report).not.toContain("abc123");
+  });
+
+  it("generates Bugcrowd-style report sections", () => {
+    const report = generateBugcrowdReport(
+      finding,
+      [
+        {
+          id: "evidence-1",
+          adapterName: "safe-checks",
+          kind: "tool_output",
+          sourceUrl: "https://api.example.com?token=abc123",
+          path: "evidence/safe-checks.json",
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    );
+    expect(report).toContain("## Vulnerability Summary");
+    expect(report).toContain("## Affected Target");
+    expect(report).toContain("## Steps To Reproduce");
+    expect(report).toContain("## Proof And Attachments");
+    expect(report).toContain("Bugcrowd private duplicate visibility cannot be checked locally");
     expect(report).toContain("token=[REDACTED]");
     expect(report).not.toContain("abc123");
   });

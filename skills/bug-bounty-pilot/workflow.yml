@@ -224,7 +224,7 @@ steps:
     requires_scope: true
     requires_approval: false
     blocked_capabilities: [auto_submit_report]
-    cli_commands: ["bounty reports draft <candidate-id> --platform hackerone"]
+    cli_commands: ["bounty reports draft <candidate-id> --platform hackerone|bugcrowd"]
     failure_behavior: Block unless ready_for_draft.
     artifacts: [report_md]
   - id: handoff_bundle

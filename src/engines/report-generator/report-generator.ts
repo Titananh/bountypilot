@@ -3,6 +3,13 @@ import path from "node:path";
 import type { EvidenceArtifact, NormalizedFinding } from "../../types.js";
 import { maskSecrets } from "../../utils/secrets.js";
 
+export const SUPPORTED_REPORT_PLATFORMS = ["hackerone", "bugcrowd"] as const;
+export type ReportPlatform = (typeof SUPPORTED_REPORT_PLATFORMS)[number];
+
+export function isSupportedReportPlatform(value: string): value is ReportPlatform {
+  return SUPPORTED_REPORT_PLATFORMS.includes(value as ReportPlatform);
+}
+
 export function generateHackerOneReport(finding: NormalizedFinding, evidence: EvidenceArtifact[]): string {
   const evidenceReferences = collectEvidenceReferences(finding, evidence);
   const evidenceLines = formatEvidenceReferences(evidenceReferences);
@@ -60,6 +67,57 @@ Testing was limited to authorized, explicitly in-scope assets. BountyPilot block
 `);
 }
 
+export function generateBugcrowdReport(finding: NormalizedFinding, evidence: EvidenceArtifact[]): string {
+  const evidenceReferences = collectEvidenceReferences(finding, evidence);
+  const evidenceLines = formatEvidenceReferences(evidenceReferences);
+  const reproduction = buildSafeReproductionSteps(finding, evidenceReferences);
+
+  return maskSecrets(`# ${finding.title}
+
+## Vulnerability Summary
+BountyPilot identified **${finding.title}** during safe, local-first testing of an explicitly authorized target. Confidence is **${finding.confidence}** and the local severity estimate is **${finding.severityEstimate}** until the program validates impact.
+
+## Affected Target
+- Asset: ${finding.asset}
+- URL: ${finding.url}
+- Vulnerability Category: ${finding.category}
+- Severity Estimate: ${finding.severityEstimate}
+- Confidence: ${finding.confidence}
+- Local Finding ID: ${finding.id}
+
+## Scope And Testing Boundary
+The target must remain explicitly in scope before any manual submission. This draft is based on BountyPilot evidence and does not prove authorization for assets outside the imported program scope.
+
+## Steps To Reproduce
+${reproduction}
+
+## Observed Result
+${safeObservationForCategory(finding)}
+
+## Expected Result
+The application should enforce the intended security control while allowing validation through non-destructive, authorized, rate-limited testing only.
+
+## Security Impact
+Describe impact only when it is supported by the linked evidence and program rules. Current local reportability score: **${finding.reportabilityScore}/100** (${scoreBand(finding.reportabilityScore)}). Do not access data that does not belong to the researcher, do not change server state, and do not escalate validation without explicit approval.
+
+## Proof And Attachments
+${evidenceLines}
+
+Do not paste raw artifact contents into this draft. Review each artifact locally, redact secrets and unrelated personal data, and attach the minimum proof needed on Bugcrowd.
+
+## Suggested Remediation
+${finding.remediation ?? "Add a targeted remediation once the root cause is confirmed."}
+
+## Duplicate And Validation Notes
+- Local duplicate risk: ${formatDuplicateRisk(finding.duplicateRisk)}
+- Bugcrowd private duplicate visibility cannot be checked locally; review the program and platform before submitting.
+- Current local status: ${finding.status}
+
+## Safe Testing Statement
+Testing was limited to authorized, explicitly in-scope assets. BountyPilot blocks out-of-scope targets, destructive testing, brute force, credential stuffing, data exfiltration, spam, WAF evasion, and automatic report submission. This draft must be submitted manually by a human researcher after final redaction.
+`);
+}
+
 export function generateReproductionNote(finding: NormalizedFinding, evidence: EvidenceArtifact[]): string {
   const evidenceReferences = collectEvidenceReferences(finding, evidence);
 
@@ -98,6 +156,31 @@ export function writeHackerOneReport(
   const reportPath = path.join(reportsDir, `${finding.id}-hackerone.md`);
   writeFileSync(reportPath, generateHackerOneReport(finding, evidence), "utf8");
   return reportPath;
+}
+
+export function writeBugcrowdReport(
+  reportsDir: string,
+  finding: NormalizedFinding,
+  evidence: EvidenceArtifact[],
+): string {
+  mkdirSync(reportsDir, { recursive: true });
+  const reportPath = path.join(reportsDir, `${finding.id}-bugcrowd.md`);
+  writeFileSync(reportPath, generateBugcrowdReport(finding, evidence), "utf8");
+  return reportPath;
+}
+
+export function writePlatformReport(
+  reportsDir: string,
+  platform: ReportPlatform,
+  finding: NormalizedFinding,
+  evidence: EvidenceArtifact[],
+): string {
+  switch (platform) {
+    case "hackerone":
+      return writeHackerOneReport(reportsDir, finding, evidence);
+    case "bugcrowd":
+      return writeBugcrowdReport(reportsDir, finding, evidence);
+  }
 }
 
 interface EvidenceReference {

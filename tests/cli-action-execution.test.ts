@@ -573,6 +573,15 @@ describe("CLI action execution", () => {
     expect(parsedReport.finding.status).toBe("report_drafted");
     expect(parsedReport.artifact.kind).toBe("report");
     expect(existsSync(parsedReport.report.path)).toBe(true);
+    expect(parsedReport.report.path).toContain("-hackerone.md");
+
+    const bugcrowdReportJson = await runCli(["report", parsedFindingCreate.finding.id, "--platform", "bugcrowd", "--force-local-draft", "--json"], workspace);
+    expectCommand(bugcrowdReportJson).toExit(0);
+    expect(bugcrowdReportJson.stderr).toBe("");
+    const parsedBugcrowdReport = JSON.parse(bugcrowdReportJson.stdout);
+    expect(parsedBugcrowdReport.report).toMatchObject({ platform: "bugcrowd" });
+    expect(parsedBugcrowdReport.report.path).toContain("-bugcrowd.md");
+    expect(readFileSync(parsedBugcrowdReport.report.path, "utf8")).toContain("## Vulnerability Summary");
   }, 20_000);
 
   it("records browser evidence with request and response samples for report readiness", async () => {

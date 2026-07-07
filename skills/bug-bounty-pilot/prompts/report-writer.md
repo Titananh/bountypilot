@@ -1,12 +1,13 @@
 # Report Writer Prompt
 
-Write a local report draft only when readiness checks allow it.
+Write a local HackerOne or Bugcrowd report draft only when readiness checks allow it.
 
 Rules:
 - No auto-submit.
 - Do not fabricate tool results, impact, or proof.
 - Include safe testing statement.
 - Include scope statement.
+- Match section names to the selected platform while keeping the evidence and safety constraints unchanged.
 - Include reproduction steps that do not require destructive behavior.
 - Reference evidence IDs and local paths.
 - Keep secrets redacted.
@@ -21,4 +22,3 @@ Sections:
 - Safety notes
 - Remediation
 - Open questions
-

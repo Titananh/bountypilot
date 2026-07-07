@@ -17,7 +17,11 @@ import { AgentPlanner, type PlannerActionContext } from "../engines/agent-planne
 import { DuplicateRiskEngine } from "../engines/duplicate-risk/duplicate-risk-engine.js";
 import { candidateBaselineReportabilityScore } from "../engines/finding-candidates/finding-candidate-engine.js";
 import { analyzeJavaScript } from "../engines/js-analyzer/js-analyzer.js";
-import { generateReproductionNote, writeHackerOneReport } from "../engines/report-generator/report-generator.js";
+import {
+  generateReproductionNote,
+  isSupportedReportPlatform,
+  writePlatformReport,
+} from "../engines/report-generator/report-generator.js";
 import { buildReportReview, type ReportReadiness } from "../engines/report-generator/report-review.js";
 import { runSafeChecks } from "../engines/safe-checks/safe-checks.js";
 import { TriageEngine } from "../engines/triage/triage-engine.js";
@@ -3147,12 +3151,12 @@ program
   .option("--platform <platform>", "Report platform", "hackerone")
   .option("--force-local-draft", "Write a local draft even when report readiness is blocked")
   .option("--json", "Print machine-readable JSON")
-  .description("Generate a HackerOne-style markdown report draft")
+  .description("Generate a local HackerOne or Bugcrowd markdown report draft")
   .action((findingId: string, ...args: unknown[]) => {
     const command = commandFromArgs(args);
     const options = command.opts<{ platform: string; forceLocalDraft?: boolean; json?: boolean }>();
-    if (options.platform !== "hackerone") {
-      throw new BountyPilotError("Only HackerOne markdown reports are implemented in v0.1.", "REPORT_PLATFORM_UNSUPPORTED");
+    if (!isSupportedReportPlatform(options.platform)) {
+      throw new BountyPilotError("Unsupported report platform. Use hackerone or bugcrowd.", "REPORT_PLATFORM_UNSUPPORTED");
     }
     const runtime = createRuntime(rootProgramName());
     const finding = runtime.findings.get(findingId);
@@ -3184,7 +3188,7 @@ program
         "REPORT_READINESS_BLOCKED",
       );
     }
-    const reportPath = writeHackerOneReport(runtime.paths.reportsDir, finding, evidence);
+    const reportPath = writePlatformReport(runtime.paths.reportsDir, options.platform, finding, evidence);
     runtime.findings.updateStatus(findingId, "report_drafted");
     const artifact = runtime.evidence.create({
       findingId,
@@ -8056,6 +8060,7 @@ function candidateNextCommands(candidate: FindingCandidate, jobId?: string): str
     commands.push(`bounty reports score ${candidate.findingId}${jobOption}`);
     if (candidate.reportability === "ready_for_draft") {
       commands.push(`bounty report ${candidate.findingId} --platform hackerone`);
+      commands.push(`bounty report ${candidate.findingId} --platform bugcrowd`);
     }
   }
   return [...new Set(commands)];
@@ -8170,8 +8175,8 @@ function draftFindingReport(
   platform: string;
   path: string;
 } {
-  if (platform !== "hackerone") {
-    throw new BountyPilotError("Only HackerOne markdown reports are implemented in v0.1.", "REPORT_PLATFORM_UNSUPPORTED");
+  if (!isSupportedReportPlatform(platform)) {
+    throw new BountyPilotError("Unsupported report platform. Use hackerone or bugcrowd.", "REPORT_PLATFORM_UNSUPPORTED");
   }
   const finding = runtime.findings.get(findingId);
   if (!finding) {
@@ -8191,7 +8196,7 @@ function draftFindingReport(
       "REPORT_READINESS_BLOCKED",
     );
   }
-  const reportPath = writeHackerOneReport(runtime.paths.reportsDir, finding, evidence);
+  const reportPath = writePlatformReport(runtime.paths.reportsDir, platform, finding, evidence);
   runtime.findings.updateStatus(findingId, "report_drafted");
   const artifact = runtime.evidence.create({
     findingId,
@@ -8777,6 +8782,7 @@ function buildResultsNextCommands(input: {
     }
     if (top.readiness !== "blocked") {
       commands.push(`bounty report ${top.id} --platform hackerone`);
+      commands.push(`bounty report ${top.id} --platform bugcrowd`);
     }
   }
   if (input.jobId) {
@@ -8820,7 +8826,9 @@ function buildJobReview(runtime: Runtime, jobId: string, limit: number) {
   const findingCommands = findingSummaries.flatMap((finding) => [
     `bounty findings show ${finding.id}`,
     `bounty reports review ${finding.id} --job ${job.id}`,
-    ...(finding.readiness === "ready_for_draft" ? [`bounty report ${finding.id} --platform hackerone`] : []),
+    ...(finding.readiness === "ready_for_draft"
+      ? [`bounty report ${finding.id} --platform hackerone`, `bounty report ${finding.id} --platform bugcrowd`]
+      : []),
   ]);
   const nextCommands = [
     `bounty jobs show ${job.id}`,
@@ -9061,6 +9069,7 @@ function reportReviewCommands(
       commands.push(`bounty findings show ${promotedFindingId}`);
       if (readiness !== "blocked") {
         commands.push(`bounty report ${promotedFindingId} --platform hackerone`);
+        commands.push(`bounty report ${promotedFindingId} --platform bugcrowd`);
       }
     } else {
       commands.push(`bounty findings promote-candidate ${findingId}`);
@@ -9077,6 +9086,7 @@ function reportReviewCommands(
   ];
   if (readiness !== "blocked") {
     commands.push(`bounty report ${findingId} --platform hackerone`);
+    commands.push(`bounty report ${findingId} --platform bugcrowd`);
   }
   return [...new Set(commands)];
 }
