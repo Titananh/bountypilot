@@ -63,6 +63,11 @@ bugbounty --version
 if ($LASTEXITCODE -ne 0) {
   Write-Error "bugbounty was installed but did not run successfully."
 }
+$SkillValidation = bugbounty skill validate bug-bounty-pilot --json
+if ($LASTEXITCODE -ne 0) {
+  Write-Error "bug-bounty-pilot skill validation failed after install."
+}
+Write-Host "Skill package verified: bug-bounty-pilot"
 Write-Host ""
 Write-Host "Next:"
 Write-Host "  bugbounty --help"

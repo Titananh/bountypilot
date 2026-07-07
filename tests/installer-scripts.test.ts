@@ -22,6 +22,7 @@ describe("installer scripts", () => {
     expect(result.status, outputOf(result)).toBe(0);
     expect(outputOf(result)).toContain("Installing BountyPilot from github:OWNER/REPO");
     expect(outputOf(result)).toContain("Dry run: npm install -g github:OWNER/REPO");
+    expect(outputOf(result)).not.toContain("Skill package verified");
   });
 
   it("rejects unsupported Bash installer sources before npm install", () => {
@@ -63,6 +64,7 @@ describe("installer scripts", () => {
     expect(result.status, outputOf(result)).toBe(0);
     expect(outputOf(result)).toContain("Installing BountyPilot from bountypilot@0.1.0");
     expect(outputOf(result)).toContain("Dry run: npm install -g bountypilot@0.1.0");
+    expect(outputOf(result)).not.toContain("Skill package verified");
   });
 
   it("rejects unsupported PowerShell installer sources before npm install", () => {

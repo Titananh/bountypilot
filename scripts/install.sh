@@ -65,6 +65,8 @@ npm install -g "${source_spec}"
 echo
 echo "Installed:"
 bugbounty --version
+bugbounty skill validate bug-bounty-pilot --json >/dev/null
+echo "Skill package verified: bug-bounty-pilot"
 echo
 echo "Next:"
 echo "  bugbounty --help"
