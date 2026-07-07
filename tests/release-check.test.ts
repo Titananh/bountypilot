@@ -84,6 +84,18 @@ describe("release checks", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("fails when GitHub community templates are missing", () => {
+    const root = writeReleaseFixture();
+    rmSync(path.join(root, ".github", "pull_request_template.md"));
+
+    const result = runReleaseCheck(root);
+
+    expect(result.checks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: ".github/pull_request_template.md", status: "fail" })]),
+    );
+    expect(result.ok).toBe(false);
+  });
+
   it("fails malformed workflow summary examples", () => {
     const root = writeReleaseFixture();
     writeText(
@@ -171,6 +183,27 @@ jobs:
       - uses: softprops/action-gh-release@v2
 `,
   );
+  writeText(
+    root,
+    ".github/pull_request_template.md",
+    "## Safety Checklist\n- [ ] No real target data\n- [ ] `npm run verify:release`\n",
+  );
+  writeText(
+    root,
+    ".github/dependabot.yml",
+    "version: 2\nupdates:\n  - package-ecosystem: npm\n    directory: /\n    schedule:\n      interval: weekly\n    open-pull-requests-limit: 5\n",
+  );
+  writeText(
+    root,
+    ".github/ISSUE_TEMPLATE/bug_report.yml",
+    "name: Bug report\nbody:\n  - type: markdown\n    attributes:\n      value: Safety confirmation secrets\n",
+  );
+  writeText(
+    root,
+    ".github/ISSUE_TEMPLATE/feature_request.yml",
+    "name: Feature request\nbody:\n  - type: markdown\n    attributes:\n      value: Safety mode scope, policy\n",
+  );
+  writeText(root, ".github/ISSUE_TEMPLATE/config.yml", "blank_issues_enabled: false\n");
   writeText(root, "dist/cli/index.js", "#!/usr/bin/env node\n");
   writeText(root, "examples/local-lab-authorization.md", "Authorized local lab.\n");
   writeText(root, "examples/program.yml", programYaml("fixture", false));

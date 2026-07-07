@@ -62,6 +62,28 @@ const REQUIRED_EXAMPLES = [
 ];
 const REQUIRED_PROGRAM_EXAMPLES = ["examples/program.yml", "examples/local-program.yml"];
 const REQUIRED_PUBLIC_REPO_FILES = ["LICENSE", "SECURITY.md", "CONTRIBUTING.md"];
+const REQUIRED_GITHUB_COMMUNITY_FILES = [
+  {
+    name: ".github/pull_request_template.md",
+    snippets: ["Safety Checklist", "npm run verify:release", "No real target data"],
+  },
+  {
+    name: ".github/dependabot.yml",
+    snippets: ["package-ecosystem: npm", "interval: weekly", "open-pull-requests-limit"],
+  },
+  {
+    name: ".github/ISSUE_TEMPLATE/bug_report.yml",
+    snippets: ["Bug report", "Safety confirmation", "secrets"],
+  },
+  {
+    name: ".github/ISSUE_TEMPLATE/feature_request.yml",
+    snippets: ["Feature request", "Safety mode", "scope, policy"],
+  },
+  {
+    name: ".github/ISSUE_TEMPLATE/config.yml",
+    snippets: ["blank_issues_enabled: false"],
+  },
+];
 const REQUIRED_GITHUB_WORKFLOWS = [
   {
     name: ".github/workflows/ci.yml",
@@ -90,6 +112,11 @@ export function runReleaseCheck(cwd = process.cwd()): ReleaseCheckResult {
     const workflowPath = path.join(cwd, workflow.name);
     checks.push(fileCheck(workflow.name, workflowPath));
     checks.push(workflowContentCheck(workflow.name, workflowPath, workflow.snippets));
+  }
+  for (const communityFile of REQUIRED_GITHUB_COMMUNITY_FILES) {
+    const communityPath = path.join(cwd, communityFile.name);
+    checks.push(fileCheck(communityFile.name, communityPath));
+    checks.push(workflowContentCheck(communityFile.name, communityPath, communityFile.snippets));
   }
 
   if (packageJson) {

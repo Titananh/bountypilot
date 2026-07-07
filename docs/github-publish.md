@@ -31,6 +31,11 @@ The release check also verifies the public repository contract:
 - `CONTRIBUTING.md`
 - `.github/workflows/ci.yml`
 - `.github/workflows/release.yml`
+- `.github/pull_request_template.md`
+- `.github/dependabot.yml`
+- `.github/ISSUE_TEMPLATE/bug_report.yml`
+- `.github/ISSUE_TEMPLATE/feature_request.yml`
+- `.github/ISSUE_TEMPLATE/config.yml`
 
 ## 3. Push Source To GitHub
 

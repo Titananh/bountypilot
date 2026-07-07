@@ -1,0 +1,46 @@
+name: Feature request
+description: Suggest a safe, scoped improvement for BountyPilot.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        BountyPilot is safe-by-default. Feature requests should preserve scope guards, dry-run defaults, review gates, and local-first evidence handling.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user workflow would this improve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Describe the desired behavior.
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Safety mode
+      options:
+        - passive
+        - safe
+        - deep-safe
+        - lab-offensive
+        - not applicable
+    validations:
+      required: true
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints
+      options:
+        - label: This feature should not bypass scope, policy, rate-limit, audit, approval, or lab-mode requirements.
+          required: true
+        - label: This feature should not add destructive payloads, credential attacks, data exfiltration, WAF evasion, mass scanning, or auto-submit behavior.
+          required: true
+
