@@ -224,6 +224,39 @@ describe("release checks", () => {
     expect(result.nextCommands).not.toContain("gh run list --repo owner/repo --limit 10");
   });
 
+  it("adds GitHub CLI install guidance when actions verification cannot find gh", () => {
+    const root = writeReleaseFixture();
+    execFileSync("git", ["init", "-b", "main"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "bountypilot@example.test"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "BountyPilot Test"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["add", "."], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "fixture"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["remote", "add", "origin", "https://github.com/owner/repo.git"], { cwd: root, stdio: "ignore" });
+
+    const result = buildReleasePublishStatus({
+      cwd: root,
+      repo: "owner/repo",
+      branch: "main",
+      tag: "v0.0.0",
+      actions: true,
+      ghCommand: "bountypilot-missing-gh-command",
+      timeoutMs: 500,
+    });
+
+    expect(result.checks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "github:actions-gh", status: "fail" })]),
+    );
+    expect(result.nextCommands).toEqual(expect.arrayContaining([
+      "winget install --id GitHub.cli -e",
+      "brew install gh",
+      "sudo apt-get update && sudo apt-get install -y gh",
+      "gh --version",
+      "gh auth status",
+      "gh auth login",
+      "bounty release publish-status owner/repo --branch main --tag v0.0.0 --online --actions --json",
+    ]));
+  });
+
   it("builds a GitHub bootstrap bundle with gh/auth probes and publish scripts", () => {
     const root = writeReleaseFixture();
     const fakeGh = writeFakeGh(mkdtempSync(path.join(os.tmpdir(), "bountypilot-fake-gh-bootstrap-")));

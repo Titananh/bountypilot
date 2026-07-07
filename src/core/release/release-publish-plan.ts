@@ -101,6 +101,12 @@ export interface BuildReleasePublishStatusInput {
   timeoutMs?: number;
 }
 
+const GITHUB_CLI_INSTALL_COMMANDS = [
+  "winget install --id GitHub.cli -e",
+  "brew install gh",
+  "sudo apt-get update && sudo apt-get install -y gh",
+];
+
 export function buildReleasePublishPlan(input: BuildReleasePublishPlanInput): ReleasePublishPlanResult {
   const cwd = input.cwd ?? process.cwd();
   const repo = parseGitHubRepo(input.repo);
@@ -653,6 +659,12 @@ function publishStatusNextCommands(input: {
     commands.add(`bounty release publish-status ${input.repo.slug} --branch ${input.publicBranch} --tag ${input.tag} --online --actions --json`);
   }
   if (!input.online) commands.add(`bounty release publish-status ${input.repo.slug} --branch ${input.branch} --tag ${input.tag} --online --json`);
+  if (byName.get("github:actions-gh")?.status === "fail") {
+    for (const command of GITHUB_CLI_INSTALL_COMMANDS) commands.add(command);
+    commands.add("gh --version");
+    commands.add("gh auth status");
+    commands.add("gh auth login");
+  }
   if (!input.actions || input.checks.some((check) => check.name.startsWith("github:actions") && check.status === "fail")) {
     commands.add(`bounty release publish-status ${input.repo.slug} --branch ${input.branch} --tag ${input.tag} --online --actions --json`);
     commands.add(`gh run list --repo ${input.repo.slug} --limit 10`);
