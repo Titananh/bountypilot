@@ -33,17 +33,23 @@ jobs:
       - name: Pack npm tarball
         run: npm pack
 
-      - name: Upload package artifact
+      - name: Generate SBOM
+        run: npm run --silent sbom > bountypilot-sbom.cdx.json
+
+      - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: bountypilot-package
-          path: bountypilot-*.tgz
+          name: bountypilot-release-artifacts
+          path: |
+            bountypilot-*.tgz
+            bountypilot-sbom.cdx.json
           if-no-files-found: error
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: bountypilot-*.tgz
+          files: |
+            bountypilot-*.tgz
+            bountypilot-sbom.cdx.json
           generate_release_notes: true
-

@@ -31,6 +31,7 @@ const REQUIRED_SCRIPTS = [
   "test:package-bin",
   "typecheck",
   "release:check",
+  "sbom",
   "verify:release",
   "prepack",
   "dev",
@@ -91,7 +92,7 @@ const REQUIRED_GITHUB_WORKFLOWS = [
   },
   {
     name: ".github/workflows/release.yml",
-    snippets: ["npm ci", "npm run verify:release", "npm pack", "softprops/action-gh-release"],
+    snippets: ["npm ci", "npm run verify:release", "npm pack", "npm run --silent sbom", "bountypilot-sbom.cdx.json", "softprops/action-gh-release"],
   },
   {
     name: ".github/workflows/codeql.yml",

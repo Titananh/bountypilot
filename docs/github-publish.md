@@ -89,6 +89,7 @@ git push origin v0.1.0
 ```
 
 The workflow verifies the release gate, creates an npm tarball, and attaches it to the GitHub release.
+It also generates and attaches `bountypilot-sbom.cdx.json` as a CycloneDX SBOM for supply-chain review.
 
 ## 6. Verify A Fresh Install
 

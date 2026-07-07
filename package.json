@@ -24,6 +24,7 @@
     "test:package-bin": "vitest run --config vitest.package.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "release:check": "node dist/cli/index.js release check --json",
+    "sbom": "npm sbom --sbom-format cyclonedx --sbom-type application --json",
     "verify:release": "node scripts/verify-release.mjs",
     "prepare": "npm run build",
     "prepack": "npm run build",

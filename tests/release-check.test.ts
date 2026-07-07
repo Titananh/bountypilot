@@ -146,6 +146,7 @@ function writeReleaseFixture(): string {
           "test:package-bin": "echo package",
           typecheck: "echo typecheck",
           "release:check": "echo release",
+          sbom: "echo sbom",
           "verify:release": "echo verify",
           prepack: "echo prepack",
           dev: "echo dev",
@@ -192,7 +193,10 @@ jobs:
       - run: npm ci
       - run: npm run verify:release
       - run: npm pack
+      - run: npm run --silent sbom > bountypilot-sbom.cdx.json
       - uses: softprops/action-gh-release@v2
+        with:
+          files: bountypilot-sbom.cdx.json
 `,
   );
   writeText(
