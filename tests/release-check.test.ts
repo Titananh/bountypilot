@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -219,6 +219,21 @@ describe("release checks", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("fails when the GitHub source install prepare script is missing", () => {
+    const root = writeReleaseFixture();
+    const packageJsonPath = path.join(root, "package.json");
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+    delete packageJson.scripts.prepare;
+    writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2), "utf8");
+
+    const result = runReleaseCheck(root);
+
+    expect(result.checks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "script:prepare", status: "fail" })]),
+    );
+    expect(result.ok).toBe(false);
+  });
+
   it("fails when GitHub community templates are missing", () => {
     const root = writeReleaseFixture();
     rmSync(path.join(root, ".github", "pull_request_template.md"));
@@ -274,6 +289,7 @@ function writeReleaseFixture(): string {
           "release:check": "echo release",
           sbom: "echo sbom",
           "verify:release": "echo verify",
+          prepare: "echo prepare",
           prepack: "echo prepack",
           dev: "echo dev",
         },

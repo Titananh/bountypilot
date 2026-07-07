@@ -37,6 +37,7 @@ const REQUIRED_SCRIPTS = [
   "release:check",
   "sbom",
   "verify:release",
+  "prepare",
   "prepack",
   "dev",
 ];
