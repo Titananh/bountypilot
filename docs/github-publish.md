@@ -16,6 +16,12 @@ Example:
 your-name/bountypilot
 ```
 
+Generate the exact local plan for that repository:
+
+```bash
+bounty release publish-plan OWNER/REPO --write
+```
+
 ## 2. Verify Locally
 
 ```bash
@@ -23,6 +29,7 @@ npm ci
 npm run verify:release
 bounty skill score bug-bounty-pilot --json
 bounty release bundle --output .release --json
+bounty release publish-plan OWNER/REPO --write
 npm run test:external-tools
 npm run test:vm-lab
 npm run test:vm-real-tools

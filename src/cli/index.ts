@@ -27,6 +27,7 @@ import { McpStdioExecutor, type McpSessionStepInput } from "../integrations/mcp/
 import { ToolManager } from "../integrations/tool-manager/tool-manager.js";
 import { latestToolApproval, toolApprovalIntegrationName } from "../integrations/tool-manager/tool-adapter-runner.js";
 import { buildReleaseBundle } from "../core/release/release-bundle.js";
+import { buildReleasePublishPlan } from "../core/release/release-publish-plan.js";
 import {
   ARSENAL_TOOLS,
   HUNT_PROFILES,
@@ -5545,6 +5546,62 @@ release
     ui.commandList("next commands", result.nextCommands);
   });
 
+release
+  .command("publish-plan")
+  .argument("<repo>", "GitHub repository as OWNER/REPO, https://github.com/OWNER/REPO, or git@github.com:OWNER/REPO.git")
+  .option("--branch <branch>", "Branch to push and use for raw installer URLs. Defaults to the current branch or main.")
+  .option("--tag <tag>", "Release tag to push. Defaults to v<package.version>.")
+  .option("--remote <kind>", "Preferred remote style: https or ssh", "https")
+  .option("--write", "Write the Markdown plan to disk")
+  .option("--output <path>", "Markdown output path when --write is used. Defaults to .bounty/release/github-publish-plan.md.")
+  .option("--json", "Print machine-readable JSON")
+  .description("Generate an exact GitHub push, install, release, and artifact checklist for a public repo")
+  .action((repo: string, ...args: unknown[]) => {
+    const command = commandFromArgs(args);
+    const options = command.opts<{
+      branch?: string;
+      tag?: string;
+      remote: string;
+      write?: boolean;
+      output?: string;
+      json?: boolean;
+    }>();
+    const result = buildReleasePublishPlan({
+      cwd: process.cwd(),
+      repo,
+      branch: options.branch,
+      tag: options.tag,
+      remote: parseReleaseRemotePreference(options.remote),
+      write: options.write,
+      output: options.output,
+    });
+    if (options.json || requestedJsonOutput(process.argv)) {
+      ui.json(result);
+      return;
+    }
+    ui.header("release publish-plan");
+    ui.status(result.ok ? "ok" : "blocked", `${result.repo.slug} -> ${result.tag}`);
+    ui.panel("github", [
+      ui.kv("repo", result.repo.webUrl),
+      ui.kv("branch", result.branch),
+      ui.kv("tag", result.tag),
+      ui.kv("origin", result.remote.origin ?? "not configured"),
+      ui.kv("origin matches", result.remote.matchesTarget),
+      ui.kv("output", result.outputPath),
+    ]);
+    ui.blank();
+    ui.commandList("local verify", result.commands.localVerify);
+    ui.blank();
+    ui.commandList("remote setup", result.commands.remoteSetup);
+    ui.blank();
+    ui.commandList("release", result.commands.release);
+    ui.blank();
+    ui.panel("install", [ui.kv("npm", result.install.npm), ui.kv("shell", result.install.shell), ui.kv("powershell", result.install.powershell)]);
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
+  });
+
 const beta = program.command("beta").description("Prepare and inspect beta readiness");
 
 beta
@@ -7276,6 +7333,14 @@ function parseSkillRunMode(value: string): SkillRunMode {
     `Unsupported skill mode: ${value}. Use passive, safe, deep-safe, or lab-offensive.`,
     "SKILL_MODE_INVALID",
   );
+}
+
+function parseReleaseRemotePreference(value: string): "https" | "ssh" {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "https" || normalized === "ssh") {
+    return normalized;
+  }
+  throw new BountyPilotError(`Unsupported release remote: ${value}. Use https or ssh.`, "RELEASE_REMOTE_INVALID");
 }
 
 function parseBugClass(value: string): BugClass {

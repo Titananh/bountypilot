@@ -336,6 +336,38 @@ integrations: {}
     expect(readFileSync(path.join(releaseBundleDir, "SHA256SUMS.txt"), "utf8")).toContain("bug-bounty-pilot.skill.zip");
     expect(readdirSync(releaseBundleDir).some((entry) => /^bountypilot-.*\.tgz$/.test(entry))).toBe(true);
 
+    const publishPlanPath = path.join(workspace, "github-publish-plan.md");
+    const publishPlan = runCli(
+      [
+        "release",
+        "publish-plan",
+        "octo/bountypilot",
+        "--branch",
+        "main",
+        "--tag",
+        "v0.1.0",
+        "--write",
+        "--output",
+        publishPlanPath,
+        "--json",
+      ],
+      repoRoot,
+    );
+    expectCommand(publishPlan).toExit(0);
+    expect(publishPlan.stderr).toBe("");
+    const parsedPublishPlan = JSON.parse(publishPlan.stdout);
+    expect(parsedPublishPlan).toMatchObject({
+      ok: true,
+      repo: { slug: "octo/bountypilot", httpsRemote: "https://github.com/octo/bountypilot.git" },
+      branch: "main",
+      tag: "v0.1.0",
+      outputPath: publishPlanPath,
+    });
+    expect(parsedPublishPlan.commands.remoteSetup.join("\n")).toContain("https://github.com/octo/bountypilot.git");
+    expect(parsedPublishPlan.install.npm).toBe("npm install -g github:octo/bountypilot");
+    expect(existsSync(publishPlanPath)).toBe(true);
+    expect(readFileSync(publishPlanPath, "utf8")).toContain("git push origin v0.1.0");
+
     const deepDoctorJson = runCli(["doctor", "--deep", "--json"], repoRoot);
     expectCommand(deepDoctorJson).toExit(0);
     expect(outputOf(deepDoctorJson).trimStart().startsWith("{")).toBe(true);
