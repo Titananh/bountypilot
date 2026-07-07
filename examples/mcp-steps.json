@@ -1,0 +1,15 @@
+{
+  "steps": [
+    {
+      "label": "Open scoped page",
+      "tool": "browser_navigate",
+      "arguments": {
+        "url": "https://api.example.com/"
+      }
+    },
+    {
+      "label": "Capture page snapshot",
+      "tool": "browser_snapshot"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.bounty/
+coverage/
+*.log
+bountypilot-*.tgz
+artifacts/tui-audit/

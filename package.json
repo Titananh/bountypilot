@@ -1,0 +1,60 @@
+{
+  "name": "bountypilot",
+  "version": "0.1.0",
+  "description": "Safe, local-first, scoped bug bounty CLI for authorized security researchers.",
+  "type": "module",
+  "bin": {
+    "bugbounty": "./dist/cli/index.js",
+    "bounty": "./dist/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "examples",
+    "skills",
+    "scripts",
+    "README.md"
+  ],
+  "scripts": {
+    "clean": "node scripts/clean-dist.mjs",
+    "prebuild": "npm run clean",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run --maxWorkers=2",
+    "test:smoke": "vitest run tests/cli-smoke.test.ts tests/safety-acceptance.test.ts",
+    "pretest:package-bin": "npm run build",
+    "test:package-bin": "vitest run --config vitest.package.config.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "release:check": "node dist/cli/index.js release check --json",
+    "verify:release": "node scripts/verify-release.mjs",
+    "prepare": "npm run build",
+    "prepack": "npm run build",
+    "dev": "tsx src/cli/index.ts"
+  },
+  "keywords": [
+    "bug-bounty",
+    "security",
+    "cli",
+    "scope",
+    "evidence"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^14.0.0",
+    "ink": "^7.1.0",
+    "playwright": "^1.55.0",
+    "react": "^19.2.7",
+    "react-devtools-core": "^6.1.2",
+    "yaml": "^2.8.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.17",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}

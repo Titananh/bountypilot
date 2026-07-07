@@ -1,0 +1,107 @@
+modes:
+  passive:
+    allowed_capabilities:
+      - program_import
+      - scope_validation
+      - passive_subdomain_lookup
+      - historical_url_lookup
+      - local_parsing
+      - report_planning
+    review_required_capabilities: []
+    blocked_capabilities:
+      - active_request
+      - live_crawl
+      - port_scan
+      - fuzzing
+      - active_scan
+  safe:
+    allowed_capabilities:
+      - light_http_probe
+      - header_check
+      - cookie_check
+      - cors_indicator_check
+      - js_url_extraction
+      - read_only_crawl
+      - read_only_evidence_capture
+    review_required_capabilities:
+      - nuclei_low
+    blocked_capabilities:
+      - brute_force
+      - destructive_payload
+      - auth_bypass_without_permission
+      - state_changing_form
+      - aggressive_fuzzing
+      - data_exfiltration
+  deep-safe:
+    allowed_capabilities:
+      - expanded_crawl
+      - parameter_discovery
+      - safe_validation
+      - report_draft
+    review_required_capabilities:
+      - nuclei_medium_high
+      - ffuf
+      - dalfox
+      - naabu
+      - nmap
+      - external_tool_execution
+    blocked_capabilities:
+      - deep_exploit
+      - dangerous_rce_validation
+      - file_write
+      - internal_ssrf_callback
+      - dump_sensitive_data
+  lab-offensive:
+    allowed_capabilities:
+      - lab_validation
+      - local_payload_practice
+      - owned_lab_exploitation
+    review_required_capabilities:
+      - destructive_lab_action
+      - external_tool_execution
+      - mcp_live_execution
+    blocked_capabilities:
+      - internet_target_attack
+      - out_of_scope_lab_action
+scope:
+  default: deny
+  out_of_scope_precedence: true
+  require_program_import: true
+  require_scope_match: true
+rate_limit:
+  default_rps: 1
+  per_host: true
+  burst: 2
+blocked_always:
+  - brute_force
+  - credential_stuffing
+  - password_spraying
+  - destructive_payload
+  - malware
+  - waf_evasion
+  - data_exfiltration
+  - auth_bypass_without_permission
+  - mass_internet_scan
+  - auto_submit_report
+  - dump_sensitive_data
+approval_required:
+  - active_scan
+  - fuzzing
+  - nuclei_medium_high
+  - ffuf
+  - dalfox
+  - naabu
+  - nmap
+  - external_tool_execution
+  - mcp_live_execution
+evidence:
+  mask_secrets: true
+  redact_tokens: true
+  store_local_only: true
+external_tools:
+  require_absolute_path: true
+  require_approval: true
+  no_shell: true
+  timeout_seconds: 60
+  bounded_output: true
+  checksum_or_approval_required: true

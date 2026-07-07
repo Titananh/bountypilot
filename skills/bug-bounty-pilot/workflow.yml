@@ -1,0 +1,241 @@
+steps:
+  - id: authorization_check
+    purpose: Confirm authorized use and imported program context.
+    allowed_modes: [passive, safe, deep-safe, lab-offensive]
+    inputs: [program, target]
+    outputs: [authorization_status]
+    risk_level: low
+    requires_scope: false
+    requires_approval: false
+    blocked_capabilities: [random_target_scan]
+    cli_commands: ["bounty init", "bounty import program.yml"]
+    failure_behavior: Block until program and authorization context exist.
+    artifacts: [audit_log]
+  - id: program_import
+    purpose: Load and validate program rules.
+    allowed_modes: [passive, safe, deep-safe, lab-offensive]
+    inputs: [program_file]
+    outputs: [program_config]
+    risk_level: low
+    requires_scope: false
+    requires_approval: false
+    blocked_capabilities: []
+    cli_commands: ["bounty import program.yml"]
+    failure_behavior: Reject invalid or execution-opt-in config.
+    artifacts: [program_workspace]
+  - id: scope_validation
+    purpose: Enforce in-scope target and out-of-scope precedence.
+    allowed_modes: [passive, safe, deep-safe, lab-offensive]
+    inputs: [target, program_config]
+    outputs: [scoped_target]
+    risk_level: low
+    requires_scope: true
+    requires_approval: false
+    blocked_capabilities: [out_of_scope_target]
+    cli_commands: ["bounty scope test <target>"]
+    failure_behavior: Block the workflow.
+    artifacts: [audit_log]
+  - id: vm_readiness
+    purpose: Produce VM setup checklist and bootstrap scripts.
+    allowed_modes: [passive, safe, deep-safe, lab-offensive]
+    inputs: [vm_profile]
+    outputs: [vm_runbook]
+    risk_level: low
+    requires_scope: false
+    requires_approval: false
+    blocked_capabilities: [auto_install]
+    cli_commands: ["bounty arsenal vm --write", "bounty arsenal bootstrap --level safe --write"]
+    failure_behavior: Warn and continue.
+    artifacts: [runbook, bootstrap_script]
+  - id: provider_readiness
+    purpose: Confirm optional AI providers are configured.
+    allowed_modes: [passive, safe, deep-safe, lab-offensive]
+    inputs: [provider_config]
+    outputs: [provider_status]
+    risk_level: low
+    requires_scope: false
+    requires_approval: false
+    blocked_capabilities: [ai_action_execution]
+    cli_commands: ["bounty providers doctor"]
+    failure_behavior: Continue without AI assistance.
+    artifacts: [doctor_output]
+  - id: arsenal_readiness
+    purpose: Check trusted tools and approvals.
+    allowed_modes: [passive, safe, deep-safe, lab-offensive]
+    inputs: [tool_registry]
+    outputs: [tool_status]
+    risk_level: low
+    requires_scope: false
+    requires_approval: false
+    blocked_capabilities: [unapproved_tool_execution]
+    cli_commands: ["bounty tools doctor"]
+    failure_behavior: Missing tools are skipped or queued.
+    artifacts: [doctor_output]
+  - id: passive_recon
+    purpose: Gather passive observations without active target requests.
+    allowed_modes: [passive, safe, deep-safe]
+    inputs: [scoped_target]
+    outputs: [recon_observations]
+    risk_level: low
+    requires_scope: true
+    requires_approval: false
+    blocked_capabilities: [active_request, live_crawl]
+    cli_commands: ["bounty hunt recon <target> --profile passive --dry-run"]
+    failure_behavior: Store plan and continue with available observations.
+    artifacts: [recon_plan, recon_observations]
+  - id: web_recon
+    purpose: Queue or run safe web recon.
+    allowed_modes: [safe, deep-safe]
+    inputs: [scoped_target, recon_observations]
+    outputs: [recon_observations, action_queue]
+    risk_level: medium
+    requires_scope: true
+    requires_approval: true
+    blocked_capabilities: [aggressive_fuzzing, state_changing_action]
+    cli_commands: ["bounty hunt recon <target> --profile web --dry-run"]
+    failure_behavior: Review-required actions remain pending.
+    artifacts: [tool_output, action_queue]
+  - id: crawl
+    purpose: Capture read-only crawl graph and browser evidence.
+    allowed_modes: [safe, deep-safe, lab-offensive]
+    inputs: [scoped_target]
+    outputs: [crawl_graph, evidence]
+    risk_level: low
+    requires_scope: true
+    requires_approval: false
+    blocked_capabilities: [state_changing_form]
+    cli_commands: ["bounty run <target> --with playwright --dry-run"]
+    failure_behavior: Browser failures fall back to HTTP evidence when possible.
+    artifacts: [crawl_graph, screenshot, har]
+  - id: safe_checks
+    purpose: Run non-destructive HTTP and header checks.
+    allowed_modes: [safe, deep-safe, lab-offensive]
+    inputs: [scoped_target]
+    outputs: [observations, evidence]
+    risk_level: low
+    requires_scope: true
+    requires_approval: false
+    blocked_capabilities: [destructive_payload]
+    cli_commands: ["bounty run <target> --with safe-checks --dry-run"]
+    failure_behavior: Store failed check as event.
+    artifacts: [safe_check_output]
+  - id: js_analysis
+    purpose: Extract JS routes, endpoints, and secret candidates.
+    allowed_modes: [safe, deep-safe, lab-offensive]
+    inputs: [scoped_target, crawl_graph]
+    outputs: [observations]
+    risk_level: low
+    requires_scope: true
+    requires_approval: false
+    blocked_capabilities: [secret_validation_against_live_accounts]
+    cli_commands: ["bounty run <target> --with js-analyzer --dry-run"]
+    failure_behavior: Store weak signals as observations.
+    artifacts: [js_analysis_output]
+  - id: playbook_selection
+    purpose: Select safe playbooks based on observations.
+    allowed_modes: [safe, deep-safe, lab-offensive]
+    inputs: [recon_observations]
+    outputs: [playbook_plan]
+    risk_level: low
+    requires_scope: true
+    requires_approval: false
+    blocked_capabilities: []
+    cli_commands: ["bounty hunt playbook headers <target> --dry-run"]
+    failure_behavior: No matching playbook becomes a blocker.
+    artifacts: [playbook_plan]
+  - id: playbook_execution
+    purpose: Execute or queue playbook checks.
+    allowed_modes: [safe, deep-safe, lab-offensive]
+    inputs: [playbook_plan, scoped_target]
+    outputs: [observations, finding_candidates, evidence]
+    risk_level: medium
+    requires_scope: true
+    requires_approval: true
+    blocked_capabilities: [deep_exploit, data_exfiltration]
+    cli_commands: ["bounty hunt playbook <name> <target> --dry-run"]
+    failure_behavior: Unsafe checks stay pending or blocked.
+    artifacts: [playbook_output]
+  - id: finding_candidate_generation
+    purpose: Convert evidence-backed signals into candidates.
+    allowed_modes: [safe, deep-safe, lab-offensive]
+    inputs: [observations, evidence]
+    outputs: [finding_candidates]
+    risk_level: low
+    requires_scope: true
+    requires_approval: false
+    blocked_capabilities: [unsupported_claim]
+    cli_commands: ["bounty findings candidates --job <job-id>"]
+    failure_behavior: Weak signals stay as observations.
+    artifacts: [candidate_json]
+  - id: evidence_collection
+    purpose: Record local artifacts and manifests.
+    allowed_modes: [safe, deep-safe, lab-offensive]
+    inputs: [candidate, scoped_target]
+    outputs: [evidence_manifest]
+    risk_level: low
+    requires_scope: true
+    requires_approval: false
+    blocked_capabilities: [secret_leak]
+    cli_commands: ["bounty evidence record --job <job-id> --type note --title test"]
+    failure_behavior: Missing evidence blocks draft readiness.
+    artifacts: [evidence_manifest]
+  - id: triage
+    purpose: Estimate severity, confidence, false positive risk, and readiness.
+    allowed_modes: [safe, deep-safe, lab-offensive]
+    inputs: [candidate, evidence]
+    outputs: [triage_result]
+    risk_level: low
+    requires_scope: true
+    requires_approval: false
+    blocked_capabilities: [unsupported_impact_claim]
+    cli_commands: ["bounty triage <finding-id>"]
+    failure_behavior: Mark candidate needs manual verification.
+    artifacts: [triage_json]
+  - id: duplicate_risk
+    purpose: Compare against local findings.
+    allowed_modes: [safe, deep-safe, lab-offensive]
+    inputs: [candidate]
+    outputs: [duplicate_risk]
+    risk_level: low
+    requires_scope: false
+    requires_approval: false
+    blocked_capabilities: []
+    cli_commands: ["bounty reports score <candidate-id>"]
+    failure_behavior: Add warning when duplicate risk is unknown.
+    artifacts: [report_score_json]
+  - id: reportability_score
+    purpose: Score report readiness.
+    allowed_modes: [safe, deep-safe, lab-offensive]
+    inputs: [candidate, evidence_manifest]
+    outputs: [report_score]
+    risk_level: low
+    requires_scope: true
+    requires_approval: false
+    blocked_capabilities: [draft_without_evidence]
+    cli_commands: ["bounty reports score <candidate-id> --json"]
+    failure_behavior: Return blockers and next steps.
+    artifacts: [report_score_json]
+  - id: report_draft
+    purpose: Write local HackerOne/Bugcrowd-style draft.
+    allowed_modes: [safe, deep-safe, lab-offensive]
+    inputs: [report_score, candidate]
+    outputs: [local_report_draft]
+    risk_level: low
+    requires_scope: true
+    requires_approval: false
+    blocked_capabilities: [auto_submit_report]
+    cli_commands: ["bounty reports draft <candidate-id> --platform hackerone"]
+    failure_behavior: Block unless ready_for_draft.
+    artifacts: [report_md]
+  - id: handoff_bundle
+    purpose: Package local summary and evidence references for manual review.
+    allowed_modes: [safe, deep-safe, lab-offensive]
+    inputs: [job, findings, evidence]
+    outputs: [handoff_bundle]
+    risk_level: low
+    requires_scope: false
+    requires_approval: false
+    blocked_capabilities: [secret_leak]
+    cli_commands: ["bounty export bundle --job <job-id> --include-evidence"]
+    failure_behavior: Redact and warn on unreadable evidence.
+    artifacts: [handoff_summary]

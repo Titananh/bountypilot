@@ -1,0 +1,19 @@
+{
+  "id": "finding-example-security-header",
+  "title": "Security header missing on scoped API response",
+  "asset": "api.example.com",
+  "url": "https://api.example.com/health",
+  "category": "security_header",
+  "severityEstimate": "low",
+  "confidence": "medium",
+  "status": "report_drafted",
+  "evidencePaths": [
+    "examples/evidence/finding-example-security-header/reproduction.md"
+  ],
+  "rawOutputPath": "examples/evidence/finding-example-security-header/safe-check-output.json",
+  "remediation": "Set a strict Content-Security-Policy and review other response hardening headers.",
+  "duplicateRisk": "medium",
+  "reportabilityScore": 42,
+  "createdAt": "2026-07-05T00:00:00.000Z",
+  "updatedAt": "2026-07-05T00:00:00.000Z"
+}

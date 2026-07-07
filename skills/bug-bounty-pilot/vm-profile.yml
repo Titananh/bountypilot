@@ -1,0 +1,34 @@
+base_os: ubuntu-debian
+package_manager: apt
+node: ">=22.13.0"
+go: ">=1.22"
+python: ">=3.11"
+browser_runtime: playwright-chromium
+install_policy: write_scripts_only
+default_bootstrap_level: safe
+safe_level_tools:
+  - git
+  - curl
+  - jq
+  - nodejs
+  - npm
+  - golang-go
+  - subfinder
+  - dnsx
+  - httpx
+  - katana
+  - gau
+  - waybackurls
+  - playwright
+full_level_tools:
+  - nuclei
+  - ffuf
+  - dalfox
+  - naabu
+  - nmap
+  - crawl4ai
+  - playwright-mcp
+notes:
+  - Bootstrap commands are generated as scripts and are not executed by the CLI.
+  - Review generated scripts before running them manually.
+  - External tools still require approved absolute executables before live use.

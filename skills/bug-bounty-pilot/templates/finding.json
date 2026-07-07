@@ -1,0 +1,22 @@
+{
+  "id": "cand_example",
+  "jobId": "job_example",
+  "title": "Evidence-backed finding candidate",
+  "asset": "https://example.com",
+  "category": "security_headers",
+  "severityEstimate": "low",
+  "confidence": "medium",
+  "status": "needs_manual_verification",
+  "evidenceIds": [],
+  "observationIds": [],
+  "falsePositiveRisk": "medium",
+  "duplicateRisk": "unknown",
+  "reportability": "blocked",
+  "reasoningSummary": "Template candidate. Replace with evidence-backed reasoning.",
+  "nextManualSteps": [
+    "Reproduce with safe read-only request.",
+    "Record redacted evidence.",
+    "Run report readiness score."
+  ]
+}
+

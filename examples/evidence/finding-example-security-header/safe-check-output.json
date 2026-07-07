@@ -1,0 +1,12 @@
+{
+  "target": "https://api.example.com/health",
+  "mode": "safe",
+  "checks": [
+    {
+      "name": "content-security-policy",
+      "status": "missing",
+      "severity": "low"
+    }
+  ],
+  "safeTesting": true
+}

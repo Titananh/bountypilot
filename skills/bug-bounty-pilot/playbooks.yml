@@ -1,0 +1,131 @@
+playbooks:
+  - id: headers
+    name: Security headers
+    description: Identify missing or weak security headers.
+    modes: [safe, deep-safe]
+    required_observations: [url]
+    tools: [safe-checks]
+    steps: [fetch_headers, compare_baseline, create_observation]
+    evidence_required: [response_sample]
+    finding_threshold: medium_confidence_with_response
+    requires_approval: false
+    lab_only: false
+    blocked_if: [out_of_scope]
+    report_template: headers
+  - id: cors
+    name: CORS indicator
+    description: Detect unsafe CORS indicators without credential abuse.
+    modes: [safe, deep-safe]
+    required_observations: [url]
+    tools: [safe-checks]
+    steps: [fetch_cors_headers, assess_origin_policy]
+    evidence_required: [response_sample]
+    finding_threshold: high_confidence_with_repro
+    requires_approval: false
+    lab_only: false
+    blocked_if: [credentialed_user_data_access]
+    report_template: cors
+  - id: cookies
+    name: Cookie flags
+    description: Review secure, httpOnly, sameSite cookie flags.
+    modes: [safe, deep-safe]
+    required_observations: [url]
+    tools: [safe-checks]
+    steps: [fetch_set_cookie, evaluate_flags]
+    evidence_required: [response_sample]
+    finding_threshold: medium_confidence_with_cookie_context
+    requires_approval: false
+    lab_only: false
+    blocked_if: [session_hijack_attempt]
+    report_template: cookies
+  - id: source-map
+    name: Source map exposure
+    description: Detect exposed source maps and route hints.
+    modes: [safe, deep-safe]
+    required_observations: [js_asset]
+    tools: [js-analyzer]
+    steps: [extract_js_assets, check_sourcemap_hint]
+    evidence_required: [request_sample, response_sample]
+    finding_threshold: evidence_plus_sensitive_context
+    requires_approval: false
+    lab_only: false
+    blocked_if: [secret_validation]
+    report_template: source-map
+  - id: js-secrets
+    name: JavaScript secret candidates
+    description: Identify client-side secret candidates without using them.
+    modes: [safe, deep-safe]
+    required_observations: [js_asset]
+    tools: [js-analyzer]
+    steps: [extract_candidates, redact, classify]
+    evidence_required: [evidence_note]
+    finding_threshold: manual_verification_required
+    requires_approval: false
+    lab_only: false
+    blocked_if: [secret_use, account_access]
+    report_template: js-secrets
+  - id: exposed-files
+    name: Exposed files
+    description: Detect safe exposure indicators such as public .env or backup files.
+    modes: [safe, deep-safe]
+    required_observations: [url]
+    tools: [safe-checks]
+    steps: [request_known_safe_paths, redact, classify]
+    evidence_required: [response_sample]
+    finding_threshold: high_confidence_with_redaction
+    requires_approval: false
+    lab_only: false
+    blocked_if: [dump_sensitive_data]
+    report_template: exposed-files
+  - id: xss-candidate
+    name: XSS candidate
+    description: Create non-destructive XSS candidates from reflected parameters.
+    modes: [deep-safe, lab-offensive]
+    required_observations: [parameter]
+    tools: [dalfox]
+    steps: [review_parameter, queue_non_destructive_validation]
+    evidence_required: [request_sample, response_sample]
+    finding_threshold: needs_manual_verification
+    requires_approval: true
+    lab_only: false
+    blocked_if: [destructive_payload, account_takeover]
+    report_template: xss-candidate
+  - id: open-redirect-candidate
+    name: Open redirect candidate
+    description: Identify redirect parameters without chaining phishing or auth bypass.
+    modes: [safe, deep-safe]
+    required_observations: [parameter]
+    tools: [safe-checks]
+    steps: [detect_redirect_parameter, safe_redirect_check]
+    evidence_required: [request_sample, response_sample]
+    finding_threshold: high_confidence_with_safe_repro
+    requires_approval: false
+    lab_only: false
+    blocked_if: [phishing_chain]
+    report_template: open-redirect
+  - id: graphql-introspection
+    name: GraphQL introspection
+    description: Check GraphQL introspection only when endpoint is in scope.
+    modes: [safe, deep-safe]
+    required_observations: [endpoint]
+    tools: [safe-checks]
+    steps: [identify_graphql, safe_introspection_probe]
+    evidence_required: [request_sample, response_sample]
+    finding_threshold: high_confidence_with_scope
+    requires_approval: false
+    lab_only: false
+    blocked_if: [data_exfiltration]
+    report_template: graphql
+  - id: nuclei-low
+    name: Nuclei low severity checks
+    description: Queue low-risk nuclei templates with review.
+    modes: [deep-safe]
+    required_observations: [url]
+    tools: [nuclei]
+    steps: [select_low_templates, queue_review_required_action]
+    evidence_required: [tool_output]
+    finding_threshold: evidence_backed_signal
+    requires_approval: true
+    lab_only: false
+    blocked_if: [medium_high_template_without_review]
+    report_template: nuclei

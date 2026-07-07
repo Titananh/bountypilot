@@ -1,0 +1,49 @@
+program: example-program
+platform: hackerone
+
+in_scope:
+  - "*.example.com"
+  - "api.example.com"
+
+out_of_scope:
+  - "staging.example.com"
+  - "*.internal.example.com"
+
+rules:
+  automated_scanning: limited
+  destructive_testing: false
+  rate_limit: "1rps"
+  browser_crawling: true
+  deep_safe_mode: true
+  lab_mode: false
+  require_human_approval_for_risky_actions: true
+
+accounts:
+  required: true
+  use_researcher_owned_test_accounts_only: true
+
+evidence:
+  screenshots: true
+  har: true
+  console_logs: true
+  dom_snapshot: true
+  video: optional
+  browser_trace: true
+  desktop_screenshots: optional
+  mask_secrets: true
+
+integrations:
+  playwright:
+    enabled: true
+  playwright_mcp:
+    enabled: false
+    allow_execute: false
+  crawl4ai:
+    enabled: false
+    allow_execute: false
+  windows_mcp:
+    enabled: false
+    allow_execute: false
+  d_research_skill:
+    enabled: false
+    source: "https://github.com/d-init-d/d-research-skill.git"

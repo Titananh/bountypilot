@@ -1,0 +1,20 @@
+{
+  "id": "obs_example",
+  "job_id": "job_example",
+  "type": "url",
+  "kind": "url",
+  "value": "https://example.com/",
+  "normalizedValue": "https://example.com/",
+  "source": "httpx",
+  "sourceAdapter": "httpx",
+  "sourceUrl": "https://example.com/",
+  "in_scope": true,
+  "scopeAllowed": true,
+  "confidence": "medium",
+  "riskHint": "low",
+  "metadata": {},
+  "fingerprint": "example-fingerprint",
+  "firstSeenAt": "2026-01-01T00:00:00.000Z",
+  "lastSeenAt": "2026-01-01T00:00:00.000Z"
+}
+

@@ -1,0 +1,38 @@
+program: local-lab
+platform: local
+
+in_scope:
+  - "localhost"
+  - "127.0.0.1"
+
+out_of_scope:
+  - "169.254.169.254"
+  - "metadata.google.internal"
+
+rules:
+  automated_scanning: limited
+  destructive_testing: false
+  rate_limit: "100rps"
+  browser_crawling: true
+  deep_safe_mode: true
+  lab_mode: true
+  lab_authorization_file: local-lab-authorization.md
+  require_human_approval_for_risky_actions: true
+
+accounts:
+  required: false
+  use_researcher_owned_test_accounts_only: true
+
+evidence:
+  screenshots: true
+  har: true
+  console_logs: true
+  dom_snapshot: true
+  video: optional
+  browser_trace: true
+  desktop_screenshots: optional
+  mask_secrets: true
+
+integrations:
+  playwright:
+    enabled: true

@@ -1,0 +1,51 @@
+integrations:
+  playwright:
+    enabled: true
+    type: browser
+    capabilities:
+      - browser.navigate
+      - browser.request
+
+  playwright_mcp:
+    enabled: false
+    type: mcp
+    allow_execute: false
+    transport: stdio
+    execution:
+      enabled: false
+      package: "@playwright/mcp"
+      package_version: "0.0.0"
+      entrypoint: "cli.js"
+      # Optional drift locks captured from a local install:
+      # entrypoint_sha256: "<64-char-sha256>"
+      # package_json_sha256: "<64-char-sha256>"
+      args: []
+    capabilities:
+      - browser.navigate
+      - browser.snapshot
+
+  crawl4ai:
+    enabled: false
+    type: crawler
+    allow_execute: false
+    command: /absolute/path/to/crawl4ai
+    capabilities:
+      - crawler.fetch
+
+  windows_mcp:
+    enabled: false
+    type: desktop
+    allow_execute: false
+    transport: stdio
+    command: /absolute/path/to/windows-mcp
+    capabilities:
+      - desktop.session.plan
+    blocked_capabilities:
+      - desktop.screenshot
+
+  d_research_skill:
+    enabled: false
+    type: research-skill
+    source: "https://github.com/d-init-d/d-research-skill.git"
+    capabilities:
+      - research.public

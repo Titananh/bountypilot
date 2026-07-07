@@ -1,0 +1,86 @@
+tools:
+  - name: subfinder
+    category: passive-recon
+    policy: passive
+    produces: [host]
+    approval_required: false
+  - name: dnsx
+    category: resolver
+    policy: safe
+    produces: [host]
+    approval_required: false
+  - name: httpx
+    category: http-probe
+    policy: safe
+    produces: [url, technology, header]
+    approval_required: false
+  - name: katana
+    category: crawler
+    policy: safe
+    produces: [url, endpoint, form, js_asset]
+    approval_required: false
+  - name: gau
+    category: historical-url
+    policy: passive
+    produces: [url, endpoint, parameter]
+    approval_required: false
+  - name: waybackurls
+    category: historical-url
+    policy: passive
+    produces: [url, endpoint, parameter]
+    approval_required: false
+  - name: nuclei
+    category: scanner
+    policy: review-required
+    produces: [vulnerability_signal]
+    approval_required: true
+  - name: ffuf
+    category: discovery
+    policy: review-required
+    produces: [endpoint, parameter]
+    approval_required: true
+  - name: dalfox
+    category: validation
+    policy: review-required
+    produces: [vulnerability_signal]
+    approval_required: true
+  - name: naabu
+    category: port-discovery
+    policy: review-required
+    produces: [port]
+    approval_required: true
+  - name: nmap
+    category: port-discovery
+    policy: review-required
+    produces: [port, technology]
+    approval_required: true
+  - name: jq
+    category: utility
+    policy: passive
+    produces: [tool_output]
+    approval_required: false
+  - name: curl
+    category: utility
+    policy: safe
+    produces: [request_sample, response_sample]
+    approval_required: false
+  - name: playwright
+    category: browser-evidence
+    policy: safe
+    produces: [screenshot, har, dom_snapshot, crawl_graph]
+    approval_required: false
+  - name: crawl4ai
+    category: crawler
+    policy: review-required
+    produces: [crawl_graph]
+    approval_required: true
+  - name: playwright-mcp
+    category: mcp-browser
+    policy: review-required
+    produces: [screenshot, dom_snapshot]
+    approval_required: true
+  - name: d-research-skill
+    category: research
+    policy: passive
+    produces: [research_note]
+    approval_required: false

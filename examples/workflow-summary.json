@@ -1,0 +1,129 @@
+{
+  "checkpointVersion": 2,
+  "jobId": "job-example-resume",
+  "status": "completed",
+  "program": "example-program",
+  "target": "https://api.example.com/",
+  "mode": "safe",
+  "dryRun": false,
+  "draftReports": false,
+  "components": [
+    "safe-checks",
+    "js-analyzer",
+    "planner"
+  ],
+  "seeds": [
+    "https://api.example.com/",
+    "https://app.example.com/"
+  ],
+  "skippedScopeRules": [
+    "*.example.com"
+  ],
+  "phases": [
+    {
+      "name": "research-note",
+      "status": "skipped",
+      "detail": "Skipped because research-note already completed in resumed job job-example-original."
+    },
+    {
+      "name": "safe-checks",
+      "status": "skipped",
+      "target": "https://api.example.com/",
+      "detail": "Skipped because safe-checks already completed for https://api.example.com/ in resumed job job-example-original."
+    },
+    {
+      "name": "safe-checks",
+      "status": "completed",
+      "target": "https://app.example.com/",
+      "detail": "app.example.com: 2 candidates."
+    },
+    {
+      "name": "planner",
+      "status": "completed",
+      "detail": "3 safe next actions queued (0 pending approval, 0 blocked by policy)."
+    }
+  ],
+  "findingsCreated": 1,
+  "evidenceCreated": 1,
+  "actionsPlanned": 1,
+  "actionCounts": {
+    "total": 1,
+    "pending": 0,
+    "approved": 0,
+    "executed": 1,
+    "blocked": 0,
+    "failed": 0
+  },
+  "reportsDrafted": 0,
+  "plannerCandidates": {
+    "endpointCandidates": [
+      "https://api.example.com/graphql"
+    ],
+    "jsAssets": [
+      "https://api.example.com/app.js"
+    ]
+  },
+  "plannerLoop": {
+    "actions": [
+      {
+        "adapter": "safe-checks",
+        "actionType": "http.get",
+        "target": "https://api.example.com/graphql",
+        "riskLevel": "medium",
+        "requiresApproval": true,
+        "reason": "GraphQL-looking endpoint may merit safe introspection indicator checks.",
+        "score": 88,
+        "iteration": 1,
+        "dedupeKey": "safe-checks|http.get|https://api.example.com/graphql",
+        "source": "endpoint"
+      }
+    ],
+    "iterations": [
+      {
+        "index": 0,
+        "label": "baseline seed, crawl, and JavaScript coverage",
+        "candidates": 2,
+        "selected": 1,
+        "skippedDuplicates": 0,
+        "skippedExistingActions": 1,
+        "skippedFailedOrBlockedHistory": 0
+      },
+      {
+        "index": 1,
+        "label": "feedback from endpoints, findings, evidence, and action history",
+        "candidates": 1,
+        "selected": 1,
+        "skippedDuplicates": 0,
+        "skippedExistingActions": 0,
+        "skippedFailedOrBlockedHistory": 0
+      }
+    ],
+    "inputSummary": {
+      "urls": 2,
+      "endpointCandidates": 1,
+      "jsAssets": 1,
+      "findings": 1,
+      "evidence": 2,
+      "existingActions": 1,
+      "maxIterations": 2,
+      "maxActions": 40
+    }
+  },
+  "startedAt": "2026-07-05T00:00:00.000Z",
+  "updatedAt": "2026-07-05T00:01:00.000Z",
+  "completedAt": "2026-07-05T00:01:00.000Z",
+  "resumedFromJobId": "job-example-original",
+  "resumeSkippedPhases": [
+    "research-note",
+    "safe-checks"
+  ],
+  "resumeSkippedWork": [
+    {
+      "phase": "research-note"
+    },
+    {
+      "phase": "safe-checks",
+      "target": "https://api.example.com/"
+    }
+  ]
+}

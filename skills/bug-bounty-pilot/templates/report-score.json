@@ -1,0 +1,27 @@
+{
+  "candidateId": "cand_example",
+  "score": 0,
+  "readiness": "blocked",
+  "blockers": [
+    "Evidence is missing.",
+    "Impact is not yet supported."
+  ],
+  "warnings": [],
+  "nextSteps": [
+    "Record redacted evidence.",
+    "Add safe reproduction steps.",
+    "Run bounty reports score cand_example --json."
+  ],
+  "checks": {
+    "assetInScope": false,
+    "categoryClear": false,
+    "reproductionSteps": false,
+    "impactStatement": false,
+    "evidencePresent": false,
+    "secretsMasked": true,
+    "duplicateRiskNoted": false,
+    "safeTestingStatement": false,
+    "remediationPresent": false
+  }
+}
+

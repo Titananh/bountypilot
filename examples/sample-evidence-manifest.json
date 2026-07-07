@@ -1,0 +1,16 @@
+{
+  "generatedAt": "2026-07-05T00:00:00.000Z",
+  "artifacts": [
+    {
+      "id": "evidence-example-reproduction",
+      "findingId": "finding-example-security-header",
+      "jobId": "job-example",
+      "adapterName": "safe-checks",
+      "kind": "reproduction_steps",
+      "sourceUrl": "https://api.example.com/health",
+      "path": "examples/evidence/finding-example-security-header/reproduction.md",
+      "sha256": "example-only",
+      "readable": true
+    }
+  ]
+}
