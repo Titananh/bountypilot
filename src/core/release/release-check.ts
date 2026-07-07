@@ -30,6 +30,7 @@ const REQUIRED_SCRIPTS = [
   "test",
   "test:smoke",
   "test:package-bin",
+  "test:vm-lab",
   "typecheck",
   "release:check",
   "sbom",
@@ -123,6 +124,10 @@ const REQUIRED_GITHUB_WORKFLOWS = [
   {
     name: ".github/workflows/codeql.yml",
     snippets: ["github/codeql-action/init@v3", "javascript-typescript", "security-extended", "npm run build"],
+  },
+  {
+    name: ".github/workflows/vm-lab.yml",
+    snippets: ["ubuntu-latest", "npm ci", "npm run test:vm-lab", "Packaged CLI local lab smoke", "workflow_dispatch"],
   },
 ];
 const MIN_NODE_SQLITE_RUNTIME: [number, number, number] = [22, 13, 0];

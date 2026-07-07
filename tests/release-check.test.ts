@@ -109,6 +109,18 @@ describe("release checks", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("fails when GitHub VM lab smoke workflow is missing", () => {
+    const root = writeReleaseFixture();
+    rmSync(path.join(root, ".github", "workflows", "vm-lab.yml"));
+
+    const result = runReleaseCheck(root);
+
+    expect(result.checks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: ".github/workflows/vm-lab.yml", status: "fail" })]),
+    );
+    expect(result.ok).toBe(false);
+  });
+
   it("fails when public repository files are missing", () => {
     const root = writeReleaseFixture();
     rmSync(path.join(root, "LICENSE"));
@@ -169,6 +181,7 @@ function writeReleaseFixture(): string {
           test: "echo test",
           "test:smoke": "echo smoke",
           "test:package-bin": "echo package",
+          "test:vm-lab": "echo vm lab",
           typecheck: "echo typecheck",
           "release:check": "echo release",
           sbom: "echo sbom",
@@ -271,6 +284,23 @@ jobs:
           languages: javascript-typescript
           queries: security-extended
       - run: npm run build
+`,
+  );
+  writeText(
+    root,
+    ".github/workflows/vm-lab.yml",
+    `name: VM Lab Smoke
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  packaged-local-lab:
+    name: Packaged CLI local lab smoke
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm ci
+      - run: npm run test:vm-lab
 `,
   );
   writeText(
