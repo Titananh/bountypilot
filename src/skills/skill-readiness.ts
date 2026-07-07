@@ -87,8 +87,6 @@ export function scoreSkillReadiness(
   const validationWarnings = issuesFor(validation.checks, "warn");
   const bundle = scoreSkillBundle({ id, cwd, generatedAt: input.generatedAt });
   const release = runReleaseCheck(cwd);
-  const releaseFailures = issuesFor(release.checks, "fail");
-  const releaseWarnings = issuesFor(release.checks, "warn");
   const github = input.repo
     ? buildReleaseGithubBootstrap({
         cwd,
@@ -101,6 +99,8 @@ export function scoreSkillReadiness(
         timeoutMs: input.timeoutMs,
       })
     : undefined;
+  const releaseFailures = contextualizeReleaseIssues(issuesFor(release.checks, "fail"), github);
+  const releaseWarnings = contextualizeReleaseIssues(issuesFor(release.checks, "warn"), github);
   const blockers = [...validationFailures, ...bundle.failures, ...releaseFailures];
   const warnings = [...validationWarnings, ...releaseWarnings];
   const score = readinessScore({
@@ -152,6 +152,22 @@ export function scoreSkillReadiness(
         }
       : undefined,
   };
+}
+
+function contextualizeReleaseIssues(
+  issues: SkillReadinessIssue[],
+  github: ReturnType<typeof buildReleaseGithubBootstrap> | undefined,
+): SkillReadinessIssue[] {
+  if (!github) return issues;
+  return issues.map((issue) => {
+    if (issue.name !== "github:origin") return issue;
+    return {
+      ...issue,
+      message: github.remote.origin
+        ? `Origin is ${github.remote.origin}. Fix it with: ${github.remote.setUrlCommand}`
+        : `No origin remote configured. Add one with: ${github.remote.addCommand}`,
+    };
+  });
 }
 
 function scoreSkillBundle(input: { id: string; cwd: string; generatedAt?: string }): SkillReadinessResult["bundle"] {

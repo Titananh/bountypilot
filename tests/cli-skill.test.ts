@@ -168,6 +168,22 @@ describe("CLI skill commands", () => {
         "git push -u origin HEAD:main",
       ]),
     );
+    expect(parsedForRepo.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "github:origin",
+          message: "No origin remote configured. Add one with: git remote add origin https://github.com/octo/bountypilot.git",
+        }),
+      ]),
+    );
+    expect(parsedForRepo.release.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "github:origin",
+          message: "No origin remote configured. Add one with: git remote add origin https://github.com/octo/bountypilot.git",
+        }),
+      ]),
+    );
     expect(parsedForRepo.nextSteps.join("\n")).not.toContain("OWNER/REPO");
     expect(parsedForRepo.nextSteps).not.toContain("git remote add origin https://github.com/octo/bountypilot.git");
     expect(parsedForRepo.nextSteps).not.toContain("git push -u origin codex/bug-bounty-pilot-candidate-engine");
