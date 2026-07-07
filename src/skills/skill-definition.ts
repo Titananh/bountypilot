@@ -350,6 +350,35 @@ const REQUIRED_BLOCKED_ALWAYS = [
 ];
 const REQUIRED_APPROVAL = ["ffuf", "dalfox", "naabu", "nmap", "external_tool_execution", "mcp_live_execution"];
 
+interface SkillWorkflowCliCommandSpec {
+  path: string[];
+  flags?: string[];
+  flagsWithValue?: string[];
+}
+
+const SKILL_WORKFLOW_CLI_COMMAND_SPECS: SkillWorkflowCliCommandSpec[] = [
+  { path: ["init"] },
+  { path: ["import"] },
+  { path: ["scope", "test"] },
+  { path: ["arsenal", "vm"], flags: ["--write"] },
+  { path: ["arsenal", "bootstrap"], flags: ["--write"], flagsWithValue: ["--level"] },
+  { path: ["providers", "doctor"] },
+  { path: ["tools", "doctor"] },
+  { path: ["hunt", "recon"], flags: ["--dry-run", "--live", "--json"], flagsWithValue: ["--profile", "--tools"] },
+  { path: ["hunt", "playbook"], flags: ["--dry-run", "--live", "--json"] },
+  { path: ["run"], flags: ["--dry-run", "--live", "--json", "--write-plan"], flagsWithValue: ["--with", "--mode"] },
+  { path: ["findings", "candidates"], flags: ["--json"], flagsWithValue: ["--job"] },
+  { path: ["evidence", "record"], flags: ["--json"], flagsWithValue: ["--job", "--type", "--title", "--finding"] },
+  { path: ["evidence", "manifest"], flags: ["--json"], flagsWithValue: ["--job"] },
+  { path: ["triage"] },
+  { path: ["reports", "score"], flags: ["--json"] },
+  { path: ["reports", "draft"], flags: ["--json"], flagsWithValue: ["--platform"] },
+  { path: ["export", "bundle"], flags: ["--include-artifacts", "--json"], flagsWithValue: ["--job", "--output"] },
+  { path: ["jobs", "show"] },
+  { path: ["jobs", "timeline"] },
+  { path: ["actions", "list"], flags: ["--pending", "--json"], flagsWithValue: ["--job"] },
+];
+
 export function listSkillDefinitions(cwd = process.cwd()): SkillListEntry[] {
   const entries = new Map<string, SkillListEntry>();
   for (const parent of candidateSkillParents(cwd)) {
@@ -445,6 +474,7 @@ export function validateSkillDefinition(id = BUG_BOUNTY_PILOT_SKILL_ID, cwd = pr
       status: missingCommands.length === 0 ? "pass" : "fail",
       message: missingCommands.length === 0 ? "all steps declare CLI commands" : `Missing CLI commands: ${missingCommands.join(", ")}`,
     });
+    checks.push(workflowCliCommandContractCheck(workflow));
   }
 
   if (toolRegistry) {
@@ -778,6 +808,103 @@ function pushSetCheck(checks: SkillValidationCheck[], name: string, required: st
     status: missing.length === 0 ? "pass" : "fail",
     message: missing.length === 0 ? `${required.length}/${required.length} required entries present` : `Missing: ${missing.join(", ")}`,
   });
+}
+
+function workflowCliCommandContractCheck(workflow: SkillWorkflow): SkillValidationCheck {
+  const failures = workflow.steps.flatMap((step) =>
+    step.cli_commands.flatMap((command) => validateWorkflowCliCommand(command).map((message) => `${step.id}: ${message}`)),
+  );
+  return {
+    name: "workflow:cli_command_contract",
+    status: failures.length === 0 ? "pass" : "fail",
+    message: failures.length === 0 ? "all workflow CLI commands match BountyPilot command contract" : failures.join("; "),
+  };
+}
+
+function validateWorkflowCliCommand(command: string): string[] {
+  const tokens = shellWords(command);
+  if (tokens.length === 0) {
+    return ["empty CLI command"];
+  }
+  const executable = tokens[0];
+  if (executable !== "bounty" && executable !== "bugbounty") {
+    return [`${command}: command must start with bounty or bugbounty`];
+  }
+
+  const args = tokens.slice(1);
+  const maxPathLength = Math.max(...SKILL_WORKFLOW_CLI_COMMAND_SPECS.map((spec) => spec.path.length));
+  let spec: SkillWorkflowCliCommandSpec | undefined;
+  for (let length = Math.min(maxPathLength, args.length); length >= 1; length -= 1) {
+    const candidatePath = args.slice(0, length).join(" ");
+    spec = SKILL_WORKFLOW_CLI_COMMAND_SPECS.find((candidate) => candidate.path.join(" ") === candidatePath);
+    if (spec) break;
+  }
+  if (!spec) {
+    return [`${command}: unknown CLI command path`];
+  }
+
+  const flags = new Set(spec.flags ?? []);
+  const flagsWithValue = new Set(spec.flagsWithValue ?? []);
+  const failures: string[] = [];
+  const rest = args.slice(spec.path.length);
+  for (let index = 0; index < rest.length; index += 1) {
+    const token = rest[index];
+    if (!token.startsWith("-")) {
+      continue;
+    }
+    const [flag, inlineValue] = token.split("=", 2);
+    if (flags.has(flag)) {
+      if (inlineValue !== undefined) {
+        failures.push(`${command}: flag ${flag} does not take a value`);
+      }
+      continue;
+    }
+    if (flagsWithValue.has(flag)) {
+      if (inlineValue !== undefined) {
+        continue;
+      }
+      const value = rest[index + 1];
+      if (!value || value.startsWith("-")) {
+        failures.push(`${command}: flag ${flag} requires a value`);
+      } else {
+        index += 1;
+      }
+      continue;
+    }
+    failures.push(`${command}: unsupported flag ${flag} for ${spec.path.join(" ")}`);
+  }
+  return failures;
+}
+
+function shellWords(command: string): string[] {
+  const words: string[] = [];
+  let current = "";
+  let quote: string | undefined;
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index];
+    if (quote) {
+      if (char === quote) {
+        quote = undefined;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (char === "'" || char === "\"") {
+      quote = char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (current) {
+        words.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += char;
+  }
+  if (current) words.push(current);
+  return words;
 }
 
 function countFiles(root: string): number {

@@ -1,5 +1,11 @@
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { BUG_BOUNTY_PILOT_SKILL_ID, loadSkillDefinition } from "../src/skills/skill-definition.js";
+import { BUG_BOUNTY_PILOT_SKILL_ID, loadSkillDefinition, validateSkillDefinition } from "../src/skills/skill-definition.js";
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 describe("bug-bounty-pilot skill workflow", () => {
   it("declares the recon-to-report workflow steps with commands and artifacts", () => {
@@ -47,5 +53,34 @@ describe("bug-bounty-pilot skill workflow", () => {
       requires_approval: true,
     });
     expect(reportDraft?.blocked_capabilities).toContain("auto_submit_report");
+  });
+
+  it("fails validation when workflow commands drift from the CLI contract", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "bountypilot-skill-contract-"));
+    try {
+      const skillRoot = path.join(root, "skills", BUG_BOUNTY_PILOT_SKILL_ID);
+      cpSync(path.join(repoRoot, "skills", BUG_BOUNTY_PILOT_SKILL_ID), skillRoot, { recursive: true });
+      const workflowPath = path.join(skillRoot, "workflow.yml");
+      writeFileSync(
+        workflowPath,
+        readFileSync(workflowPath, "utf8").replace("--include-artifacts", "--include-evidence"),
+        "utf8",
+      );
+
+      const result = validateSkillDefinition(BUG_BOUNTY_PILOT_SKILL_ID, root);
+
+      expect(result.ok).toBe(false);
+      expect(result.checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "workflow:cli_command_contract",
+            status: "fail",
+            message: expect.stringContaining("--include-evidence"),
+          }),
+        ]),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
