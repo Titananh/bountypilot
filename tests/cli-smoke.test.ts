@@ -383,8 +383,10 @@ integrations: {}
       outputPath: publishPlanPath,
     });
     expect(parsedPublishPlan.commands.remoteSetup.join("\n")).toContain("https://github.com/octo/bountypilot.git");
+    expect(parsedPublishPlan.commands.localVerify).toContain("bounty release verify-bundle .release --json");
     expect(parsedPublishPlan.install.npm).toBe("npm install -g github:octo/bountypilot");
     expect(existsSync(publishPlanPath)).toBe(true);
+    expect(readFileSync(publishPlanPath, "utf8")).toContain("bounty release verify-bundle .release --json");
     expect(readFileSync(publishPlanPath, "utf8")).toContain("git push origin v0.1.0");
 
     const deepDoctorJson = runCli(["doctor", "--deep", "--json"], repoRoot);

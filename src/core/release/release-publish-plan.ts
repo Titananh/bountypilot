@@ -78,6 +78,7 @@ export function buildReleasePublishPlan(input: BuildReleasePublishPlanInput): Re
       "npm run verify:release",
       "bounty skill score bug-bounty-pilot --json",
       "bounty release bundle --output .release --force --json",
+      "bounty release verify-bundle .release --json",
     ],
     remoteSetup: [
       origin ? `git remote set-url origin ${targetRemote}` : `git remote add origin ${targetRemote}`,
@@ -193,7 +194,7 @@ ${input.commands.release.join("\n")}
 
 - Do not publish real target data, secrets, evidence from private programs, or authorization files.
 - Run the VM lab and real-tool workflows in GitHub Actions before announcing the project publicly.
-- The release workflow attaches the npm tarball, standalone skill ZIP, SBOM, and SHA256SUMS to tagged releases.
+- The release workflow verifies and attaches the npm tarball, standalone skill ZIP, SBOM, release manifest, and SHA256SUMS to tagged releases.
 `;
 }
 
