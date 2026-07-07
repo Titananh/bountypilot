@@ -20,6 +20,7 @@ describe("bug-bounty-pilot skill policy", () => {
         expect.objectContaining({ name: "SKILL.md:name", status: "pass" }),
         expect.objectContaining({ name: "agents/openai.yaml:schema", status: "pass" }),
         expect.objectContaining({ name: "agents/openai.yaml:default_prompt", status: "pass" }),
+        expect.objectContaining({ name: "prompts:contracts", status: "pass" }),
         expect.objectContaining({ name: "templates:syntax", status: "pass" }),
         expect.objectContaining({ name: "skill:placeholder-targets", status: "pass" }),
       ]),
@@ -160,6 +161,35 @@ describe("bug-bounty-pilot skill policy", () => {
             name: "templates:syntax",
             status: "fail",
             message: expect.stringContaining("templates/finding.json"),
+          }),
+        ]),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails validation when prompt safety contracts are weakened", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "bountypilot-skill-prompt-contracts-"));
+    try {
+      const skillRoot = path.join(root, "skills", BUG_BOUNTY_PILOT_SKILL_ID);
+      cpSync(path.join(repoRoot, "skills", BUG_BOUNTY_PILOT_SKILL_ID), skillRoot, { recursive: true });
+      const promptPath = path.join(skillRoot, "prompts", "report-writer.md");
+      writeFileSync(
+        promptPath,
+        readFileSync(promptPath, "utf8").replace("No auto-submit.", "Submit reports when ready."),
+        "utf8",
+      );
+
+      const result = validateSkillDefinition(BUG_BOUNTY_PILOT_SKILL_ID, root);
+
+      expect(result.ok).toBe(false);
+      expect(result.checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "prompts:contracts",
+            status: "fail",
+            message: expect.stringContaining("prompts/report-writer.md: missing no auto-submit"),
           }),
         ]),
       );

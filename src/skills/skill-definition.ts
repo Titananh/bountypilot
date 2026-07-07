@@ -341,6 +341,54 @@ const SKILL_PLACEHOLDER_SCAN_FILES = [
   ...REQUIRED_EXAMPLES.map((file) => `examples/${file}`),
 ];
 const PUBLIC_SAMPLE_TARGET_PATTERN = /\b(?:https?:\/\/)?(?:[a-z0-9-]+\.)*example\.(?:com|org|net)\b/i;
+const REQUIRED_PROMPT_CONTRACTS: Record<string, Array<{ label: string; pattern: RegExp }>> = {
+  "planner.md": [
+    { label: "scope guard", pattern: /\bScopeGuard\b/i },
+    { label: "dry-run default", pattern: /Default to dry-run/i },
+    { label: "review-required actions", pattern: /review-required/i },
+    { label: "no auto-approval", pattern: /Do not approve actions/i },
+    { label: "no fabricated execution", pattern: /Do not claim that a tool ran unless/i },
+    { label: "evidence threshold", pattern: /Findings require evidence/i },
+  ],
+  "recon.md": [
+    { label: "out-of-scope handling", pattern: /out-of-scope/i },
+    { label: "dedupe fingerprint", pattern: /fingerprint/i },
+    { label: "parser failure safety", pattern: /Parser failures must save raw output as evidence and must not create a finding/i },
+    { label: "passive mode safety", pattern: /Passive mode must not active-probe or crawl a live target/i },
+  ],
+  "hunt.md": [
+    { label: "review-required queue", pattern: /Queue review-required tools; do not execute them automatically/i },
+    { label: "lab-only gate", pattern: /Lab-only validation requires `rules\.lab_mode=true`/i },
+    { label: "blocked abuse capabilities", pattern: /Do not use destructive payloads/i },
+    { label: "evidence thresholds", pattern: /Findings need evidence thresholds/i },
+  ],
+  "evidence-review.md": [
+    { label: "secret redaction", pattern: /Redact secrets/i },
+    { label: "local artifacts", pattern: /Keep all artifacts local/i },
+    { label: "evidence blocks draft", pattern: /Missing evidence blocks `ready_for_draft`/i },
+  ],
+  "report-writer.md": [
+    { label: "no auto-submit", pattern: /No auto-submit/i },
+    { label: "no fabricated report claims", pattern: /Do not fabricate tool results/i },
+    { label: "secret redaction", pattern: /Keep secrets redacted/i },
+  ],
+  "report-score.md": [
+    { label: "scope check", pattern: /asset in scope/i },
+    { label: "secret leak check", pattern: /no secrets leaked/i },
+    { label: "ready state", pattern: /ready_for_draft/i },
+  ],
+  "triage.md": [
+    { label: "scope check", pattern: /asset is in scope/i },
+    { label: "local evidence", pattern: /evidence is linked and local/i },
+    { label: "secret masking", pattern: /secrets are masked/i },
+  ],
+  "safety-refusal.md": [
+    { label: "brute force refusal", pattern: /brute force/i },
+    { label: "mass scanning refusal", pattern: /mass internet scanning/i },
+    { label: "auto-submit refusal", pattern: /auto-submitting reports/i },
+    { label: "safe local lab alternative", pattern: /local lab/i },
+  ],
+};
 
 const REQUIRED_MODES: SkillRunMode[] = ["passive", "safe", "deep-safe", "lab-offensive"];
 const REQUIRED_WORKFLOW_STEPS = [
@@ -500,6 +548,7 @@ export function validateSkillDefinition(id = BUG_BOUNTY_PILOT_SKILL_ID, cwd = pr
   for (const file of REQUIRED_EXAMPLES) {
     checks.push(fileCheck(`examples/${file}`, path.join(root, "examples", file)));
   }
+  checks.push(skillPromptContractCheck(root));
   checks.push(skillTemplateSyntaxCheck(root));
   checks.push(skillPlaceholderTargetCheck(root));
 
@@ -955,6 +1004,24 @@ function skillPlaceholderTargetCheck(root: string): SkillValidationCheck {
       offenders.length === 0
         ? "templates, prompts, and examples use explicit placeholders instead of sample public domains"
         : `Replace sample public domains with placeholders: ${offenders.join(", ")}`,
+  };
+}
+
+function skillPromptContractCheck(root: string): SkillValidationCheck {
+  const failures: string[] = [];
+  for (const [prompt, contracts] of Object.entries(REQUIRED_PROMPT_CONTRACTS)) {
+    const text = readText(path.join(root, "prompts", prompt));
+    if (text === undefined) continue;
+    for (const contract of contracts) {
+      if (!contract.pattern.test(text)) {
+        failures.push(`prompts/${prompt}: missing ${contract.label}`);
+      }
+    }
+  }
+  return {
+    name: "prompts:contracts",
+    status: failures.length === 0 ? "pass" : "fail",
+    message: failures.length === 0 ? "prompt safety and output contracts are present" : failures.join("; "),
   };
 }
 
