@@ -2134,6 +2134,140 @@ const evidenceCommand = program
   });
 
 evidenceCommand
+  .command("list")
+  .argument("[findingId]", "Optional finding id")
+  .option("--job <jobId>", "Only include evidence from a job")
+  .option("--open", "Open the evidence artifact folder in the local OS file browser")
+  .option("--json", "Print machine-readable JSON")
+  .description("List local evidence artifacts")
+  .action((findingId: string | undefined, ...args: unknown[]) => {
+    const command = commandFromArgs(args);
+    const options = command.opts<{ job?: string; open?: boolean; json?: boolean }>();
+    const runtime = createRuntime(rootProgramName());
+    const jobId = commandJobOption(command, options.job);
+    if (jobId) requireJob(runtime, jobId);
+    const evidence = filterEvidenceByJob(runtime.evidence.list(findingId), jobId);
+    const openTarget = evidenceOpenTarget(runtime, evidence, findingId);
+    if (options.json || requestedJsonOutput(process.argv)) {
+      ui.json({ ok: true, findingId, jobId, evidence, openTarget });
+      if (options.open) openPath(openTarget);
+      return;
+    }
+    ui.header("evidence list");
+    if (evidence.length === 0) {
+      ui.status("warn", "no evidence artifacts found");
+      return;
+    }
+    ui.table(
+      ["kind", "id", "job", "source", "path"],
+      evidence.map((artifact) => [artifact.kind, artifact.id, artifact.jobId ?? "-", artifact.sourceUrl, artifact.path]),
+    );
+    if (options.open) {
+      openPath(openTarget);
+      ui.status("ok", "open requested for local evidence folder");
+    }
+  });
+
+evidenceCommand
+  .command("show")
+  .argument("<evidenceId>", "Evidence artifact id")
+  .option("--open", "Open the evidence artifact folder in the local OS file browser")
+  .option("--json", "Print machine-readable JSON")
+  .description("Show one local evidence artifact and manifest metadata")
+  .action((evidenceId: string, ...args: unknown[]) => {
+    const command = commandFromArgs(args);
+    const options = command.opts<{ open?: boolean; json?: boolean }>();
+    const runtime = createRuntime(rootProgramName());
+    const artifact = runtime.evidence.get(evidenceId);
+    if (!artifact) {
+      throw new BountyPilotError(`Evidence artifact not found: ${evidenceId}`, "EVIDENCE_NOT_FOUND");
+    }
+    const manifest = runtime.evidence.buildManifestForArtifacts([artifact], {
+      findingId: artifact.findingId,
+      jobId: artifact.jobId,
+    });
+    const entry = manifest.artifacts[0];
+    if (options.json || requestedJsonOutput(process.argv)) {
+      ui.json({ ok: true, artifact, manifest: entry, openTarget: path.dirname(artifact.path) });
+      if (options.open) openPath(path.dirname(artifact.path));
+      return;
+    }
+    ui.header("evidence show");
+    ui.panel("evidence", [
+      ui.kv("id", artifact.id),
+      ui.kv("finding", artifact.findingId ?? "-"),
+      ui.kv("job", artifact.jobId ?? "-"),
+      ui.kv("kind", artifact.kind),
+      ui.kv("adapter", artifact.adapterName),
+      ui.kv("source", artifact.sourceUrl ?? "-"),
+      ui.kv("path", artifact.path),
+      ui.kv("readable", entry?.readable ?? false),
+      ui.kv("sha256", entry?.sha256 ?? "-"),
+    ]);
+    if (options.open) openPath(path.dirname(artifact.path));
+  });
+
+evidenceCommand
+  .command("manifest")
+  .argument("[findingId]", "Optional finding id")
+  .option("--job <jobId>", "Only include evidence from a job")
+  .option("--open", "Open the manifest artifact folder in the local OS file browser")
+  .option("--json", "Print machine-readable JSON")
+  .description("Write a local evidence manifest JSON artifact")
+  .action((findingId: string | undefined, ...args: unknown[]) => {
+    const command = commandFromArgs(args);
+    const options = command.opts<{ job?: string; open?: boolean; json?: boolean }>();
+    const runtime = createRuntime(rootProgramName());
+    const jobId = commandJobOption(command, options.job);
+    if (jobId) requireJob(runtime, jobId);
+    const manifest = runtime.evidence.buildManifest({ findingId, jobId });
+    const artifact = runtime.evidence.writeManifest({ findingId, jobId });
+    if (options.json || requestedJsonOutput(process.argv)) {
+      ui.json({ ok: true, findingId, jobId, manifest, artifact });
+      if (options.open) openPath(path.dirname(artifact.path));
+      return;
+    }
+    ui.header("evidence manifest");
+    ui.status("ok", "manifest written");
+    ui.panel("manifest", [
+      ui.kv("finding", findingId ?? "workspace"),
+      ui.kv("job", jobId ?? "-"),
+      ui.kv("artifacts", manifest.artifactCount),
+      ui.kv("path", artifact.path),
+    ]);
+    if (options.open) openPath(path.dirname(artifact.path));
+  });
+
+evidenceCommand
+  .command("open")
+  .argument("[findingId]", "Optional finding id")
+  .option("--job <jobId>", "Open evidence for one job")
+  .option("--json", "Print machine-readable JSON")
+  .description("Open the local evidence artifact folder")
+  .action((findingId: string | undefined, ...args: unknown[]) => {
+    const command = commandFromArgs(args);
+    const options = command.opts<{ job?: string; json?: boolean }>();
+    const runtime = createRuntime(rootProgramName());
+    const jobId = commandJobOption(command, options.job);
+    if (jobId) requireJob(runtime, jobId);
+    const evidence = filterEvidenceByJob(runtime.evidence.list(findingId), jobId);
+    const target = evidenceOpenTarget(runtime, evidence, findingId);
+    if (options.json || requestedJsonOutput(process.argv)) {
+      ui.json({ ok: true, findingId, jobId, evidence: evidence.length, path: target });
+      return;
+    }
+    openPath(target);
+    ui.header("evidence open");
+    ui.status("ok", "open requested for local evidence folder");
+    ui.panel("evidence", [
+      ui.kv("finding", findingId ?? "workspace"),
+      ui.kv("job", jobId ?? "-"),
+      ui.kv("artifacts", evidence.length),
+      ui.kv("path", target),
+    ]);
+  });
+
+evidenceCommand
   .command("add")
   .option("--file <path>", "Local evidence file to copy into the workspace")
   .option("--text <text>", "Text evidence content to store")
@@ -2224,22 +2358,61 @@ evidenceCommand
 
 evidenceCommand
   .command("record")
-  .argument("<url>", "In-scope URL to capture as evidence")
-  .requiredOption("--finding <findingId>", "Finding id to link captured evidence to")
+  .argument("[url]", "In-scope URL to capture as evidence. Omit for manual note/file evidence.")
+  .option("--finding <findingId>", "Finding id to link captured evidence to")
   .option("--job <jobId>", "Optional job id to associate with this capture")
+  .option("--type <type>", "Manual evidence type when URL is omitted: note, file, screenshot, http, or an evidence kind", "note")
+  .option("--title <title>", "Manual evidence title when URL is omitted")
+  .option("--file <path>", "Manual evidence file to copy when URL is omitted")
+  .option("--text <text>", "Manual evidence text when URL is omitted")
+  .option("--stdin", "Read manual evidence text from stdin when URL is omitted")
   .option("--full", "Capture browser trace and optional richer artifacts")
   .option("--json", "Print machine-readable JSON")
-  .description("Capture scoped browser evidence and a reproduction note for a finding")
-  .action(async (url: string, ...args: unknown[]) => {
+  .description("Capture scoped browser evidence or record manual local evidence")
+  .action(async (url: string | undefined, ...args: unknown[]) => {
     const command = commandFromArgs(args);
-    const options = command.opts<{ finding: string; job?: string; full?: boolean; json?: boolean }>();
+    const options = command.opts<{
+      finding?: string;
+      job?: string;
+      type: string;
+      title?: string;
+      file?: string;
+      text?: string;
+      stdin?: boolean;
+      full?: boolean;
+      json?: boolean;
+    }>();
     const runtime = createRuntime(rootProgramName());
+    const jobId = commandJobOption(command, options.job);
+    const recordOptions = { ...options, job: jobId };
+    if (!url) {
+      const result = recordManualEvidence(runtime, recordOptions);
+      if (options.json || requestedJsonOutput(process.argv)) {
+        ui.json(result);
+        return;
+      }
+      ui.header("evidence record");
+      ui.status("ok", "manual evidence recorded");
+      ui.panel("evidence", [
+        ui.kv("id", result.artifact.id),
+        ui.kv("finding", result.findingId ?? "-"),
+        ui.kv("job", result.jobId ?? "-"),
+        ui.kv("kind", result.artifact.kind),
+        ui.kv("path", result.artifact.path),
+      ]);
+      ui.blank();
+      ui.commandList("next commands", result.nextCommands);
+      return;
+    }
+    if (!options.finding) {
+      throw new BountyPilotError("URL evidence capture requires --finding <finding-id>.", "EVIDENCE_FINDING_REQUIRED");
+    }
     const finding = runtime.findings.get(options.finding);
     if (!finding) {
       throw new BountyPilotError(`Finding not found: ${options.finding}`, "FINDING_NOT_FOUND");
     }
     const scoped = runtime.scopeGuard.assertAllowed(url);
-    const job = options.job ? requireJob(runtime, options.job) : runtime.jobs.create("evidence-record", "safe", scoped.url);
+    const job = jobId ? requireJob(runtime, jobId) : runtime.jobs.create("evidence-record", "safe", scoped.url);
     const audit = createJobAuditLogger(runtime.paths, job.id);
     await runtime.rateLimiter.wait(scoped.url);
     const artifacts: EvidenceArtifact[] = [];
@@ -8085,6 +8258,120 @@ function commandJobOption(command: Command, value?: string): string | undefined 
 
 function filterEvidenceByJob(evidence: EvidenceArtifact[], jobId?: string): EvidenceArtifact[] {
   return jobId ? evidence.filter((artifact) => artifact.jobId === jobId) : evidence;
+}
+
+function evidenceOpenTarget(runtime: Runtime, evidence: EvidenceArtifact[], findingId?: string): string {
+  if (findingId && evidence[0]) {
+    return path.dirname(evidence[0].path);
+  }
+  return runtime.paths.evidenceDir;
+}
+
+interface ManualEvidenceRecordOptions {
+  finding?: string;
+  job?: string;
+  type: string;
+  title?: string;
+  file?: string;
+  text?: string;
+  stdin?: boolean;
+}
+
+function recordManualEvidence(runtime: Runtime, options: ManualEvidenceRecordOptions): {
+  ok: true;
+  mode: "manual";
+  findingId?: string;
+  jobId?: string;
+  title: string;
+  type: string;
+  artifact: EvidenceArtifact;
+  finding?: NormalizedFinding;
+  nextCommands: string[];
+} {
+  const finding = options.finding ? runtime.findings.get(options.finding) : undefined;
+  if (options.finding && !finding) {
+    throw new BountyPilotError(`Finding not found: ${options.finding}`, "FINDING_NOT_FOUND");
+  }
+  const jobId = options.job;
+  if (jobId) requireJob(runtime, jobId);
+  const type = parseNonEmptyTextOption(options.type, "type").toLowerCase();
+  const title = parseNonEmptyTextOption(options.title ?? `${type}-evidence`, "title");
+  const sources = [options.file !== undefined, options.text !== undefined, options.stdin === true].filter(Boolean).length;
+  if (sources > 1) {
+    throw new BountyPilotError("Provide at most one manual evidence source: --file, --text, or --stdin.", "EVIDENCE_SOURCE_INVALID");
+  }
+
+  const kind = manualRecordEvidenceKind(type);
+  const sourceUrl = finding?.url;
+  let artifact: EvidenceArtifact;
+  if (options.file) {
+    artifact = runtime.evidence.copyFileArtifact({
+      findingId: finding?.id,
+      jobId,
+      adapterName: "evidence-record",
+      kind,
+      sourceUrl,
+      sourcePath: options.file,
+      relativePath: manualEvidenceRelativePath(options.file, title, finding?.id),
+    });
+  } else {
+    if (type === "file" || type === "screenshot") {
+      throw new BountyPilotError(`Manual evidence type ${type} requires --file <path>.`, "EVIDENCE_SOURCE_INVALID");
+    }
+    const content = options.stdin
+      ? readStdinText()
+      : options.text !== undefined
+        ? parseNonEmptyTextOption(options.text, "text")
+        : defaultManualEvidenceContent(title, type, jobId, finding?.id);
+    artifact = runtime.evidence.writeTextArtifact({
+      findingId: finding?.id,
+      jobId,
+      adapterName: "evidence-record",
+      kind,
+      sourceUrl,
+      relativePath: manualTextEvidenceRelativePath(title, finding?.id),
+      content,
+    });
+  }
+
+  const linkedFinding = finding ? runtime.findings.linkEvidencePath(finding.id, artifact.path) : undefined;
+  const jobOption = jobId ? ` --job ${jobId}` : "";
+  return {
+    ok: true,
+    mode: "manual",
+    findingId: finding?.id,
+    jobId,
+    title,
+    type,
+    artifact,
+    finding: linkedFinding,
+    nextCommands: [
+      `bounty evidence show ${artifact.id}`,
+      `bounty evidence manifest${finding ? ` ${finding.id}` : ""}${jobOption}`,
+      ...(finding ? [`bounty reports score ${finding.id}${jobOption}`] : []),
+    ],
+  };
+}
+
+function manualRecordEvidenceKind(type: string): EvidenceArtifact["kind"] {
+  if (type === "note") return "evidence_note";
+  if (type === "file") return "evidence_note";
+  if (type === "http") return "response_sample";
+  if (type === "screenshot") return "screenshot";
+  return parseEvidenceKind(type);
+}
+
+function defaultManualEvidenceContent(title: string, type: string, jobId?: string, findingId?: string): string {
+  return [
+    `# ${title}`,
+    "",
+    `Type: ${type}`,
+    `Finding: ${findingId ?? "-"}`,
+    `Job: ${jobId ?? "-"}`,
+    "",
+    "Manual evidence placeholder. Replace or supplement this note with scoped, non-sensitive evidence before drafting a report.",
+    "",
+  ].join("\n");
 }
 
 function evidenceForCandidate(runtime: Runtime, candidate: FindingCandidate, jobId?: string): EvidenceArtifact[] {

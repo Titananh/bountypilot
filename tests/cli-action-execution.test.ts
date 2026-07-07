@@ -852,6 +852,68 @@ describe("CLI action execution", () => {
     expect(parsedJobScopedEvidenceAdd.jobId).toBe(summary.jobId);
     expect(parsedJobScopedEvidenceAdd.artifact.jobId).toBe(summary.jobId);
 
+    const manualRecord = await runCli(
+      [
+        "evidence",
+        "record",
+        "--job",
+        summary.jobId,
+        "--type",
+        "note",
+        "--title",
+        "job scoped record",
+        "--text",
+        "recorded evidence token=manual-record-secret",
+        "--json",
+      ],
+      workspace,
+    );
+    expectCommand(manualRecord).toExit(0);
+    expect(manualRecord.stderr).toBe("");
+    const parsedManualRecord = JSON.parse(manualRecord.stdout);
+    expect(parsedManualRecord).toMatchObject({
+      ok: true,
+      mode: "manual",
+      jobId: summary.jobId,
+      type: "note",
+      artifact: { kind: "evidence_note", jobId: summary.jobId },
+    });
+    expect(readFileSync(parsedManualRecord.artifact.path, "utf8")).toContain("[REDACTED]");
+
+    const evidenceListCommand = await runCli(["evidence", "list", "--job", summary.jobId, "--json"], workspace);
+    expectCommand(evidenceListCommand).toExit(0);
+    expect(evidenceListCommand.stderr).toBe("");
+    const parsedEvidenceList = JSON.parse(evidenceListCommand.stdout);
+    expect(parsedEvidenceList.evidence).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: parsedManualRecord.artifact.id, jobId: summary.jobId })]),
+    );
+
+    const evidenceShowCommand = await runCli(["evidence", "show", parsedManualRecord.artifact.id, "--json"], workspace);
+    expectCommand(evidenceShowCommand).toExit(0);
+    expect(evidenceShowCommand.stderr).toBe("");
+    const parsedEvidenceShow = JSON.parse(evidenceShowCommand.stdout);
+    expect(parsedEvidenceShow).toMatchObject({
+      ok: true,
+      artifact: { id: parsedManualRecord.artifact.id },
+      manifest: { readable: true },
+    });
+
+    const evidenceManifestCommand = await runCli(["evidence", "manifest", "--job", summary.jobId, "--json"], workspace);
+    expectCommand(evidenceManifestCommand).toExit(0);
+    expect(evidenceManifestCommand.stderr).toBe("");
+    const parsedEvidenceManifestCommand = JSON.parse(evidenceManifestCommand.stdout);
+    expect(parsedEvidenceManifestCommand.manifest.artifacts).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: parsedManualRecord.artifact.id })]),
+    );
+    expect(existsSync(parsedEvidenceManifestCommand.artifact.path)).toBe(true);
+
+    const evidenceOpenCommand = await runCli(["evidence", "open", "--job", summary.jobId, "--json"], workspace);
+    expectCommand(evidenceOpenCommand).toExit(0);
+    expect(evidenceOpenCommand.stderr).toBe("");
+    const parsedEvidenceOpen = JSON.parse(evidenceOpenCommand.stdout);
+    expect(parsedEvidenceOpen).toMatchObject({ ok: true, jobId: summary.jobId });
+    expect(existsSync(parsedEvidenceOpen.path)).toBe(true);
+
     const findingShowAfterStatus = await runCli(["findings", "show", findingId!, "--json"], workspace);
     expectCommand(findingShowAfterStatus).toExit(0);
     const parsedFinding = JSON.parse(outputOf(findingShowAfterStatus).slice(outputOf(findingShowAfterStatus).indexOf("{")));

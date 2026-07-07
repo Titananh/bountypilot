@@ -224,12 +224,16 @@ Dry-run is the recommended first command for every target because it exercises s
 | Findings | `bounty findings show <finding-id>` | No | Shows finding details, linked evidence, duplicate risk, and triage context. |
 | Findings | `bounty findings status <finding-id> <status>` | No | Updates local lifecycle status and records a status note artifact. |
 | Evidence | `bounty evidence [finding-id] [--job <job-id>]` | No | Lists local evidence artifacts, optionally scoped to one job. |
+| Evidence | `bounty evidence list [finding-id] [--job <job-id>]` | No | Explicit subcommand alias for listing local evidence artifacts. |
+| Evidence | `bounty evidence show <evidence-id>` | No | Shows one evidence artifact with local readability and SHA-256 metadata. |
 | Evidence | `bounty evidence add --finding <finding-id> --file <path> [--job <job-id>]` | No | Copies a local evidence file into the workspace and masks text secrets. |
 | Evidence | `bounty evidence add --finding <finding-id> --text <text> [--job <job-id>]` | No | Stores inline text evidence with secret masking. |
 | Evidence | `bounty evidence add --finding <finding-id> --stdin [--job <job-id>]` | No | Reads text evidence from stdin with secret masking. |
+| Evidence | `bounty evidence record --job <job-id> --type note --title <text>` | No | Records a local manual evidence note for a job, matching the skill workflow command shape. |
 | Evidence | `bounty evidence record <url> --finding <finding-id> [--job <job-id>]` | Yes | Captures scoped browser evidence, HAR, DOM, console output, request/response samples, and a reproduction note for one finding. |
 | Evidence | `bounty evidence link <evidence-id> <finding-id>` | No | Idempotently links an existing local evidence artifact to a finding. |
-| Evidence | `bounty evidence [finding-id] --manifest [--job <job-id>] --open` | Local OS only | Writes an evidence manifest and optionally opens the local artifact folder. |
+| Evidence | `bounty evidence manifest [finding-id] [--job <job-id>] --open` | Local OS only | Writes an evidence manifest and optionally opens the local artifact folder. |
+| Evidence | `bounty evidence open [finding-id] [--job <job-id>]` | Local OS only | Opens the local evidence folder for a finding, job, or workspace. |
 | Evidence | `bounty evidence verify [finding-id] [--job <job-id>]` | No | Checks local evidence readability, file size, and SHA-256 metadata. |
 | Reporting | `bounty reports score <finding-id> [--job <job-id>]` | No | Prints reportability score, readiness, evidence counts/checks, blockers, warnings, next steps, and next commands. |
 | Reporting | `bounty reports review <finding-id> [--job <job-id>]` | No | Runs a local pre-submit checklist for report readiness, evidence quality, duplicate risk, and safety blockers. |
