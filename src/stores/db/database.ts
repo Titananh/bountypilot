@@ -47,6 +47,41 @@ export function ensureSchema(db: BountyDatabase): void {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS finding_candidates (
+      id TEXT PRIMARY KEY,
+      job_id TEXT,
+      title TEXT NOT NULL,
+      asset TEXT NOT NULL,
+      url TEXT NOT NULL,
+      category TEXT NOT NULL,
+      severity_estimate TEXT NOT NULL,
+      confidence TEXT NOT NULL,
+      status TEXT NOT NULL,
+      evidence_ids TEXT NOT NULL,
+      observation_ids TEXT NOT NULL,
+      finding_id TEXT,
+      false_positive_risk TEXT NOT NULL,
+      duplicate_risk TEXT NOT NULL,
+      reportability TEXT NOT NULL,
+      reasoning_summary TEXT NOT NULL,
+      next_manual_steps TEXT NOT NULL,
+      fingerprint TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_finding_candidates_job_id
+      ON finding_candidates (job_id, updated_at);
+
+    CREATE INDEX IF NOT EXISTS idx_finding_candidates_status
+      ON finding_candidates (status, updated_at);
+
+    CREATE INDEX IF NOT EXISTS idx_finding_candidates_reportability
+      ON finding_candidates (reportability, updated_at);
+
+    CREATE INDEX IF NOT EXISTS idx_finding_candidates_finding_id
+      ON finding_candidates (finding_id);
+
     CREATE TABLE IF NOT EXISTS jobs (
       id TEXT PRIMARY KEY,
       type TEXT NOT NULL,

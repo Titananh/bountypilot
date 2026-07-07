@@ -1612,6 +1612,7 @@ function DoctorPanel(input: { providers: ProviderSummary[]; insight: TuiWorkspac
         <MetricLine label="jobs" value={`${input.insight.jobs.total} total, ${input.insight.jobs.running} running, ${input.insight.jobs.failed} failed`} theme={input.theme} />
         <MetricLine label="actions" value={`${input.insight.actions.pending} pending, ${input.insight.actions.approved} approved`} theme={input.theme} />
         <MetricLine label="findings" value={`${input.insight.findings.total} total, ${input.insight.findings.ready} report-ready`} theme={input.theme} />
+        <MetricLine label="candidates" value={`${input.insight.candidates.total} total, ${input.insight.candidates.needsReview} need review`} theme={input.theme} />
         <MetricLine label="evidence" value={`${input.insight.evidence.total} artifacts`} theme={input.theme} />
         <MetricLine label="recon" value={`${input.insight.recon.inScope}/${input.insight.recon.total} in-scope observations`} theme={input.theme} />
       </Box>
@@ -1628,14 +1629,24 @@ function ResultsPanel(input: { insight: TuiWorkspaceInsight; theme: TuiTheme }):
       </Text>
       <Box marginTop={1} flexDirection="column">
         <MetricLine label="findings" value={`${input.insight.findings.total}`} theme={input.theme} />
+        <MetricLine label="candidates" value={`${input.insight.candidates.total}`} theme={input.theme} />
+        <MetricLine label="draftable" value={`${input.insight.candidates.ready}`} theme={input.theme} />
         <MetricLine label="ready" value={`${input.insight.findings.ready}`} theme={input.theme} />
         <MetricLine label="best score" value={`${input.insight.findings.bestScore}/100`} theme={input.theme} />
         <MetricLine label="evidence" value={`${input.insight.evidence.total}`} theme={input.theme} />
         <MetricLine label="recon" value={`${input.insight.recon.inScope} in-scope`} theme={input.theme} />
       </Box>
-      {input.insight.findings.top ? (
+      {input.insight.candidates.top ? (
         <Box marginTop={1} flexDirection="column">
           <Text color={input.theme.secondary}>top candidate</Text>
+          <Text>{input.insight.candidates.top.title}</Text>
+          <Text color={input.theme.muted}>
+            {input.insight.candidates.top.severity}  {input.insight.candidates.top.reportability}  {input.insight.candidates.top.id}
+          </Text>
+        </Box>
+      ) : input.insight.findings.top ? (
+        <Box marginTop={1} flexDirection="column">
+          <Text color={input.theme.secondary}>top finding</Text>
           <Text>{input.insight.findings.top.title}</Text>
           <Text color={input.theme.muted}>
             {input.insight.findings.top.severity}  score {input.insight.findings.top.score}/100  {input.insight.findings.top.id}
@@ -1658,7 +1669,7 @@ function HuntPanel(input: { provider?: ProviderSummary; model?: string; insight:
       <Box marginTop={1} flexDirection="column">
         <MetricLine label="program" value={input.insight.program ?? "import scope first"} theme={input.theme} />
         <MetricLine label="latest job" value={input.insight.jobs.latest ? `${input.insight.jobs.latest.status} ${input.insight.jobs.latest.type}` : "none"} theme={input.theme} />
-        <MetricLine label="signals" value={`${input.insight.recon.inScope} recon, ${input.insight.findings.total} findings`} theme={input.theme} />
+        <MetricLine label="signals" value={`${input.insight.recon.inScope} recon, ${input.insight.candidates.total} candidates`} theme={input.theme} />
       </Box>
       <Box flexDirection="column" marginTop={1}>
         <Text>

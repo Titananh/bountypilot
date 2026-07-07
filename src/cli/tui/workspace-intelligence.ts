@@ -7,6 +7,7 @@ import { IntegrationManager } from "../../integrations/integration-manager/integ
 import { ToolManager, type ToolDoctorResult } from "../../integrations/tool-manager/tool-manager.js";
 import { toolApprovalIntegrationName } from "../../integrations/tool-manager/tool-adapter-runner.js";
 import { EvidenceStore } from "../../stores/evidence-store.js";
+import { FindingCandidateStore } from "../../stores/finding-candidate-store.js";
 import { FindingStore } from "../../stores/finding-store.js";
 import { ReconObservationStore } from "../../stores/recon-observation-store.js";
 import { openBountyDatabase } from "../../stores/db/database.js";
@@ -48,6 +49,18 @@ export interface TuiWorkspaceInsight {
       title: string;
       severity: string;
       score: number;
+    };
+  };
+  candidates: {
+    total: number;
+    ready: number;
+    needsReview: number;
+    linked: number;
+    top?: {
+      id: string;
+      title: string;
+      severity: string;
+      reportability: string;
     };
   };
   evidence: {
@@ -102,13 +115,19 @@ export function loadWorkspaceInsight(cwd: string): TuiWorkspaceInsight {
     const jobs = new JobManager(db).list(100);
     const actions = new ActionQueue(db).summarize();
     const findings = new FindingStore(db).list();
+    const candidates = new FindingCandidateStore(db).list();
     const evidence = new EvidenceStore(db, paths.evidenceDir, {
       maskSecrets: loaded.config.evidence.mask_secrets !== false,
       trustedArtifactRoots: [paths.reportsDir],
     }).list();
     const recon = new ReconObservationStore(db).list({ limit: 1000 });
     const topFinding = [...findings].sort((left, right) => right.reportabilityScore - left.reportabilityScore)[0];
+    const topCandidate = [...candidates].sort((left, right) =>
+      candidateReportabilityRank(right.reportability) - candidateReportabilityRank(left.reportability) ||
+      right.evidenceIds.length - left.evidenceIds.length,
+    )[0];
     const readyFindings = findings.filter((finding) => finding.reportabilityScore >= 75 && finding.evidencePaths.length > 0);
+    const readyCandidates = candidates.filter((candidate) => candidate.reportability === "ready_for_draft");
     const failedJobs = jobs.filter((job) => job.status === "failed").length;
     const runningJobs = jobs.filter((job) => job.status === "running").length;
 
@@ -153,6 +172,20 @@ export function loadWorkspaceInsight(cwd: string): TuiWorkspaceInsight {
             }
           : undefined,
       },
+      candidates: {
+        total: candidates.length,
+        ready: readyCandidates.length,
+        needsReview: candidates.filter((candidate) => candidate.reportability === "needs_review").length,
+        linked: candidates.filter((candidate) => Boolean(candidate.findingId)).length,
+        top: topCandidate
+          ? {
+              id: topCandidate.id,
+              title: topCandidate.title,
+              severity: topCandidate.severityEstimate,
+              reportability: topCandidate.reportability,
+            }
+          : undefined,
+      },
       evidence: {
         total: evidence.length,
       },
@@ -167,6 +200,8 @@ export function loadWorkspaceInsight(cwd: string): TuiWorkspaceInsight {
         actionsPending: actions.pending,
         actionsApproved: actions.approved,
         findings: findings.length,
+        candidates: candidates.length,
+        readyCandidates: readyCandidates.length,
         readyFindings: readyFindings.length,
         evidence: evidence.length,
         recon: recon.length,
@@ -187,6 +222,8 @@ function recommendInsightNext(input: {
   actionsPending: number;
   actionsApproved: number;
   findings: number;
+  candidates: number;
+  readyCandidates: number;
   readyFindings: number;
   evidence: number;
   recon: number;
@@ -195,13 +232,21 @@ function recommendInsightNext(input: {
 }): string[] {
   if (input.actionsPending > 0) return ["Review pending actions", "Run /hunt for dry-run commands"];
   if (input.actionsApproved > 0) return ["Execute approved actions manually", "Record evidence after validation"];
+  if (input.readyCandidates > 0) return ["Open /results", "Score report-ready candidates"];
   if (input.readyFindings > 0) return ["Open /results", "Score report readiness"];
+  if (input.candidates > 0) return ["Review candidates", "Add evidence to improve readiness"];
   if (input.findings > 0 && input.evidence === 0) return ["Record evidence", "Add reproduction notes"];
   if (input.recon > 0 && input.findings === 0) return ["Run a focused playbook", "Review recon observations"];
   if (input.integrationsConfigured === 0) return ["Open /mcp", "Enable only needed integrations"];
   if (input.toolsApproved === 0) return ["Open /tools", "Approve trusted executables before live recon"];
   if (input.jobs === 0) return ["Run /hunt doctor", "Start recon with dry-run"];
   return ["Review latest job", "Open /results"];
+}
+
+function candidateReportabilityRank(value: string): number {
+  if (value === "ready_for_draft") return 3;
+  if (value === "needs_review") return 2;
+  return 1;
 }
 
 function insightFromError(error: unknown, cwd: string): TuiWorkspaceInsight {
@@ -213,6 +258,7 @@ function insightFromError(error: unknown, cwd: string): TuiWorkspaceInsight {
     jobs: { total: 0, running: 0, failed: 0 },
     actions: { pending: 0, approved: 0, blocked: 0, failed: 0 },
     findings: { total: 0, ready: 0, bestScore: 0 },
+    candidates: { total: 0, ready: 0, needsReview: 0, linked: 0 },
     evidence: { total: 0 },
     recon: { total: 0, inScope: 0 },
     tools,

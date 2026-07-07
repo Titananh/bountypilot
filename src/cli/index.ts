@@ -15,6 +15,7 @@ import { ensureWorkspace, programWorkspace, saveProgramConfig, workspacePaths } 
 import { crawlWithPlaywright } from "../engines/crawler/playwright-crawler.js";
 import { AgentPlanner, type PlannerActionContext } from "../engines/agent-planner/agent-planner.js";
 import { DuplicateRiskEngine } from "../engines/duplicate-risk/duplicate-risk-engine.js";
+import { candidateBaselineReportabilityScore } from "../engines/finding-candidates/finding-candidate-engine.js";
 import { analyzeJavaScript } from "../engines/js-analyzer/js-analyzer.js";
 import { generateReproductionNote, writeHackerOneReport } from "../engines/report-generator/report-generator.js";
 import { buildReportReview, type ReportReadiness } from "../engines/report-generator/report-review.js";
@@ -67,6 +68,9 @@ import type {
   Confidence,
   DuplicateRisk,
   EvidenceArtifact,
+  FindingCandidate,
+  FindingCandidateReportability,
+  FindingCandidateStatus,
   FindingStatus,
   NormalizedFinding,
   ReconObservation,
@@ -98,6 +102,17 @@ const FINDING_STATUSES: FindingStatus[] = [
 const SEVERITY_ESTIMATES: SeverityEstimate[] = ["info", "low", "medium", "high", "critical", "unknown"];
 const CONFIDENCE_LEVELS: Confidence[] = ["low", "medium", "high"];
 const DUPLICATE_RISKS: DuplicateRisk[] = ["low", "medium", "high", "unknown"];
+const FINDING_CANDIDATE_STATUSES: FindingCandidateStatus[] = [
+  "needs_manual_verification",
+  "ready_for_draft",
+  "promoted",
+  "dismissed",
+];
+const FINDING_CANDIDATE_REPORTABILITIES: FindingCandidateReportability[] = [
+  "blocked",
+  "needs_review",
+  "ready_for_draft",
+];
 const EVIDENCE_KINDS: Array<EvidenceArtifact["kind"]> = [
   "screenshot",
   "har",
@@ -1575,6 +1590,139 @@ const findingsCommand = program
   });
 
 findingsCommand
+  .command("candidates")
+  .option("--job <jobId>", "Only list candidates from one workflow job")
+  .option("--status <status>", "Filter by candidate status")
+  .option("--reportability <state>", "Filter by reportability: blocked, needs_review, ready_for_draft")
+  .option("--limit <count>", "Maximum candidates to return", "100")
+  .option("--json", "Print machine-readable JSON")
+  .description("List finding candidates with evidence threshold and reportability state")
+  .action((...args: unknown[]) => {
+    const command = commandFromArgs(args);
+    const options = command.opts<{
+      job?: string;
+      status?: string;
+      reportability?: string;
+      limit: string;
+      json?: boolean;
+    }>();
+    const runtime = createRuntime(rootProgramName());
+    if (options.job) requireJob(runtime, options.job);
+    const candidates = runtime.candidates.list({
+      jobId: options.job,
+      status: options.status ? parseFindingCandidateStatus(options.status) : undefined,
+      reportability: options.reportability ? parseFindingCandidateReportability(options.reportability) : undefined,
+      limit: parsePositiveIntegerOption(options.limit, "limit", 5000),
+    });
+    const payload = {
+      ok: true,
+      jobId: options.job,
+      candidates,
+      totals: {
+        total: candidates.length,
+        byStatus: countBy(candidates, (candidate) => candidate.status),
+        byReportability: countBy(candidates, (candidate) => candidate.reportability),
+      },
+      nextCommands: candidates.slice(0, 5).flatMap((candidate) => [
+        `bounty findings candidate ${candidate.id}`,
+        `bounty reports score ${candidate.id}${options.job ? ` --job ${options.job}` : ""}`,
+      ]),
+    };
+    if (options.json || requestedJsonOutput(process.argv)) {
+      ui.json(payload);
+      return;
+    }
+    ui.header("findings candidates");
+    if (candidates.length === 0) {
+      ui.status("warn", "no finding candidates stored yet");
+      return;
+    }
+    ui.table(
+      ["reportability", "status", "confidence", "severity", "evidence", "id", "title"],
+      candidates.map((candidate) => [
+        candidate.reportability,
+        candidate.status,
+        candidate.confidence,
+        candidate.severityEstimate,
+        candidate.evidenceIds.length,
+        candidate.id,
+        candidate.title,
+      ]),
+    );
+  });
+
+findingsCommand
+  .command("candidate")
+  .argument("<candidateId>", "Finding candidate id")
+  .option("--json", "Print machine-readable JSON")
+  .description("Show one finding candidate, linked evidence, observations, and next manual steps")
+  .action((candidateId: string, ...args: unknown[]) => {
+    const command = commandFromArgs(args);
+    const options = command.opts<{ json?: boolean }>();
+    const runtime = createRuntime(rootProgramName());
+    const candidate = runtime.candidates.get(candidateId);
+    if (!candidate) throw new BountyPilotError(`Finding candidate not found: ${candidateId}`, "FINDING_CANDIDATE_NOT_FOUND");
+    const evidence = evidenceForCandidate(runtime, candidate);
+    const observations = candidate.observationIds
+      .map((observationId) => runtime.recon.get(observationId))
+      .filter((observation): observation is ReconObservation => Boolean(observation));
+    const finding = candidate.findingId ? runtime.findings.get(candidate.findingId) : undefined;
+    const payload = {
+      ok: true,
+      candidate,
+      finding,
+      evidence,
+      observations,
+      nextCommands: candidateNextCommands(candidate),
+    };
+    if (options.json || requestedJsonOutput(process.argv)) {
+      ui.json(payload);
+      return;
+    }
+    ui.header("findings candidate");
+    ui.panel("candidate", [
+      ui.kv("id", candidate.id),
+      ui.kv("title", candidate.title),
+      ui.kv("url", candidate.url),
+      ui.kv("status", candidate.status),
+      ui.kv("reportability", candidate.reportability),
+      ui.kv("confidence", candidate.confidence),
+      ui.kv("severity", candidate.severityEstimate),
+      ui.kv("finding", candidate.findingId ?? "-"),
+      ui.kv("evidence", evidence.length),
+    ]);
+    if (candidate.nextManualSteps.length > 0) {
+      ui.blank();
+      ui.list("next manual steps", candidate.nextManualSteps);
+    }
+  });
+
+findingsCommand
+  .command("promote-candidate")
+  .argument("<candidateId>", "Finding candidate id to promote into a local finding")
+  .option("--status <status>", "Finding status to assign after promotion", "needs_validation")
+  .option("--json", "Print machine-readable JSON")
+  .description("Promote a candidate into a local finding while keeping evidence linked")
+  .action((candidateId: string, ...args: unknown[]) => {
+    const command = commandFromArgs(args);
+    const options = command.opts<{ status: string; json?: boolean }>();
+    const runtime = createRuntime(rootProgramName());
+    const result = promoteCandidate(runtime, candidateId, parseFindingStatus(options.status));
+    if (options.json || requestedJsonOutput(process.argv)) {
+      ui.json(result);
+      return;
+    }
+    ui.header("findings promote-candidate");
+    ui.status("ok", result.created ? "candidate promoted into a finding" : "candidate already linked to a finding");
+    ui.panel("candidate", [
+      ui.kv("candidate", result.candidate.id),
+      ui.kv("finding", result.finding.id),
+      ui.kv("title", result.finding.title),
+      ui.kv("evidence", result.evidence.length),
+    ]);
+  });
+
+findingsCommand
   .command("create")
   .requiredOption("--title <title>", "Finding title")
   .requiredOption("--url <url>", "In-scope affected URL")
@@ -2921,7 +3069,7 @@ const reportsCommand = program
 
 reportsCommand
   .command("score")
-  .argument("<findingId>", "Finding id")
+  .argument("<findingId>", "Finding id or candidate id")
   .option("--job <jobId>", "Only score evidence from one workflow job")
   .option("--platform <platform>", "Report platform context", "hackerone")
   .option("--json", "Print machine-readable JSON")
@@ -2933,21 +3081,28 @@ reportsCommand
     if (options.job) {
       requireJob(runtime, options.job);
     }
-    const finding = runtime.findings.get(findingId);
-    if (!finding) {
-      throw new BountyPilotError(`Finding not found: ${findingId}`, "FINDING_NOT_FOUND");
+    let finding = runtime.findings.get(findingId);
+    const candidate = finding ? undefined : runtime.candidates.get(findingId);
+    if (!finding && !candidate) {
+      throw new BountyPilotError(`Finding or candidate not found: ${findingId}`, "FINDING_NOT_FOUND");
     }
-    const evidence = filterEvidenceByJob(runtime.evidence.list(findingId), options.job);
-    const manifest = runtime.evidence.buildManifest({ findingId, jobId: options.job });
+    const evidence = candidate
+      ? evidenceForCandidate(runtime, candidate, options.job)
+      : filterEvidenceByJob(runtime.evidence.list(findingId), options.job);
+    finding = finding ?? candidateAsFinding(candidate as FindingCandidate, evidence);
+    const manifest = candidate
+      ? runtime.evidence.buildManifestForArtifacts(evidence, { findingId: candidate.findingId ?? candidate.id, jobId: options.job })
+      : runtime.evidence.buildManifest({ findingId, jobId: options.job });
     const duplicate = new DuplicateRiskEngine().estimate(
       finding,
-      runtime.findings.list().filter((item) => item.id !== finding.id),
+      runtime.findings.list().filter((item) => item.id !== finding.id && item.id !== candidate?.findingId),
     );
     const triage = new TriageEngine().triage({ ...finding, duplicateRisk: duplicate.risk }, evidence);
     const review = buildReportReview({ finding, evidence, manifest, duplicate, triage, platform: options.platform });
     const payload = {
       ok: review.readiness !== "blocked",
-      findingId,
+      findingId: candidate?.findingId ?? finding.id,
+      candidateId: candidate?.id,
       jobId: options.job,
       platform: options.platform,
       score: review.score,
@@ -2959,7 +3114,9 @@ reportsCommand
       blockers: review.blockers,
       warnings: review.warnings,
       nextSteps: review.nextSteps,
-      nextCommands: reportReviewCommands(finding.id, options.job, review.readiness),
+      nextCommands: candidate
+        ? reportReviewCommands(candidate.id, options.job, review.readiness, "candidate", candidate.findingId)
+        : reportReviewCommands(finding.id, options.job, review.readiness),
     };
     if (options.json || requestedJsonOutput(process.argv)) {
       ui.json(payload);
@@ -2971,6 +3128,7 @@ reportsCommand
     ui.panel("finding", [
       ui.kv("id", finding.id),
       ui.kv("title", finding.title),
+      ...(candidate ? [ui.kv("candidate", candidate.id)] : []),
       ui.kv("evidence", review.counts.evidence),
       ui.kv("recommend", review.recommendation),
     ]);
@@ -2985,6 +3143,63 @@ reportsCommand
     ui.blank();
     ui.commandList("next commands", payload.nextCommands);
     process.exitCode = payload.ok ? 0 : 2;
+  });
+
+reportsCommand
+  .command("draft")
+  .argument("<findingId>", "Finding id or candidate id")
+  .option("--platform <platform>", "Report platform", "hackerone")
+  .option("--force-local-draft", "Write a local draft even when report readiness is blocked")
+  .option("--json", "Print machine-readable JSON")
+  .description("Write a local report draft for a report-ready finding or candidate")
+  .action((findingId: string, ...args: unknown[]) => {
+    const command = commandFromArgs(args);
+    const options = command.opts<{ platform: string; forceLocalDraft?: boolean; json?: boolean }>();
+    const runtime = createRuntime(rootProgramName());
+    const candidate = runtime.candidates.get(findingId);
+    if (candidate && candidate.reportability !== "ready_for_draft" && !options.forceLocalDraft) {
+      const payload = {
+        ok: false,
+        candidateId: candidate.id,
+        findingId: candidate.findingId,
+        readiness: candidate.reportability,
+        blockers: [`Candidate ${candidate.id} is ${candidate.reportability}; run reports score and add evidence before drafting.`],
+        nextCommands: candidateNextCommands(candidate),
+      };
+      if (options.json || requestedJsonOutput(process.argv)) {
+        ui.json(payload);
+        process.exitCode = 2;
+        return;
+      }
+      throw new BountyPilotError(payload.blockers[0], "REPORT_READINESS_BLOCKED");
+    }
+    const promoted = candidate
+      ? promoteCandidate(runtime, candidate.id, candidate.status === "ready_for_draft" ? "validated" : "needs_validation")
+      : undefined;
+    const targetFindingId = promoted?.finding.id ?? findingId;
+    const result = draftFindingReport(runtime, targetFindingId, options.platform, options.forceLocalDraft === true);
+    const payload = {
+      ...result,
+      candidateId: candidate?.id,
+      promoted: promoted?.created,
+      nextCommands: [
+        ...(candidate ? [`bounty findings candidate ${candidate.id}`] : []),
+        `bounty findings show ${result.findingId}`,
+        `bounty reports score ${result.findingId} --json`,
+      ],
+    };
+    if (options.json || requestedJsonOutput(process.argv)) {
+      ui.json(payload);
+      return;
+    }
+    ui.header("reports draft");
+    ui.status("ok", "local draft generated");
+    ui.panel("draft", [
+      ui.kv("finding", result.findingId),
+      ui.kv("candidate", candidate?.id ?? "-"),
+      ui.kv("readiness", result.review.readiness),
+      ui.kv("path", result.report.path),
+    ]);
   });
 
 reportsCommand
@@ -7331,6 +7546,190 @@ function filterEvidenceByJob(evidence: EvidenceArtifact[], jobId?: string): Evid
   return jobId ? evidence.filter((artifact) => artifact.jobId === jobId) : evidence;
 }
 
+function evidenceForCandidate(runtime: Runtime, candidate: FindingCandidate, jobId?: string): EvidenceArtifact[] {
+  const byId = candidate.evidenceIds
+    .map((evidenceId) => runtime.evidence.get(evidenceId))
+    .filter((artifact): artifact is EvidenceArtifact => Boolean(artifact));
+  const linkedFindingEvidence = candidate.findingId ? runtime.evidence.list(candidate.findingId) : [];
+  const unique = new Map<string, EvidenceArtifact>();
+  for (const artifact of [...byId, ...linkedFindingEvidence]) {
+    unique.set(artifact.id, artifact);
+  }
+  return filterEvidenceByJob([...unique.values()], jobId);
+}
+
+function candidateNextCommands(candidate: FindingCandidate, jobId?: string): string[] {
+  const selectedJobId = jobId ?? candidate.jobId;
+  const jobOption = selectedJobId ? ` --job ${selectedJobId}` : "";
+  const commands = [
+    `bounty findings candidate ${candidate.id}`,
+    `bounty reports score ${candidate.id}${jobOption}`,
+  ];
+  if (!candidate.findingId) {
+    commands.push(`bounty findings promote-candidate ${candidate.id}`);
+  } else {
+    commands.push(`bounty findings show ${candidate.findingId}`);
+    commands.push(`bounty reports score ${candidate.findingId}${jobOption}`);
+    if (candidate.reportability === "ready_for_draft") {
+      commands.push(`bounty report ${candidate.findingId} --platform hackerone`);
+    }
+  }
+  return [...new Set(commands)];
+}
+
+function promoteCandidate(runtime: Runtime, candidateId: string, status: FindingStatus): {
+  ok: true;
+  created: boolean;
+  candidate: FindingCandidate;
+  finding: NormalizedFinding;
+  evidence: EvidenceArtifact[];
+  nextCommands: string[];
+} {
+  const candidate = runtime.candidates.get(candidateId);
+  if (!candidate) throw new BountyPilotError(`Finding candidate not found: ${candidateId}`, "FINDING_CANDIDATE_NOT_FOUND");
+  runtime.scopeGuard.assertAllowed(candidate.url);
+  const evidence = evidenceForCandidate(runtime, candidate);
+  if (evidence.length === 0) {
+    throw new BountyPilotError(
+      `Finding candidate ${candidateId} has no stored evidence artifacts to promote.`,
+      "FINDING_CANDIDATE_EVIDENCE_MISSING",
+    );
+  }
+  const existing = candidate.findingId ? runtime.findings.get(candidate.findingId) : undefined;
+  if (existing) {
+    for (const artifact of evidence) {
+      runtime.evidence.linkToFinding(artifact.id, existing.id);
+      runtime.findings.linkEvidencePath(existing.id, artifact.path);
+    }
+    const linked = runtime.candidates.linkFinding(candidate.id, existing.id) ?? candidate;
+    return {
+      ok: true,
+      created: false,
+      candidate: linked,
+      finding: runtime.findings.get(existing.id) ?? existing,
+      evidence,
+      nextCommands: candidateNextCommands(linked),
+    };
+  }
+
+  const duplicate = new DuplicateRiskEngine().estimate(
+    {
+      title: candidate.title,
+      asset: candidate.asset,
+      url: candidate.url,
+      category: candidate.category,
+    },
+    runtime.findings.list(),
+  );
+  const finding = runtime.findings.create({
+    title: candidate.title,
+    asset: candidate.asset,
+    url: candidate.url,
+    category: candidate.category,
+    severityEstimate: candidate.severityEstimate,
+    confidence: candidate.confidence,
+    status,
+    evidencePaths: evidence.map((artifact) => artifact.path),
+    remediation: undefined,
+    duplicateRisk: duplicate.risk,
+    reportabilityScore: candidateBaselineScore(candidate),
+  });
+  for (const artifact of evidence) {
+    runtime.evidence.linkToFinding(artifact.id, finding.id);
+  }
+  const linked = runtime.candidates.linkFinding(candidate.id, finding.id) ?? { ...candidate, findingId: finding.id, status: "promoted" as const };
+  return {
+    ok: true,
+    created: true,
+    candidate: linked,
+    finding,
+    evidence,
+    nextCommands: candidateNextCommands(linked),
+  };
+}
+
+function candidateAsFinding(candidate: FindingCandidate, evidence: EvidenceArtifact[]): NormalizedFinding {
+  return {
+    id: candidate.id,
+    title: candidate.title,
+    asset: candidate.asset,
+    url: candidate.url,
+    category: candidate.category,
+    severityEstimate: candidate.severityEstimate,
+    confidence: candidate.confidence,
+    status: candidate.status === "ready_for_draft" ? "validated" : "needs_manual_review",
+    evidencePaths: evidence.map((artifact) => artifact.path),
+    duplicateRisk: candidate.duplicateRisk,
+    reportabilityScore: candidateBaselineScore(candidate),
+    createdAt: candidate.createdAt,
+    updatedAt: candidate.updatedAt,
+  };
+}
+
+function candidateBaselineScore(candidate: FindingCandidate): number {
+  return candidateBaselineReportabilityScore(candidate);
+}
+
+function draftFindingReport(
+  runtime: Runtime,
+  findingId: string,
+  platform: string,
+  forceLocalDraft: boolean,
+): {
+  ok: true;
+  findingId: string;
+  status: "report_drafted";
+  finding: NormalizedFinding | undefined;
+  artifact: EvidenceArtifact;
+  review: ReturnType<typeof buildReportReview>;
+  report: { platform: string; path: string };
+  platform: string;
+  path: string;
+} {
+  if (platform !== "hackerone") {
+    throw new BountyPilotError("Only HackerOne markdown reports are implemented in v0.1.", "REPORT_PLATFORM_UNSUPPORTED");
+  }
+  const finding = runtime.findings.get(findingId);
+  if (!finding) {
+    throw new BountyPilotError(`Finding not found: ${findingId}`, "FINDING_NOT_FOUND");
+  }
+  const evidence = runtime.evidence.list(findingId);
+  const manifest = runtime.evidence.buildManifest({ findingId });
+  const duplicate = new DuplicateRiskEngine().estimate(
+    finding,
+    runtime.findings.list().filter((item) => item.id !== finding.id),
+  );
+  const triage = new TriageEngine().triage({ ...finding, duplicateRisk: duplicate.risk }, evidence);
+  const review = buildReportReview({ finding, evidence, manifest, duplicate, triage, platform });
+  if (review.readiness === "blocked" && !forceLocalDraft) {
+    throw new BountyPilotError(
+      `Report readiness is blocked. Run reports score/review first or pass --force-local-draft for a local-only draft.`,
+      "REPORT_READINESS_BLOCKED",
+    );
+  }
+  const reportPath = writeHackerOneReport(runtime.paths.reportsDir, finding, evidence);
+  runtime.findings.updateStatus(findingId, "report_drafted");
+  const artifact = runtime.evidence.create({
+    findingId,
+    adapterName: "report-generator",
+    kind: "report",
+    sourceUrl: finding.url,
+    path: reportPath,
+  });
+  const updatedFinding = runtime.findings.get(findingId);
+  return {
+    ok: true,
+    findingId,
+    status: "report_drafted",
+    finding: updatedFinding,
+    artifact,
+    review,
+    report: { platform, path: reportPath },
+    platform,
+    path: reportPath,
+  };
+}
+
 type CockpitStatus = "ready" | "needs_review" | "blocked";
 type CockpitCheckStatus = "pass" | "warn" | "fail";
 
@@ -8161,8 +8560,29 @@ function countBy<T, K extends string>(items: T[], select: (item: T) => K): Recor
   );
 }
 
-function reportReviewCommands(findingId: string, jobId: string | undefined, readiness: ReportReadiness): string[] {
+function reportReviewCommands(
+  findingId: string,
+  jobId: string | undefined,
+  readiness: ReportReadiness,
+  subject: "finding" | "candidate" = "finding",
+  promotedFindingId?: string,
+): string[] {
   const jobOption = jobId ? ` --job ${jobId}` : "";
+  if (subject === "candidate") {
+    const commands = [
+      `bounty findings candidate ${findingId}`,
+      `bounty reports score ${findingId}${jobOption}`,
+    ];
+    if (promotedFindingId) {
+      commands.push(`bounty findings show ${promotedFindingId}`);
+      if (readiness !== "blocked") {
+        commands.push(`bounty report ${promotedFindingId} --platform hackerone`);
+      }
+    } else {
+      commands.push(`bounty findings promote-candidate ${findingId}`);
+    }
+    return [...new Set(commands)];
+  }
   const commands = [
     `bounty findings show ${findingId}`,
     `bounty triage ${findingId}`,
@@ -8504,6 +8924,26 @@ function parseDuplicateRisk(value: string): DuplicateRisk {
   throw new BountyPilotError(
     `Unsupported duplicate risk: ${value}. Use one of: ${DUPLICATE_RISKS.join(", ")}.`,
     "FINDING_DUPLICATE_RISK_INVALID",
+  );
+}
+
+function parseFindingCandidateStatus(value: string): FindingCandidateStatus {
+  if (FINDING_CANDIDATE_STATUSES.includes(value as FindingCandidateStatus)) {
+    return value as FindingCandidateStatus;
+  }
+  throw new BountyPilotError(
+    `Unsupported finding candidate status: ${value}. Use one of: ${FINDING_CANDIDATE_STATUSES.join(", ")}.`,
+    "FINDING_CANDIDATE_STATUS_INVALID",
+  );
+}
+
+function parseFindingCandidateReportability(value: string): FindingCandidateReportability {
+  if (FINDING_CANDIDATE_REPORTABILITIES.includes(value as FindingCandidateReportability)) {
+    return value as FindingCandidateReportability;
+  }
+  throw new BountyPilotError(
+    `Unsupported finding candidate reportability: ${value}. Use one of: ${FINDING_CANDIDATE_REPORTABILITIES.join(", ")}.`,
+    "FINDING_CANDIDATE_REPORTABILITY_INVALID",
   );
 }
 

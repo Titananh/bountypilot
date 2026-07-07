@@ -14,6 +14,7 @@ import { JobManager } from "../src/core/jobs/job-manager.js";
 import { WorkflowEventStore } from "../src/core/jobs/workflow-event-store.js";
 import { openBountyDatabase } from "../src/stores/db/database.js";
 import { EvidenceStore } from "../src/stores/evidence-store.js";
+import { FindingCandidateStore } from "../src/stores/finding-candidate-store.js";
 import { FindingStore } from "../src/stores/finding-store.js";
 import { CrawlGraphStore } from "../src/stores/crawl-graph-store.js";
 import { WorkflowRunner, type WorkflowSummary } from "../src/workflows/run-workflow.js";
@@ -597,6 +598,8 @@ describe("WorkflowRunner", () => {
 
       expect(summary.actionsPlanned).toBe(1);
       expect(summary.actionCounts.executed).toBe(1);
+      expect(summary.candidatesCreated).toBe(summary.findingsCreated);
+      expect(runtime.candidates.list({ jobId: summary.jobId })).toHaveLength(summary.candidatesCreated);
       expect(runtime.actions.list(summary.jobId)).toEqual(
         expect.arrayContaining([expect.objectContaining({ adapter: "safe-checks", status: "executed" })]),
       );
@@ -930,6 +933,7 @@ function createTestRuntime(runtimeConfig: ProgramConfig = config, root = mkdtemp
     scopeGuard: new ScopeGuard(runtimeConfig),
     policyGate: new PolicyGate(runtimeConfig.rules),
     rateLimiter: new RateLimiter(runtimeConfig.rules.rate_limit),
+    candidates: new FindingCandidateStore(db),
     findings: new FindingStore(db),
     evidence: new EvidenceStore(db, paths.evidenceDir, { trustedArtifactRoots: [paths.reportsDir] }),
     crawlGraph: new CrawlGraphStore(db),

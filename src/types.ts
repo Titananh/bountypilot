@@ -20,6 +20,14 @@ export type Confidence = "low" | "medium" | "high";
 
 export type DuplicateRisk = "low" | "medium" | "high" | "unknown";
 
+export type FindingCandidateStatus =
+  | "needs_manual_verification"
+  | "ready_for_draft"
+  | "promoted"
+  | "dismissed";
+
+export type FindingCandidateReportability = "blocked" | "needs_review" | "ready_for_draft";
+
 export interface NormalizedFinding {
   id: string;
   title: string;
@@ -34,6 +42,29 @@ export interface NormalizedFinding {
   remediation?: string;
   duplicateRisk: DuplicateRisk;
   reportabilityScore: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FindingCandidate {
+  id: string;
+  jobId?: string;
+  title: string;
+  asset: string;
+  url: string;
+  category: string;
+  severityEstimate: SeverityEstimate;
+  confidence: Confidence;
+  status: FindingCandidateStatus;
+  evidenceIds: string[];
+  observationIds: string[];
+  findingId?: string;
+  falsePositiveRisk: DuplicateRisk;
+  duplicateRisk: DuplicateRisk;
+  reportability: FindingCandidateReportability;
+  reasoningSummary: string;
+  nextManualSteps: string[];
+  fingerprint: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -140,6 +171,7 @@ export interface PlaybookResult {
   live: boolean;
   jobId: string;
   observations: ReconObservation[];
+  candidatesCreated: FindingCandidate[];
   findingsCreated: NormalizedFinding[];
   evidence: EvidenceArtifact[];
   actionsPlanned: number;

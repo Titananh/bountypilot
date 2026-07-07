@@ -169,6 +169,28 @@ export class EvidenceStore {
     };
   }
 
+  buildManifestForArtifacts(
+    artifacts: EvidenceArtifact[],
+    input: Omit<EvidenceManifestInput, "relativePath" | "id" | "createdAt"> = {},
+  ): EvidenceManifest {
+    const filtered = artifacts.filter((artifact) => !input.jobId || artifact.jobId === input.jobId);
+    const entries = filtered.map((artifact) => toManifestEntry(artifact, this.evidenceRoot, this.trustedRoots()));
+
+    return {
+      generatedAt: nowIso(),
+      evidenceRoot: path.resolve(this.evidenceRoot),
+      findingId: input.findingId,
+      jobId: input.jobId,
+      artifactCount: entries.length,
+      artifacts: entries,
+      safety: {
+        contentsEmbedded: false,
+        note:
+          "Manifest records metadata, hashes, and local paths only. Review artifacts manually and redact sensitive data before attaching evidence to a third-party platform.",
+      },
+    };
+  }
+
   writeManifest(input: EvidenceManifestInput = {}): EvidenceArtifact {
     const manifest = this.buildManifest({ findingId: input.findingId, jobId: input.jobId });
     const relativePath = input.relativePath ?? defaultManifestPath(input);

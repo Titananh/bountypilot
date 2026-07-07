@@ -13,6 +13,7 @@ import { JobManager } from "../src/core/jobs/job-manager.js";
 import { WorkflowEventStore } from "../src/core/jobs/workflow-event-store.js";
 import { openBountyDatabase } from "../src/stores/db/database.js";
 import { EvidenceStore } from "../src/stores/evidence-store.js";
+import { FindingCandidateStore } from "../src/stores/finding-candidate-store.js";
 import { FindingStore } from "../src/stores/finding-store.js";
 import { CrawlGraphStore } from "../src/stores/crawl-graph-store.js";
 import { ActionExecutor } from "../src/workflows/action-executor.js";
@@ -57,9 +58,11 @@ describe("ActionExecutor", () => {
     expect(result.status).toBe("executed");
     expect(result.evidenceCreated).toBe(1);
     expect(result.findingsCreated).toBeGreaterThan(0);
+    expect(result.candidatesCreated).toBe(result.findingsCreated);
     expect(runtime.actions.get(action.id)?.status).toBe("executed");
     expect(runtime.evidence.list().length).toBeGreaterThan(0);
     expect(runtime.findings.list().length).toBeGreaterThan(0);
+    expect(runtime.candidates.list({ jobId: job.id })).toHaveLength(result.candidatesCreated);
     expect(runtime.events.list(job.id)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -129,6 +132,7 @@ function createTestRuntime(seedUrl: string): Runtime {
     scopeGuard: new ScopeGuard(config),
     policyGate: new PolicyGate(config.rules),
     rateLimiter: new RateLimiter(config.rules.rate_limit),
+    candidates: new FindingCandidateStore(db),
     findings: new FindingStore(db),
     evidence: new EvidenceStore(db, paths.evidenceDir, { trustedArtifactRoots: [paths.reportsDir] }),
     crawlGraph: new CrawlGraphStore(db),

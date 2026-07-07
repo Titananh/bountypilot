@@ -3,6 +3,7 @@ import path from "node:path";
 import { crawlWithPlaywright } from "../engines/crawler/playwright-crawler.js";
 import { AgentPlanner, type PlannerActionContext, type PlannerLoopResult } from "../engines/agent-planner/agent-planner.js";
 import { DuplicateRiskEngine } from "../engines/duplicate-risk/duplicate-risk-engine.js";
+import { candidateBaselineReportabilityScore, evaluateFindingCandidateReadiness } from "../engines/finding-candidates/finding-candidate-engine.js";
 import { analyzeJavaScript, type JsAnalysisResult } from "../engines/js-analyzer/js-analyzer.js";
 import { writeHackerOneReport } from "../engines/report-generator/report-generator.js";
 import { runSafeChecks } from "../engines/safe-checks/safe-checks.js";
@@ -55,6 +56,7 @@ export interface WorkflowSummary {
   seeds: string[];
   skippedScopeRules: string[];
   phases: WorkflowPhaseResult[];
+  candidatesCreated: number;
   findingsCreated: number;
   evidenceCreated: number;
   actionsPlanned: number;
@@ -139,6 +141,7 @@ export class WorkflowRunner {
       seeds: resolved.seeds,
       skippedScopeRules: resolved.skippedScopeRules,
       phases: [],
+      candidatesCreated: 0,
       findingsCreated: 0,
       evidenceCreated: 0,
       actionsPlanned: 0,
@@ -226,6 +229,7 @@ export class WorkflowRunner {
           metadata: {
             failedPhases: failedPhases.map((phase) => ({ name: phase.name, detail: phase.detail })),
             findingsCreated: summary.findingsCreated,
+            candidatesCreated: summary.candidatesCreated,
             evidenceCreated: summary.evidenceCreated,
             actionsPlanned: summary.actionsPlanned,
             reportsDrafted: summary.reportsDrafted,
@@ -247,6 +251,7 @@ export class WorkflowRunner {
         policyDecision: "allow",
         metadata: {
           findingsCreated: summary.findingsCreated,
+          candidatesCreated: summary.candidatesCreated,
           evidenceCreated: summary.evidenceCreated,
           actionsPlanned: summary.actionsPlanned,
           reportsDrafted: summary.reportsDrafted,
@@ -260,6 +265,7 @@ export class WorkflowRunner {
         message: "Workflow completed.",
         metadata: {
           findingsCreated: summary.findingsCreated,
+          candidatesCreated: summary.candidatesCreated,
           evidenceCreated: summary.evidenceCreated,
           actionsPlanned: summary.actionsPlanned,
           reportsDrafted: summary.reportsDrafted,
@@ -523,7 +529,13 @@ ${actions.map((action) => `- ${action.id}: ${action.target ?? "program"} (${acti
             },
             this.runtime.findings.list(),
           );
-          this.runtime.findings.create({
+          const readiness = evaluateFindingCandidateReadiness({
+            confidence: candidate.confidence,
+            severity: candidate.severityEstimate,
+            evidenceCount: 1,
+            duplicateRisk: duplicate.risk,
+          });
+          const finding = this.runtime.findings.create({
             title: candidate.title,
             asset: scope.host,
             url: scope.url,
@@ -534,8 +546,27 @@ ${actions.map((action) => `- ${action.id}: ${action.target ?? "program"} (${acti
             evidencePaths: [artifact.path],
             remediation: candidate.remediation,
             duplicateRisk: duplicate.risk,
-            reportabilityScore: candidate.severityEstimate === "medium" ? 45 : 20,
+            reportabilityScore: candidateBaselineReportabilityScore(readiness),
           });
+          this.runtime.evidence.linkToFinding(artifact.id, finding.id);
+          this.runtime.candidates.create({
+            jobId,
+            title: candidate.title,
+            asset: scope.host,
+            url: scope.url,
+            category: candidate.category,
+            severityEstimate: candidate.severityEstimate,
+            confidence: candidate.confidence,
+            status: readiness.status,
+            evidenceIds: [artifact.id],
+            findingId: finding.id,
+            falsePositiveRisk: readiness.falsePositiveRisk,
+            duplicateRisk: duplicate.risk,
+            reportability: readiness.reportability,
+            reasoningSummary: readiness.reasoningSummary,
+            nextManualSteps: readiness.nextManualSteps,
+          });
+          summary.candidatesCreated += 1;
           summary.findingsCreated += 1;
         }
 
@@ -659,7 +690,22 @@ ${actions.map((action) => `- ${action.id}: ${action.target ?? "program"} (${acti
         summary.evidenceCreated += 1;
 
         if (result.possibleSecrets.length > 0) {
-          this.runtime.findings.create({
+          const duplicate = new DuplicateRiskEngine().estimate(
+            {
+              title: "Possible secret-like pattern observed in public client-side content",
+              asset: scope.host,
+              url: scope.url,
+              category: "public_js_secret_pattern",
+            },
+            this.runtime.findings.list(),
+          );
+          const readiness = evaluateFindingCandidateReadiness({
+            confidence: "low",
+            severity: "medium",
+            evidenceCount: 1,
+            duplicateRisk: duplicate.risk,
+          });
+          const finding = this.runtime.findings.create({
             title: "Possible secret-like pattern observed in public client-side content",
             asset: scope.host,
             url: scope.url,
@@ -669,9 +715,28 @@ ${actions.map((action) => `- ${action.id}: ${action.target ?? "program"} (${acti
             status: "needs_manual_review",
             evidencePaths: [artifact.path],
             remediation: "Manually verify whether the masked value is a real secret before reporting or validating impact.",
-            duplicateRisk: "unknown",
-            reportabilityScore: 55,
+            duplicateRisk: duplicate.risk,
+            reportabilityScore: candidateBaselineReportabilityScore(readiness),
           });
+          this.runtime.evidence.linkToFinding(artifact.id, finding.id);
+          this.runtime.candidates.create({
+            jobId,
+            title: finding.title,
+            asset: scope.host,
+            url: scope.url,
+            category: finding.category,
+            severityEstimate: finding.severityEstimate,
+            confidence: finding.confidence,
+            status: readiness.status,
+            evidenceIds: [artifact.id],
+            findingId: finding.id,
+            falsePositiveRisk: readiness.falsePositiveRisk,
+            duplicateRisk: duplicate.risk,
+            reportability: readiness.reportability,
+            reasoningSummary: readiness.reasoningSummary,
+            nextManualSteps: readiness.nextManualSteps,
+          });
+          summary.candidatesCreated += 1;
           summary.findingsCreated += 1;
         }
 
@@ -991,6 +1056,7 @@ ${actions.map((action) => `- ${action.id}: ${action.target ?? "program"} (${acti
         const result = await executor.execute(action.action.id);
         summary.evidenceCreated += result.evidenceCreated;
         summary.findingsCreated += result.findingsCreated;
+        summary.candidatesCreated += result.candidatesCreated;
         executed += 1;
       } catch (error) {
         failed += 1;
@@ -1178,6 +1244,7 @@ ${actions.map((action) => `- ${action.id}: ${action.target ?? "program"} (${acti
         actionsPlanned: summary.actionsPlanned,
         evidenceCreated: summary.evidenceCreated,
         findingsCreated: summary.findingsCreated,
+        candidatesCreated: summary.candidatesCreated,
       },
     });
     this.writeCheckpoint(summary);
@@ -1673,6 +1740,7 @@ function readWorkflowSummary(jobsDir: string, jobId: string): WorkflowSummary | 
   if (!isWorkflowSummary(parsed, jobId)) {
     throw new BountyPilotError(`Workflow summary is malformed: ${filePath}`, "WORKFLOW_SUMMARY_INVALID");
   }
+  parsed.candidatesCreated ??= 0;
   return parsed;
 }
 
@@ -1702,6 +1770,7 @@ function isWorkflowSummary(value: unknown, jobId: string): value is WorkflowSumm
     candidate.phases.every(isWorkflowPhaseResult) &&
     (candidate.plannerCandidates === undefined || isPlannerCandidates(candidate.plannerCandidates)) &&
     (candidate.plannerLoop === undefined || isPlannerLoopResult(candidate.plannerLoop)) &&
+    (candidate.candidatesCreated === undefined || typeof candidate.candidatesCreated === "number") &&
     typeof candidate.findingsCreated === "number" &&
     typeof candidate.evidenceCreated === "number" &&
     typeof candidate.actionsPlanned === "number" &&

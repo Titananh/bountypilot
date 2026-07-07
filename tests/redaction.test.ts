@@ -15,6 +15,7 @@ import type { Runtime } from "../src/cli/runtime.js";
 import { openBountyDatabase, type BountyDatabase } from "../src/stores/db/database.js";
 import { CrawlGraphStore } from "../src/stores/crawl-graph-store.js";
 import { EvidenceStore } from "../src/stores/evidence-store.js";
+import { FindingCandidateStore } from "../src/stores/finding-candidate-store.js";
 import { FindingStore } from "../src/stores/finding-store.js";
 import { maskSecretsDeep } from "../src/utils/secrets.js";
 import { writeHandoffBundle } from "../src/workflows/handoff-bundle.js";
@@ -248,11 +249,31 @@ describe("secret redaction", () => {
       status: "running",
       message: "summary event password=summary-event-secret",
     });
+    runtime.candidates.create({
+      id: "cand_summary",
+      jobId: job.id,
+      title: "Summary candidate",
+      asset: "api.example.com",
+      url: "https://api.example.com/",
+      category: "summary_candidate",
+      severityEstimate: "medium",
+      confidence: "medium",
+      status: "needs_manual_verification",
+      evidenceIds: [],
+      observationIds: [],
+      falsePositiveRisk: "medium",
+      duplicateRisk: "unknown",
+      reportability: "needs_review",
+      reasoningSummary: "Candidate summary export test.",
+      nextManualSteps: ["Review candidate."],
+    });
 
     const outputPath = path.join(runtime.paths.programDir, "workspace-summary-redaction.json");
     writeWorkspaceSummary(runtime, outputPath);
 
     const exported = readFileSync(outputPath, "utf8");
+    const parsed = JSON.parse(exported);
+    expect(parsed.candidates).toMatchObject({ total: 1, readyForDraft: 0, linkedFindings: 0 });
     expect(exported).not.toContain("summary-target-secret");
     expect(exported).not.toContain("summary-event-secret");
     expect(exported).toContain("[REDACTED]");
@@ -318,6 +339,7 @@ function createRuntime(): Runtime {
     scopeGuard: new ScopeGuard(config),
     policyGate: new PolicyGate(),
     rateLimiter: new RateLimiter(config.rules.rate_limit),
+    candidates: new FindingCandidateStore(db),
     findings: new FindingStore(db),
     evidence: new EvidenceStore(db, paths.evidenceDir),
     crawlGraph: new CrawlGraphStore(db),

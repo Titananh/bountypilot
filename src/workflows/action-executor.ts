@@ -8,6 +8,7 @@ import { runSafeChecks } from "../engines/safe-checks/safe-checks.js";
 import { analyzeJavaScript } from "../engines/js-analyzer/js-analyzer.js";
 import { crawlWithPlaywright } from "../engines/crawler/playwright-crawler.js";
 import { DuplicateRiskEngine } from "../engines/duplicate-risk/duplicate-risk-engine.js";
+import { candidateBaselineReportabilityScore, evaluateFindingCandidateReadiness } from "../engines/finding-candidates/finding-candidate-engine.js";
 import { ExternalIntegrationExecutor } from "../integrations/external/external-integration-executor.js";
 import { IntegrationManager } from "../integrations/integration-manager/integration-manager.js";
 import { McpStdioExecutor } from "../integrations/mcp/mcp-stdio-executor.js";
@@ -19,6 +20,7 @@ export interface ActionExecutionResult {
   status: "executed" | "blocked" | "failed";
   message: string;
   evidenceCreated: number;
+  candidatesCreated: number;
   findingsCreated: number;
 }
 
@@ -80,6 +82,7 @@ export class ActionExecutor {
       this.runtime.actions.markExecuted(action.id);
       this.recordActionEvent(action, "completed", result.message, {
         evidenceCreated: result.evidenceCreated,
+        candidatesCreated: result.candidatesCreated,
         findingsCreated: result.findingsCreated,
       });
       return {
@@ -87,6 +90,7 @@ export class ActionExecutor {
         status: "executed",
         message: result.message,
         evidenceCreated: result.evidenceCreated,
+        candidatesCreated: result.candidatesCreated,
         findingsCreated: result.findingsCreated,
       };
     } catch (error) {
@@ -124,7 +128,7 @@ export class ActionExecutor {
     action: ActionRecord,
     scopedUrl: string | undefined,
     mode: ExecutionMode,
-  ): Promise<{ message: string; evidenceCreated: number; findingsCreated: number }> {
+  ): Promise<{ message: string; evidenceCreated: number; candidatesCreated: number; findingsCreated: number }> {
     if (action.adapter === "safe-checks" && action.actionType === "http.get") {
       return this.executeSafeChecks(action, requireScopedTarget(action, scopedUrl));
     }
@@ -135,15 +139,18 @@ export class ActionExecutor {
       return this.executePlaywright(action, requireScopedTarget(action, scopedUrl));
     }
     if (action.adapter === "tool-manager") {
-      return new ToolAdapterRunner(this.runtime).executeAction(action, requireScopedTarget(action, scopedUrl), mode);
+      const result = await new ToolAdapterRunner(this.runtime).executeAction(action, requireScopedTarget(action, scopedUrl), mode);
+      return { ...result, candidatesCreated: 0 };
     }
 
     const integration = new IntegrationManager(this.runtime.config).get(action.adapter);
     if (integration?.registration?.mcp || integration?.type === "mcp") {
-      return new McpStdioExecutor(this.runtime).executeAction(action, scopedUrl, mode);
+      const result = await new McpStdioExecutor(this.runtime).executeAction(action, scopedUrl, mode);
+      return { ...result, candidatesCreated: 0 };
     }
 
-    return new ExternalIntegrationExecutor(this.runtime).execute(action, requireScopedTarget(action, scopedUrl), mode);
+    const result = await new ExternalIntegrationExecutor(this.runtime).execute(action, requireScopedTarget(action, scopedUrl), mode);
+    return { ...result, candidatesCreated: 0 };
   }
 
   private targetRequirement(action: ActionRecord): { requiresTarget: boolean; capability?: AdapterCapabilityMetadata } {
@@ -159,7 +166,7 @@ export class ActionExecutor {
   private async executeSafeChecks(
     action: ActionRecord,
     scopedUrl: string,
-  ): Promise<{ message: string; evidenceCreated: number; findingsCreated: number }> {
+  ): Promise<{ message: string; evidenceCreated: number; candidatesCreated: number; findingsCreated: number }> {
     await this.runtime.rateLimiter.wait(scopedUrl);
     const result = await runSafeChecks(scopedUrl);
     const artifact = this.runtime.evidence.writeTextArtifact({
@@ -172,6 +179,7 @@ export class ActionExecutor {
     });
 
     let findingsCreated = 0;
+    let candidatesCreated = 0;
     const history = this.runtime.findings.list();
     for (const candidate of result.findings) {
       const scope = this.runtime.scopeGuard.assertAllowed(scopedUrl);
@@ -184,7 +192,13 @@ export class ActionExecutor {
         },
         history,
       );
-      this.runtime.findings.create({
+      const readiness = evaluateFindingCandidateReadiness({
+        confidence: candidate.confidence,
+        severity: candidate.severityEstimate,
+        evidenceCount: 1,
+        duplicateRisk: duplicate.risk,
+      });
+      const finding = this.runtime.findings.create({
         title: candidate.title,
         asset: scope.host,
         url: scopedUrl,
@@ -195,14 +209,34 @@ export class ActionExecutor {
         evidencePaths: [artifact.path],
         remediation: candidate.remediation,
         duplicateRisk: duplicate.risk,
-        reportabilityScore: candidate.severityEstimate === "medium" ? 45 : 20,
+        reportabilityScore: candidateBaselineReportabilityScore(readiness),
       });
+      this.runtime.evidence.linkToFinding(artifact.id, finding.id);
+      this.runtime.candidates.create({
+        jobId: action.jobId,
+        title: candidate.title,
+        asset: scope.host,
+        url: scopedUrl,
+        category: candidate.category,
+        severityEstimate: candidate.severityEstimate,
+        confidence: candidate.confidence,
+        status: readiness.status,
+        evidenceIds: [artifact.id],
+        findingId: finding.id,
+        falsePositiveRisk: readiness.falsePositiveRisk,
+        duplicateRisk: duplicate.risk,
+        reportability: readiness.reportability,
+        reasoningSummary: readiness.reasoningSummary,
+        nextManualSteps: readiness.nextManualSteps,
+      });
+      candidatesCreated += 1;
       findingsCreated += 1;
     }
 
     return {
       message: `safe checks completed with ${result.findings.length} finding candidates`,
       evidenceCreated: 1,
+      candidatesCreated,
       findingsCreated,
     };
   }
@@ -210,7 +244,7 @@ export class ActionExecutor {
   private async executeJsAnalyzer(
     action: ActionRecord,
     scopedUrl: string,
-  ): Promise<{ message: string; evidenceCreated: number; findingsCreated: number }> {
+  ): Promise<{ message: string; evidenceCreated: number; candidatesCreated: number; findingsCreated: number }> {
     const audit = createJobAuditLogger(this.runtime.paths, action.jobId ?? "ad-hoc-actions");
     const fetchText = async (requestUrl: string): Promise<string> => {
       return fetchScopedText(requestUrl, {
@@ -263,9 +297,25 @@ export class ActionExecutor {
     });
 
     let findingsCreated = 0;
+    let candidatesCreated = 0;
     if (result.possibleSecrets.length > 0) {
       const scope = this.runtime.scopeGuard.assertAllowed(scopedUrl);
-      this.runtime.findings.create({
+      const duplicate = new DuplicateRiskEngine().estimate(
+        {
+          title: "Possible secret-like pattern observed in public client-side content",
+          asset: scope.host,
+          url: scopedUrl,
+          category: "public_js_secret_pattern",
+        },
+        this.runtime.findings.list(),
+      );
+      const readiness = evaluateFindingCandidateReadiness({
+        confidence: "low",
+        severity: "medium",
+        evidenceCount: 1,
+        duplicateRisk: duplicate.risk,
+      });
+      const finding = this.runtime.findings.create({
         title: "Possible secret-like pattern observed in public client-side content",
         asset: scope.host,
         url: scopedUrl,
@@ -275,15 +325,35 @@ export class ActionExecutor {
         status: "needs_manual_review",
         evidencePaths: [artifact.path],
         remediation: "Manually verify whether the masked value is a real secret before reporting or validating impact.",
-        duplicateRisk: "unknown",
-        reportabilityScore: 55,
+        duplicateRisk: duplicate.risk,
+        reportabilityScore: candidateBaselineReportabilityScore(readiness),
       });
+      this.runtime.evidence.linkToFinding(artifact.id, finding.id);
+      this.runtime.candidates.create({
+        jobId: action.jobId,
+        title: finding.title,
+        asset: scope.host,
+        url: scopedUrl,
+        category: finding.category,
+        severityEstimate: finding.severityEstimate,
+        confidence: finding.confidence,
+        status: readiness.status,
+        evidenceIds: [artifact.id],
+        findingId: finding.id,
+        falsePositiveRisk: readiness.falsePositiveRisk,
+        duplicateRisk: duplicate.risk,
+        reportability: readiness.reportability,
+        reasoningSummary: readiness.reasoningSummary,
+        nextManualSteps: readiness.nextManualSteps,
+      });
+      candidatesCreated = 1;
       findingsCreated = 1;
     }
 
     return {
       message: `JavaScript analysis completed with ${result.endpointCandidates.length} endpoint candidates`,
       evidenceCreated: 1,
+      candidatesCreated,
       findingsCreated,
     };
   }
@@ -291,7 +361,7 @@ export class ActionExecutor {
   private async executePlaywright(
     action: ActionRecord,
     scopedUrl: string,
-  ): Promise<{ message: string; evidenceCreated: number; findingsCreated: number }> {
+  ): Promise<{ message: string; evidenceCreated: number; candidatesCreated: number; findingsCreated: number }> {
     await this.runtime.rateLimiter.wait(scopedUrl);
     const audit = createJobAuditLogger(this.runtime.paths, action.jobId ?? "ad-hoc-actions");
     const result = await crawlWithPlaywright({
@@ -332,6 +402,7 @@ export class ActionExecutor {
     return {
       message: `Playwright crawl completed with ${result.links.length} discovered links`,
       evidenceCreated: result.evidence.length,
+      candidatesCreated: 0,
       findingsCreated: 0,
     };
   }

@@ -132,6 +132,11 @@ describe("CLI action execution", () => {
       expect(parsedCorsPlaybook.bugClass).toBe("cors");
       expect(parsedCorsPlaybook.findingsCreated.length).toBeGreaterThanOrEqual(1);
       expect(parsedCorsPlaybook.findingsCreated[0].category).toBe("cors");
+      expect(parsedCorsPlaybook.candidatesCreated.length).toBeGreaterThanOrEqual(1);
+      expect(parsedCorsPlaybook.candidatesCreated[0]).toMatchObject({
+        category: "cors",
+        findingId: parsedCorsPlaybook.findingsCreated[0].id,
+      });
       expect(parsedCorsPlaybook.observations).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ kind: "finding_candidate", sourceAdapter: "hunt-playbook" }),
@@ -156,6 +161,46 @@ describe("CLI action execution", () => {
       expect(parsedReportScore.findingId).toBe(parsedCorsPlaybook.findingsCreated[0].id);
       expect(parsedReportScore.score).toBeGreaterThan(0);
       expect(parsedReportScore.nextCommands).toEqual(expect.arrayContaining([expect.stringContaining("bounty reports review")]));
+
+      const corsCandidateId = parsedCorsPlaybook.candidatesCreated[0].id;
+      const candidatesList = await runCli(["findings", "candidates", "--job", parsedCorsPlaybook.jobId, "--json"], workspace);
+      expectCommand(candidatesList).toExit(0);
+      const parsedCandidatesList = JSON.parse(candidatesList.stdout);
+      expect(parsedCandidatesList.candidates).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: corsCandidateId, category: "cors" })]),
+      );
+
+      const candidateShow = await runCli(["findings", "candidate", corsCandidateId, "--json"], workspace);
+      expectCommand(candidateShow).toExit(0);
+      const parsedCandidateShow = JSON.parse(candidateShow.stdout);
+      expect(parsedCandidateShow).toMatchObject({
+        ok: true,
+        candidate: { id: corsCandidateId, findingId: parsedCorsPlaybook.findingsCreated[0].id },
+      });
+      expect(parsedCandidateShow.evidence.length).toBeGreaterThanOrEqual(2);
+
+      const candidateScore = await runCli(
+        ["reports", "score", corsCandidateId, "--job", parsedCorsPlaybook.jobId, "--json"],
+        workspace,
+      );
+      expectCommand(candidateScore).toExit(0);
+      const parsedCandidateScore = JSON.parse(candidateScore.stdout);
+      expect(parsedCandidateScore).toMatchObject({
+        candidateId: corsCandidateId,
+        findingId: parsedCorsPlaybook.findingsCreated[0].id,
+      });
+      expect(parsedCandidateScore.score).toBeGreaterThan(0);
+
+      const candidateDraft = await runCli(["reports", "draft", corsCandidateId, "--json"], workspace);
+      expectCommand(candidateDraft).toExit(0);
+      const parsedCandidateDraft = JSON.parse(candidateDraft.stdout);
+      expect(parsedCandidateDraft).toMatchObject({
+        ok: true,
+        candidateId: corsCandidateId,
+        findingId: parsedCorsPlaybook.findingsCreated[0].id,
+        status: "report_drafted",
+      });
+      expect(parsedCandidateDraft.report.path).toContain("reports");
 
       const ssrfPlaybook = await runCli(["hunt", "playbook", "ssrf", ssrfTarget, "--live", "--json"], workspace);
       expectCommand(ssrfPlaybook).toExit(0);

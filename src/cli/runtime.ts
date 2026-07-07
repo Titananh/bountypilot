@@ -12,6 +12,7 @@ import { RateLimiter } from "../core/rate-limit/rate-limiter.js";
 import { ScopeGuard } from "../core/scope/scope-guard.js";
 import { ensureProgramWorkspace, type ProgramWorkspace } from "../core/workspace.js";
 import { EvidenceStore } from "../stores/evidence-store.js";
+import { FindingCandidateStore } from "../stores/finding-candidate-store.js";
 import { FindingStore } from "../stores/finding-store.js";
 import { openBountyDatabase, type BountyDatabase } from "../stores/db/database.js";
 import { CrawlGraphStore } from "../stores/crawl-graph-store.js";
@@ -27,6 +28,7 @@ export interface Runtime {
   scopeGuard: ScopeGuard;
   policyGate: PolicyGate;
   rateLimiter: RateLimiter;
+  candidates: FindingCandidateStore;
   findings: FindingStore;
   evidence: EvidenceStore;
   crawlGraph: CrawlGraphStore;
@@ -56,6 +58,7 @@ export function createRuntime(program?: string): Runtime {
     scopeGuard: new ScopeGuard(loaded.config),
     policyGate: new PolicyGate(loaded.config.rules),
     rateLimiter: new RateLimiter(loaded.config.rules.rate_limit),
+    candidates: new FindingCandidateStore(db),
     findings: new FindingStore(db),
     evidence: new EvidenceStore(db, paths.evidenceDir, {
       maskSecrets: loaded.config.evidence.mask_secrets !== false,

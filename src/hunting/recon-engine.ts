@@ -3,6 +3,7 @@ import { Buffer } from "node:buffer";
 import type { Runtime } from "../cli/runtime.js";
 import { createJobAuditLogger } from "../cli/runtime.js";
 import { DuplicateRiskEngine } from "../engines/duplicate-risk/duplicate-risk-engine.js";
+import { evaluateFindingCandidateReadiness } from "../engines/finding-candidates/finding-candidate-engine.js";
 import { analyzeJavaScript } from "../engines/js-analyzer/js-analyzer.js";
 import { generateReproductionNote } from "../engines/report-generator/report-generator.js";
 import { runSafeChecks } from "../engines/safe-checks/safe-checks.js";
@@ -10,7 +11,17 @@ import { TriageEngine } from "../engines/triage/triage-engine.js";
 import { fetchScopedText } from "../core/http/scoped-fetch.js";
 import { ToolManager } from "../integrations/tool-manager/tool-manager.js";
 import { ToolAdapterRunner, latestToolApproval } from "../integrations/tool-manager/tool-adapter-runner.js";
-import type { BugClass, Confidence, EvidenceArtifact, ExecutionMode, PlaybookResult, ReconObservation, RiskLevel } from "../types.js";
+import type {
+  BugClass,
+  Confidence,
+  EvidenceArtifact,
+  ExecutionMode,
+  FindingCandidate,
+  PlaybookResult,
+  ReconObservation,
+  RiskLevel,
+  SeverityEstimate,
+} from "../types.js";
 import { BountyPilotError } from "../utils/errors.js";
 import { maskSecrets } from "../utils/secrets.js";
 
@@ -735,15 +746,27 @@ export async function runHuntPlaybook(runtime: Runtime, bugClass: BugClass, targ
     });
     evidence.push(artifact);
     runtime.findings.linkEvidencePath(finding.id, artifact.path);
+    for (const candidate of runtime.candidates.list({ findingId: finding.id })) {
+      const linked = runtime.candidates.linkEvidence(candidate.id, artifact.id);
+      if (linked) {
+        refreshCandidateReadiness(runtime, linked.id);
+      }
+    }
   }
 
+  const candidatesCreated = runtime.candidates.list({ jobId: job.id });
   runtime.jobs.updateStatus(job.id, "completed");
   runtime.events.record({
     jobId: job.id,
     phase: `playbook:${bugClass}`,
     status: "completed",
-    message: `Playbook completed with ${findingsCreated.length} finding candidate(s).`,
-    metadata: { observations: observations.length, findings: findingsCreated.length, evidence: evidence.length },
+    message: `Playbook completed with ${candidatesCreated.length} finding candidate(s).`,
+    metadata: {
+      observations: observations.length,
+      candidates: candidatesCreated.length,
+      findings: findingsCreated.length,
+      evidence: evidence.length,
+    },
   });
 
   return {
@@ -753,10 +776,15 @@ export async function runHuntPlaybook(runtime: Runtime, bugClass: BugClass, targ
     live,
     jobId: job.id,
     observations,
+    candidatesCreated,
     findingsCreated,
     evidence,
     actionsPlanned,
-    nextCommands: playbookNextCommands(job.id, findingsCreated.map((finding) => finding.id)),
+    nextCommands: playbookNextCommands(
+      job.id,
+      findingsCreated.map((finding) => finding.id),
+      candidatesCreated.map((candidate) => candidate.id),
+    ),
   };
 }
 
@@ -776,10 +804,15 @@ function reconNextCommands(jobId: string, tools: HuntReconToolResult[]): string[
   ];
 }
 
-function playbookNextCommands(jobId: string, findingIds: string[]): string[] {
+function playbookNextCommands(jobId: string, findingIds: string[], candidateIds: string[] = []): string[] {
   return [
     `bounty review --job ${jobId}`,
     `bounty evidence verify --job ${jobId}`,
+    ...(candidateIds.length > 0 ? [`bounty findings candidates --job ${jobId}`] : []),
+    ...candidateIds.flatMap((candidateId) => [
+      `bounty findings candidate ${candidateId}`,
+      `bounty reports score ${candidateId} --job ${jobId}`,
+    ]),
     ...findingIds.flatMap((findingId) => [`bounty reports score ${findingId} --job ${jobId}`, `bounty reports review ${findingId} --job ${jobId}`]),
   ];
 }
@@ -1935,10 +1968,11 @@ function createFindingFromSignal(runtime: Runtime, input: {
   title: string;
   url: string;
   category: string;
-  severity: "info" | "low" | "medium" | "high" | "critical" | "unknown";
+  severity: SeverityEstimate;
   confidence: Confidence;
   evidence: EvidenceArtifact;
   remediation?: string;
+  observationIds?: string[];
 }) {
   const scope = runtime.scopeGuard.assertAllowed(input.url);
   const duplicate = new DuplicateRiskEngine().estimate(
@@ -1965,5 +1999,57 @@ function createFindingFromSignal(runtime: Runtime, input: {
   });
   runtime.evidence.linkToFinding(input.evidence.id, finding.id);
   const triage = new TriageEngine().triage({ ...finding, duplicateRisk: duplicate.risk }, [input.evidence]);
+  const readiness = evaluateFindingCandidateReadiness({
+    confidence: input.confidence,
+    severity: input.severity,
+    evidenceCount: 1,
+    duplicateRisk: duplicate.risk,
+  });
+  runtime.candidates.create({
+    jobId: input.evidence.jobId,
+    title: input.title,
+    asset: scope.host,
+    url: scope.url,
+    category: input.category,
+    severityEstimate: input.severity,
+    confidence: input.confidence,
+    status: readiness.status,
+    evidenceIds: [input.evidence.id],
+    observationIds: input.observationIds,
+    findingId: finding.id,
+    falsePositiveRisk: readiness.falsePositiveRisk,
+    duplicateRisk: duplicate.risk,
+    reportability: readiness.reportability,
+    reasoningSummary: readiness.reasoningSummary,
+    nextManualSteps: readiness.nextManualSteps,
+  });
   return { ...finding, duplicateRisk: duplicate.risk, reportabilityScore: triage.reportabilityScore };
+}
+
+function refreshCandidateReadiness(runtime: Runtime, candidateId: string): FindingCandidate | undefined {
+  const candidate = runtime.candidates.get(candidateId);
+  if (!candidate) return undefined;
+  const duplicate = new DuplicateRiskEngine().estimate(
+    {
+      title: candidate.title,
+      asset: candidate.asset,
+      url: candidate.url,
+      category: candidate.category,
+    },
+    runtime.findings.list().filter((finding) => finding.id !== candidate.findingId),
+  );
+  const readiness = evaluateFindingCandidateReadiness({
+    confidence: candidate.confidence,
+    severity: candidate.severityEstimate,
+    evidenceCount: candidate.evidenceIds.length,
+    duplicateRisk: duplicate.risk,
+  });
+  return runtime.candidates.updateReadiness(candidate.id, {
+    status: readiness.status,
+    reportability: readiness.reportability,
+    falsePositiveRisk: readiness.falsePositiveRisk,
+    duplicateRisk: duplicate.risk,
+    reasoningSummary: readiness.reasoningSummary,
+    nextManualSteps: readiness.nextManualSteps,
+  });
 }

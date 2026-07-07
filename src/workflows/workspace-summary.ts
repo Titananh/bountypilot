@@ -5,7 +5,15 @@ import { TriageEngine, type TriageResult } from "../engines/triage/triage-engine
 import type { ActionQueueSummary } from "../core/actions/action-queue.js";
 import type { JobStatus } from "../core/jobs/job-manager.js";
 import type { WorkflowEventStatus } from "../core/jobs/workflow-event-store.js";
-import type { DuplicateRisk, FindingStatus, NormalizedFinding, SeverityEstimate } from "../types.js";
+import type {
+  DuplicateRisk,
+  FindingCandidate,
+  FindingCandidateReportability,
+  FindingCandidateStatus,
+  FindingStatus,
+  NormalizedFinding,
+  SeverityEstimate,
+} from "../types.js";
 import { maskSecretsDeep } from "../utils/secrets.js";
 import { nowIso } from "../utils/time.js";
 
@@ -41,6 +49,14 @@ export interface WorkspaceSummary {
     byDuplicateRisk: Record<DuplicateRisk, number>;
     averageReportabilityScore: number;
     topReportable: WorkspaceFindingSummary[];
+  };
+  candidates: {
+    total: number;
+    byStatus: Record<FindingCandidateStatus, number>;
+    byReportability: Record<FindingCandidateReportability, number>;
+    readyForDraft: number;
+    linkedFindings: number;
+    top: WorkspaceCandidateSummary[];
   };
   triage: {
     byRecommendation: Record<TriageResult["recommendation"], number>;
@@ -81,10 +97,22 @@ export interface WorkspaceFindingSummary {
   triageRecommendation: TriageResult["recommendation"];
 }
 
+export interface WorkspaceCandidateSummary {
+  id: string;
+  title: string;
+  asset: string;
+  severity: SeverityEstimate;
+  status: FindingCandidateStatus;
+  reportability: FindingCandidateReportability;
+  confidence: FindingCandidate["confidence"];
+  findingId?: string;
+}
+
 export function buildWorkspaceSummary(runtime: Runtime): WorkspaceSummary {
   const jobs = runtime.jobs.list(100);
   const actions = runtime.actions.summarize();
   const findings = runtime.findings.list();
+  const candidates = runtime.candidates.list();
   const evidence = runtime.evidence.list();
   const triageEngine = new TriageEngine();
   const triageResults = findings.map((finding) => triageEngine.triage(finding, runtime.evidence.list(finding.id)));
@@ -143,6 +171,20 @@ export function buildWorkspaceSummary(runtime: Runtime): WorkspaceSummary {
       averageReportabilityScore: average(findings.map((finding) => finding.reportabilityScore)),
       topReportable: topReportableFindings(findings, triageByFinding),
     },
+    candidates: {
+      total: candidates.length,
+      byStatus: countBy<FindingCandidateStatus>(
+        candidates.map((candidate) => candidate.status),
+        ["needs_manual_verification", "ready_for_draft", "promoted", "dismissed"],
+      ),
+      byReportability: countBy<FindingCandidateReportability>(
+        candidates.map((candidate) => candidate.reportability),
+        ["blocked", "needs_review", "ready_for_draft"],
+      ),
+      readyForDraft: candidates.filter((candidate) => candidate.reportability === "ready_for_draft").length,
+      linkedFindings: candidates.filter((candidate) => Boolean(candidate.findingId)).length,
+      top: topCandidates(candidates),
+    },
     triage: {
       byRecommendation,
       readyForDraft: byRecommendation.ready_for_draft,
@@ -168,7 +210,14 @@ export function buildWorkspaceSummary(runtime: Runtime): WorkspaceSummary {
         createdAt: event.createdAt,
       })),
     },
-    nextActions: recommendNextActions({ actions, findings, triageResults, evidenceTotal: evidence.length, jobsTotal: jobs.length }),
+    nextActions: recommendNextActions({
+      actions,
+      findings,
+      candidates,
+      triageResults,
+      evidenceTotal: evidence.length,
+      jobsTotal: jobs.length,
+    }),
   };
 }
 
@@ -201,9 +250,35 @@ function topReportableFindings(
     }));
 }
 
+function topCandidates(candidates: FindingCandidate[]): WorkspaceCandidateSummary[] {
+  const reportabilityRank: Record<FindingCandidateReportability, number> = {
+    ready_for_draft: 3,
+    needs_review: 2,
+    blocked: 1,
+  };
+  return [...candidates]
+    .sort((left, right) =>
+      reportabilityRank[right.reportability] - reportabilityRank[left.reportability] ||
+      right.evidenceIds.length - left.evidenceIds.length ||
+      left.createdAt.localeCompare(right.createdAt),
+    )
+    .slice(0, 8)
+    .map((candidate) => ({
+      id: candidate.id,
+      title: candidate.title,
+      asset: candidate.asset,
+      severity: candidate.severityEstimate,
+      status: candidate.status,
+      reportability: candidate.reportability,
+      confidence: candidate.confidence,
+      findingId: candidate.findingId,
+    }));
+}
+
 function recommendNextActions(input: {
   actions: ActionQueueSummary;
   findings: NormalizedFinding[];
+  candidates: FindingCandidate[];
   triageResults: TriageResult[];
   evidenceTotal: number;
   jobsTotal: number;
@@ -217,6 +292,12 @@ function recommendNextActions(input: {
   }
   if (input.actions.approved > 0) {
     recommendations.push("Execute approved internal actions with `bounty actions run-approved --job <job-id>`.");
+  }
+  if (input.candidates.some((candidate) => candidate.reportability === "needs_review")) {
+    recommendations.push("Review finding candidates with `bounty findings candidates --reportability needs_review`.");
+  }
+  if (input.candidates.some((candidate) => candidate.reportability === "ready_for_draft")) {
+    recommendations.push("Score report-ready candidates with `bounty reports score <candidate-id> --json`.");
   }
   if (input.findings.some((finding) => finding.status === "needs_validation" || finding.status === "needs_manual_review")) {
     recommendations.push("Use `bounty triage <finding-id>` and `bounty reproduce <finding-id>` before drafting reports.");
