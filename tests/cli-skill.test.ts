@@ -151,10 +151,11 @@ describe("CLI skill commands", () => {
       expect.arrayContaining([
         "bounty release github-bootstrap octo/bountypilot --write",
         "gh repo create octo/bountypilot --public --source . --remote origin --push",
-        "git remote add origin https://github.com/octo/bountypilot.git",
       ]),
     );
     expect(parsedForRepo.nextSteps.join("\n")).not.toContain("OWNER/REPO");
+    expect(parsedForRepo.nextSteps).not.toContain("git remote add origin https://github.com/octo/bountypilot.git");
+    expect(parsedForRepo.nextSteps).not.toContain("git push -u origin codex/bug-bounty-pilot-candidate-engine");
   }, 60_000);
 
   it("runs passive skill workflow as dry-run against imported scope", () => {

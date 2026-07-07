@@ -210,6 +210,7 @@ function nextCommandsForBootstrap(input: {
 }): string[] {
   const byName = new Map(input.checks.map((check) => [check.name, check]));
   const commands = new Set<string>();
+  const originMissing = byName.get("git:origin")?.status === "fail";
   if (byName.get("gh:version")?.status === "fail") {
     input.commands.installGh.forEach((command) => commands.add(command));
   }
@@ -219,16 +220,16 @@ function nextCommandsForBootstrap(input: {
   if (byName.get("release:check")?.status === "fail") {
     commands.add("npm run verify:release");
   }
-  if (byName.get("git:origin")?.status === "fail") {
-    input.commands.createRepository.forEach((command) => commands.add(command));
-  }
-  if (byName.get("git:origin-target")?.status === "fail") {
-    input.commands.push.forEach((command) => commands.add(command));
-  }
   if (byName.get("git:working-tree")?.status === "fail") {
     commands.add("git status --short");
     commands.add("git add .");
     commands.add("git commit -m \"Prepare BountyPilot release\"");
+  }
+  if (originMissing) {
+    input.commands.createRepository.forEach((command) => commands.add(command));
+  }
+  if (!originMissing && byName.get("git:origin-target")?.status === "fail") {
+    input.commands.push.forEach((command) => commands.add(command));
   }
   if (byName.get("git:local-tag")?.status === "warn") {
     input.commands.tag.forEach((command) => commands.add(command));

@@ -281,6 +281,8 @@ describe("release checks", () => {
     expect(installIndex).toBeGreaterThanOrEqual(0);
     expect(authIndex).toBeGreaterThan(installIndex);
     expect(createIndex).toBeGreaterThan(authIndex);
+    expect(result.nextCommands).not.toContain("git remote add origin https://github.com/owner/repo.git");
+    expect(result.nextCommands).not.toContain("git push -u origin main");
   });
 
   it("prints shell-neutral commit commands for dirty release worktrees", () => {
@@ -336,6 +338,8 @@ describe("release checks", () => {
     expect(result.gh.auth.status).toBe("pass");
     expect(result.checks).toEqual(expect.arrayContaining([expect.objectContaining({ name: "git:origin", status: "fail" })]));
     expect(result.nextCommands).toContain("gh repo create owner/repo --public --source . --remote origin --push");
+    expect(result.nextCommands).not.toContain("git remote add origin https://github.com/owner/repo.git");
+    expect(result.nextCommands).not.toContain("git push -u origin main");
     expect(result.commands.verify).toContain("bugbounty release install-check --json");
     expect(result.outputFiles?.markdown).toBe(path.join(outputDir, "README.md"));
     expect(readFileSync(result.outputFiles!.markdown, "utf8")).toContain("## Local Verification");

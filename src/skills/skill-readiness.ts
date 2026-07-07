@@ -238,8 +238,6 @@ function readinessNextSteps(input: {
       steps.add("gh auth status");
       steps.add("gh auth login");
       steps.add(`gh repo create ${repo} --public --source . --remote origin --push`);
-      steps.add(`git remote add origin https://github.com/${repo}.git`);
-      steps.add("git push -u origin HEAD");
       steps.add(`git tag ${input.releaseTag}`);
       steps.add(`git push origin ${input.releaseTag}`);
       steps.add(`bounty release publish-plan ${repo} --branch main --tag ${input.releaseTag} --write`);
