@@ -32,6 +32,7 @@ const REQUIRED_SCRIPTS = [
   "test:external-tools",
   "test:package-bin",
   "test:vm-lab",
+  "test:vm-real-tools",
   "typecheck",
   "release:check",
   "sbom",
@@ -74,6 +75,19 @@ const REQUIRED_INSTALLER_FILES = [
   {
     name: "scripts/install.ps1",
     snippets: ["$MinNodeVersion = [version]\"22.13.0\"", "BOUNTYPILOT_INSTALL_DRY_RUN", "$LASTEXITCODE", "npm install -g"],
+  },
+];
+const REQUIRED_RELEASE_SCRIPT_FILES = [
+  {
+    name: "scripts/vm-real-tools-smoke.sh",
+    snippets: [
+      "BOUNTYPILOT_VM_REAL_TOOLS_INSTALL",
+      "http://127.0.0.1:",
+      "tools approve-executable httpx",
+      "tools approve-executable katana",
+      "hunt recon",
+      "--tools httpx,katana",
+    ],
   },
 ];
 const REQUIRED_GITHUB_COMMUNITY_FILES = [
@@ -130,6 +144,16 @@ const REQUIRED_GITHUB_WORKFLOWS = [
     name: ".github/workflows/vm-lab.yml",
     snippets: ["ubuntu-latest", "npm ci", "npm run test:vm-lab", "Packaged CLI local lab smoke", "workflow_dispatch"],
   },
+  {
+    name: ".github/workflows/real-tools.yml",
+    snippets: [
+      "ubuntu-latest",
+      "actions/setup-go@v5",
+      "npm run test:vm-real-tools",
+      "BOUNTYPILOT_VM_REAL_TOOLS_INSTALL",
+      "workflow_dispatch",
+    ],
+  },
 ];
 const MIN_NODE_SQLITE_RUNTIME: [number, number, number] = [22, 13, 0];
 
@@ -160,6 +184,11 @@ export function runReleaseCheck(cwd = process.cwd()): ReleaseCheckResult {
     const installerPath = path.join(cwd, installerFile.name);
     checks.push(fileCheck(installerFile.name, installerPath));
     checks.push(workflowContentCheck(`${installerFile.name}:content`, installerPath, installerFile.snippets));
+  }
+  for (const releaseScript of REQUIRED_RELEASE_SCRIPT_FILES) {
+    const scriptPath = path.join(cwd, releaseScript.name);
+    checks.push(fileCheck(releaseScript.name, scriptPath));
+    checks.push(workflowContentCheck(`${releaseScript.name}:content`, scriptPath, releaseScript.snippets));
   }
 
   if (packageJson) {

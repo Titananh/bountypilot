@@ -25,6 +25,7 @@
     "test:package-bin": "vitest run --config vitest.package.config.ts",
     "pretest:vm-lab": "npm run build",
     "test:vm-lab": "vitest run --config vitest.package.config.ts",
+    "test:vm-real-tools": "bash scripts/vm-real-tools-smoke.sh",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "release:check": "node dist/cli/index.js release check --json",
     "sbom": "npm sbom --sbom-format cyclonedx --sbom-type application --json",

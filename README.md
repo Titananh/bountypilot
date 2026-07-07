@@ -151,6 +151,7 @@ Dry-run is the recommended first command for every target because it exercises s
 | Release | `npm run verify:release` | No | Runs build, docs command-snippet verification, tests, fresh-install package-bin smoke, release checks, and dry-run pack as one gate. |
 | Release | `npm run test:external-tools` | Local fixture executables only | Exercises trusted external tool parsing, approval, scoped recon execution, review-required scanner gates, and crawl graph wiring without touching the internet. |
 | Release | `npm run test:vm-lab` | Local loopback only | Installs the packed CLI into a clean consumer project, starts the demo lab, runs live lab E2E, and verifies beta readiness from the installed binary. |
+| Release | `npm run test:vm-real-tools` | Local loopback plus installed real tools | Ubuntu/VM smoke that approves real `httpx` and `katana`, runs live recon against the loopback demo lab, and verifies scoped observations. |
 | Skill | `bounty skill validate bug-bounty-pilot` | No | Validates the bundled skill policy, workflow, tool registry, playbooks, prompts, templates, and examples. |
 | Skill | `bounty skill bundle bug-bounty-pilot --output bug-bounty-pilot.skill.zip` | No | Writes a portable ZIP bundle with `MANIFEST.bountypilot.json` and SHA-256 hashes for every skill file. |
 | Skill | `bounty skill verify-bundle bug-bounty-pilot.skill.zip` | No | Verifies a standalone skill ZIP manifest, file sizes, SHA-256 hashes, and unexpected files before use. |

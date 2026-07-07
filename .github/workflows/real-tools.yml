@@ -1,0 +1,45 @@
+name: Real Tool VM Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      install_tools:
+        description: "Install safe real recon tools before running the loopback smoke"
+        required: true
+        default: "true"
+
+permissions:
+  contents: read
+
+jobs:
+  real-tool-recon:
+    name: Real httpx/katana loopback recon
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.0"
+          cache: npm
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: true
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build CLI
+        run: npm run build
+
+      - name: Run real tool smoke against loopback lab
+        run: npm run test:vm-real-tools
+        env:
+          BOUNTYPILOT_VM_REAL_TOOLS_INSTALL: ${{ inputs.install_tools }}

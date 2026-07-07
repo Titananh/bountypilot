@@ -121,6 +121,18 @@ describe("release checks", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("fails when GitHub real tools smoke workflow is missing", () => {
+    const root = writeReleaseFixture();
+    rmSync(path.join(root, ".github", "workflows", "real-tools.yml"));
+
+    const result = runReleaseCheck(root);
+
+    expect(result.checks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: ".github/workflows/real-tools.yml", status: "fail" })]),
+    );
+    expect(result.ok).toBe(false);
+  });
+
   it("fails when public repository files are missing", () => {
     const root = writeReleaseFixture();
     rmSync(path.join(root, "LICENSE"));
@@ -183,6 +195,7 @@ function writeReleaseFixture(): string {
           "test:external-tools": "echo external tools",
           "test:package-bin": "echo package",
           "test:vm-lab": "echo vm lab",
+          "test:vm-real-tools": "echo vm real tools",
           typecheck: "echo typecheck",
           "release:check": "echo release",
           sbom: "echo sbom",
@@ -224,6 +237,17 @@ if ($env:BOUNTYPILOT_INSTALL_DRY_RUN -eq "1") {
 }
 npm install -g bountypilot
 if ($LASTEXITCODE -ne 0) { Write-Error "npm install failed" }
+`,
+  );
+  writeText(
+    root,
+    "scripts/vm-real-tools-smoke.sh",
+    `#!/usr/bin/env bash
+BOUNTYPILOT_VM_REAL_TOOLS_INSTALL="\${BOUNTYPILOT_VM_REAL_TOOLS_INSTALL:-0}"
+TARGET="http://127.0.0.1:8080/"
+node dist/cli/index.js tools approve-executable httpx --command /home/runner/go/bin/httpx
+node dist/cli/index.js tools approve-executable katana --command /home/runner/go/bin/katana
+node dist/cli/index.js hunt recon "$TARGET" --profile web --live --tools httpx,katana
 `,
   );
   writeText(
@@ -302,6 +326,22 @@ jobs:
     steps:
       - run: npm ci
       - run: npm run test:vm-lab
+`,
+  );
+  writeText(
+    root,
+    ".github/workflows/real-tools.yml",
+    `name: Real Tool VM Smoke
+on:
+  workflow_dispatch:
+jobs:
+  real-tool-recon:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-go@v5
+      - run: npm run test:vm-real-tools
+        env:
+          BOUNTYPILOT_VM_REAL_TOOLS_INSTALL: "true"
 `,
   );
   writeText(

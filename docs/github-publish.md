@@ -23,6 +23,7 @@ npm ci
 npm run verify:release
 npm run test:external-tools
 npm run test:vm-lab
+npm run test:vm-real-tools
 npm pack --dry-run
 ```
 
@@ -36,6 +37,7 @@ The release check also verifies the public repository contract:
 - `.github/workflows/release.yml`
 - `.github/workflows/codeql.yml`
 - `.github/workflows/vm-lab.yml`
+- `.github/workflows/real-tools.yml`
 - `.github/pull_request_template.md`
 - `.github/dependabot.yml`
 - `.github/ISSUE_TEMPLATE/bug_report.yml`
@@ -100,6 +102,8 @@ The workflow verifies the release gate, creates an npm tarball, bundles `bug-bou
 It also generates and attaches `bountypilot-sbom.cdx.json` as a CycloneDX SBOM for supply-chain review. The standalone skill ZIP includes `MANIFEST.bountypilot.json` with SHA-256 hashes for every skill file; verify it with `bounty skill verify-bundle bug-bounty-pilot.skill.zip`.
 
 The separate VM Lab Smoke workflow runs `npm run test:vm-lab` on `ubuntu-latest`. It installs the packed CLI into a clean consumer project, starts the loopback-only demo lab, runs `lab e2e --live` against that local lab, and checks beta readiness from the installed binary.
+
+The manual Real Tool VM Smoke workflow runs `npm run test:vm-real-tools` on `ubuntu-latest` with Go installed. It installs/uses real `httpx` and `katana`, approves their absolute executable paths, starts the loopback-only demo lab, and runs `hunt recon --live --tools httpx,katana` only against that local target.
 
 ## 6. Verify A Fresh Install
 
