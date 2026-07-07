@@ -210,6 +210,98 @@ describe("bug results engine foundations", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("runs a web recon fixture pipeline and keeps review-required tools pending", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "bountypilot-web-recon-fixture-"));
+    const runtime = createReconRuntime(dir);
+    const restoreSpecs = replaceToolArgs([
+      {
+        tool: "subfinder",
+        args: nodePrintArgs(["api.example.com", "staging.example.com", "cdn.example.com"]),
+      },
+      {
+        tool: "httpx",
+        args: nodePrintArgs([
+          JSON.stringify({ url: "https://api.example.com/v1/users?debug=true", title: "API", tech: ["nginx", "express"] }),
+          JSON.stringify({ url: "https://staging.example.com/private", title: "Out of scope" }),
+        ]),
+      },
+      {
+        tool: "katana",
+        args: nodePrintArgs([
+          JSON.stringify({ url: "https://api.example.com/login", tag: "form", action: "/session", method: "POST" }),
+          JSON.stringify({ url: "https://cdn.example.com/static/app.js" }),
+        ]),
+      },
+    ]);
+
+    try {
+      const approvals = createExecutableApprovalStore(runtime.paths.workspace.integrationsDir);
+      for (const tool of ["subfinder", "httpx", "katana"]) {
+        approvals.approve({
+          integration: toolApprovalIntegrationName(tool),
+          command: process.execPath,
+          note: "vitest web recon fixture",
+        });
+      }
+
+      const result = await runHuntRecon(runtime, "https://api.example.com/", {
+        profile: "web",
+        live: true,
+        tools: ["subfinder", "httpx", "katana", "nuclei", "ffuf", "dalfox"],
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.actionsPlanned).toBe(6);
+      expect(result.tools).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ tool: "subfinder", status: "executed", observations: 2 }),
+          expect.objectContaining({ tool: "httpx", status: "executed", observations: 3 }),
+          expect.objectContaining({ tool: "katana", status: "executed", observations: 3 }),
+          expect.objectContaining({ tool: "nuclei", status: "pending", approvalPresent: false }),
+          expect.objectContaining({ tool: "ffuf", status: "pending", approvalPresent: false }),
+          expect.objectContaining({ tool: "dalfox", status: "pending", approvalPresent: false }),
+        ]),
+      );
+      expect(result.observations.map((observation) => observation.kind)).toEqual(
+        expect.arrayContaining(["host", "parameter", "technology", "endpoint", "form", "js_asset"]),
+      );
+      expect(result.observations.map((observation) => observation.normalizedValue)).toEqual(
+        expect.arrayContaining([
+          "api.example.com",
+          "cdn.example.com",
+          "https://api.example.com/v1/users?debug=true",
+          "nginx",
+          "express",
+          "https://api.example.com/login",
+          "https://api.example.com/session",
+          "https://cdn.example.com/static/app.js",
+        ]),
+      );
+      expect(result.observations.map((observation) => observation.normalizedValue)).not.toContain("staging.example.com");
+      expect(result.observations.map((observation) => observation.normalizedValue)).not.toContain("https://staging.example.com/private");
+      expect(runtime.recon.list({ jobId: result.jobId })).toHaveLength(result.observations.length);
+      expect(runtime.crawlGraph.listPages().map((page) => page.url)).toEqual(
+        expect.arrayContaining([
+          "https://api.example.com/v1/users?debug=true",
+          "https://api.example.com/login",
+          "https://api.example.com/session",
+          "https://cdn.example.com/static/app.js",
+        ]),
+      );
+      expect(runtime.actions.summarize(result.jobId)).toMatchObject({
+        total: 6,
+        pending: 3,
+        executed: 3,
+      });
+      expect(runtime.jobs.get(result.jobId)?.status).toBe("paused");
+      expect(result.nextCommands).toEqual(expect.arrayContaining([`bounty actions review --job ${result.jobId}`]));
+    } finally {
+      restoreSpecs();
+      runtime.db.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 const reconConfig: ProgramConfig = {
@@ -264,5 +356,24 @@ function createReconRuntime(root: string): Runtime {
     events: new WorkflowEventStore(db),
     actions: new ActionQueue(db),
     reviews: new ActionReviewStore(db),
+  };
+}
+
+function nodePrintArgs(lines: string[]): string[] {
+  return ["-e", `for (const line of ${JSON.stringify(lines)}) console.log(line);`];
+}
+
+function replaceToolArgs(replacements: Array<{ tool: string; args: string[] }>): () => void {
+  const originals: Array<{ spec: (typeof TOOL_ADAPTER_SPECS)[number]; args: string[] }> = [];
+  for (const replacement of replacements) {
+    const spec = TOOL_ADAPTER_SPECS.find((candidate) => candidate.tool === replacement.tool);
+    expect(spec, replacement.tool).toBeDefined();
+    originals.push({ spec: spec!, args: [...spec!.defaultArgs] });
+    spec!.defaultArgs = replacement.args;
+  }
+  return () => {
+    for (const original of originals) {
+      original.spec.defaultArgs = original.args;
+    }
   };
 }

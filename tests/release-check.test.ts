@@ -180,6 +180,7 @@ function writeReleaseFixture(): string {
           build: "echo build",
           test: "echo test",
           "test:smoke": "echo smoke",
+          "test:external-tools": "echo external tools",
           "test:package-bin": "echo package",
           "test:vm-lab": "echo vm lab",
           typecheck: "echo typecheck",

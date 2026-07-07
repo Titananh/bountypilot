@@ -20,6 +20,7 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run --maxWorkers=2",
     "test:smoke": "vitest run tests/cli-smoke.test.ts tests/safety-acceptance.test.ts",
+    "test:external-tools": "vitest run tests/recon-engine.test.ts tests/tool-manager.test.ts",
     "pretest:package-bin": "npm run build",
     "test:package-bin": "vitest run --config vitest.package.config.ts",
     "pretest:vm-lab": "npm run build",

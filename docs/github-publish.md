@@ -21,6 +21,7 @@ your-name/bountypilot
 ```bash
 npm ci
 npm run verify:release
+npm run test:external-tools
 npm run test:vm-lab
 npm pack --dry-run
 ```

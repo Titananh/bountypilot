@@ -29,6 +29,7 @@ const REQUIRED_SCRIPTS = [
   "build",
   "test",
   "test:smoke",
+  "test:external-tools",
   "test:package-bin",
   "test:vm-lab",
   "typecheck",

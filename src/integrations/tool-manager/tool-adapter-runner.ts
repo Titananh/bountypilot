@@ -90,7 +90,13 @@ export class ToolAdapterRunner {
       .map((observation) => this.runtime.recon.upsert(observation));
 
     for (const observation of observations) {
-      if (observation.kind === "url" || observation.kind === "endpoint" || observation.kind === "js_asset" || observation.kind === "form") {
+      if (
+        observation.kind === "url" ||
+        observation.kind === "endpoint" ||
+        observation.kind === "parameter" ||
+        observation.kind === "js_asset" ||
+        observation.kind === "form"
+      ) {
         this.runtime.crawlGraph.upsertPage({ url: observation.normalizedValue });
         this.runtime.crawlGraph.addEdge(scoped.url, observation.normalizedValue);
       }
