@@ -113,6 +113,45 @@ describe("CLI skill commands", () => {
         ]),
       );
     }
+
+    const fakeGh = writeFakeGh(mkdtempSync(path.join(os.tmpdir(), "bountypilot-skill-fake-gh-")));
+    const scoredForRepo = runCli(
+      [
+        "skill",
+        "score",
+        "bug-bounty-pilot",
+        "--repo",
+        "octo/bountypilot",
+        "--gh-command",
+        process.execPath,
+        "--gh-command-arg",
+        fakeGh,
+        "--json",
+      ],
+      repoRoot,
+    );
+    expectCommand(scoredForRepo).toExit(0);
+    const parsedForRepo = JSON.parse(outputOf(scoredForRepo));
+    expect(parsedForRepo.github).toMatchObject({
+      ok: false,
+      repo: "octo/bountypilot",
+      tag: "v0.1.0",
+    });
+    expect(parsedForRepo.github.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "gh:version", status: "pass" }),
+        expect.objectContaining({ name: "gh:auth", status: "pass" }),
+        expect.objectContaining({ name: "git:origin", status: "fail" }),
+      ]),
+    );
+    expect(parsedForRepo.nextSteps).toEqual(
+      expect.arrayContaining([
+        "bounty release github-bootstrap octo/bountypilot --write",
+        "gh repo create octo/bountypilot --public --source . --remote origin --push",
+        "git remote add origin https://github.com/octo/bountypilot.git",
+      ]),
+    );
+    expect(parsedForRepo.nextSteps.join("\n")).not.toContain("OWNER/REPO");
   }, 60_000);
 
   it("runs passive skill workflow as dry-run against imported scope", () => {
@@ -171,6 +210,27 @@ function expectCommand(result: SpawnSyncReturns<string>): { toExit(status: numbe
       expect(result.status, outputOf(result)).toBe(status);
     },
   };
+}
+
+function writeFakeGh(root: string): string {
+  const scriptPath = path.join(root, "fake-gh.mjs");
+  writeFileSync(
+    scriptPath,
+    `const args = process.argv.slice(2);
+if (args.includes("--version")) {
+  console.log("gh version 2.0.0");
+  process.exit(0);
+}
+if (args[0] === "auth" && args[1] === "status") {
+  console.log("Logged in to github.com as bountypilot-test");
+  process.exit(0);
+}
+console.error("unexpected fake gh args " + args.join(" "));
+process.exit(1);
+`,
+    "utf8",
+  );
+  return scriptPath;
 }
 
 function programYaml(): string {

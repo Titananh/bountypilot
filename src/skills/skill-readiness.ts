@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { runReleaseCheck } from "../core/release/release-check.js";
+import { buildReleaseGithubBootstrap, type ReleaseGithubBootstrapCheck } from "../core/release/release-github-bootstrap.js";
 import {
   BUG_BOUNTY_PILOT_SKILL_ID,
   bundleSkillDefinition,
@@ -47,9 +48,32 @@ export interface SkillReadinessResult {
     failures: SkillReadinessIssue[];
     warnings: SkillReadinessIssue[];
   };
+  github?: {
+    ok: boolean;
+    repo: string;
+    branch: string;
+    publicBranch: string;
+    tag: string;
+    origin?: string;
+    checks: ReleaseGithubBootstrapCheck[];
+    nextCommands: string[];
+  };
 }
 
-export function scoreSkillReadiness(input: { id?: string; cwd?: string; generatedAt?: string } = {}): SkillReadinessResult {
+export function scoreSkillReadiness(
+  input: {
+    id?: string;
+    cwd?: string;
+    generatedAt?: string;
+    repo?: string;
+    branch?: string;
+    tag?: string;
+    remote?: "https" | "ssh";
+    ghCommand?: string;
+    ghArgsPrefix?: string[];
+    timeoutMs?: number;
+  } = {},
+): SkillReadinessResult {
   const cwd = input.cwd ?? process.cwd();
   const id = input.id ?? BUG_BOUNTY_PILOT_SKILL_ID;
   const validation = validateSkillDefinition(id, cwd);
@@ -59,6 +83,18 @@ export function scoreSkillReadiness(input: { id?: string; cwd?: string; generate
   const release = runReleaseCheck(cwd);
   const releaseFailures = issuesFor(release.checks, "fail");
   const releaseWarnings = issuesFor(release.checks, "warn");
+  const github = input.repo
+    ? buildReleaseGithubBootstrap({
+        cwd,
+        repo: input.repo,
+        branch: input.branch,
+        tag: input.tag,
+        remote: input.remote,
+        ghCommand: input.ghCommand,
+        ghArgsPrefix: input.ghArgsPrefix,
+        timeoutMs: input.timeoutMs,
+      })
+    : undefined;
   const blockers = [...validationFailures, ...bundle.failures, ...releaseFailures];
   const warnings = [...validationWarnings, ...releaseWarnings];
   const score = readinessScore({
@@ -77,7 +113,14 @@ export function scoreSkillReadiness(input: { id?: string; cwd?: string; generate
     readiness,
     blockers,
     warnings,
-    nextSteps: readinessNextSteps({ id, blockers, warnings, releaseTag: release.version ? `v${release.version}` : "v0.1.0" }),
+    nextSteps: readinessNextSteps({
+      id,
+      blockers,
+      warnings,
+      releaseTag: release.version ? `v${release.version}` : "v0.1.0",
+      repoSlug: github?.repo.slug,
+      githubNextCommands: github?.nextCommands,
+    }),
     validation: {
       checks: validation.checks.length,
       failures: validationFailures,
@@ -90,6 +133,18 @@ export function scoreSkillReadiness(input: { id?: string; cwd?: string; generate
       failures: releaseFailures,
       warnings: releaseWarnings,
     },
+    github: github
+      ? {
+          ok: github.ok,
+          repo: github.repo.slug,
+          branch: github.branch,
+          publicBranch: github.publicBranch,
+          tag: github.tag,
+          origin: github.remote.origin,
+          checks: github.checks,
+          nextCommands: github.nextCommands,
+        }
+      : undefined,
   };
 }
 
@@ -150,6 +205,8 @@ function readinessNextSteps(input: {
   blockers: SkillReadinessIssue[];
   warnings: SkillReadinessIssue[];
   releaseTag: string;
+  repoSlug?: string;
+  githubNextCommands?: string[];
 }): string[] {
   if (input.blockers.length === 0 && input.warnings.length === 0) {
     return [`bounty skill bundle ${input.id} --output ${input.id}.skill.zip`, "npm run verify:release"];
@@ -166,21 +223,25 @@ function readinessNextSteps(input: {
     steps.add("npm run verify:release");
   }
   if (input.warnings.some((issue) => issue.name === "github:origin")) {
-    steps.add("bounty release github-bootstrap OWNER/REPO --write");
-    steps.add("bounty release publish-plan OWNER/REPO --write");
-    steps.add("gh --version");
-    steps.add("gh auth status");
-    steps.add("gh auth login");
-    steps.add("gh repo create OWNER/REPO --public --source . --remote origin --push");
-    steps.add("git remote add origin https://github.com/OWNER/REPO.git");
-    steps.add("git push -u origin HEAD");
-    steps.add(`git tag ${input.releaseTag}`);
-    steps.add(`git push origin ${input.releaseTag}`);
-    steps.add(`bounty release publish-plan OWNER/REPO --branch main --tag ${input.releaseTag} --write`);
-    steps.add(`bounty release publish-status OWNER/REPO --branch main --tag ${input.releaseTag} --online --actions --json`);
-    steps.add("bounty release publish-status OWNER/REPO --online --actions --json");
-    steps.add("bugbounty release install-check --json");
+    const repo = input.repoSlug ?? "OWNER/REPO";
+    steps.add(`bounty release github-bootstrap ${repo} --write`);
+    steps.add(`bounty release publish-plan ${repo} --write`);
+    if (!input.githubNextCommands) {
+      steps.add("gh --version");
+      steps.add("gh auth status");
+      steps.add("gh auth login");
+      steps.add(`gh repo create ${repo} --public --source . --remote origin --push`);
+      steps.add(`git remote add origin https://github.com/${repo}.git`);
+      steps.add("git push -u origin HEAD");
+      steps.add(`git tag ${input.releaseTag}`);
+      steps.add(`git push origin ${input.releaseTag}`);
+      steps.add(`bounty release publish-plan ${repo} --branch main --tag ${input.releaseTag} --write`);
+      steps.add(`bounty release publish-status ${repo} --branch main --tag ${input.releaseTag} --online --actions --json`);
+      steps.add(`bounty release publish-status ${repo} --online --actions --json`);
+      steps.add("bugbounty release install-check --json");
+    }
   }
+  input.githubNextCommands?.forEach((command) => steps.add(command));
   if (steps.size === 0) {
     steps.add("Review warnings, then rerun `bounty skill score bug-bounty-pilot`.");
   }

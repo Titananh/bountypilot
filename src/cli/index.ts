@@ -1196,12 +1196,39 @@ skill
 skill
   .command("score")
   .argument("[id]", "Skill id", BUG_BOUNTY_PILOT_SKILL_ID)
+  .option("--repo <repo>", "Optional GitHub repository OWNER/REPO for concrete publish readiness checks")
+  .option("--branch <branch>", "Branch to use when --repo is provided. Defaults to current branch or main.")
+  .option("--tag <tag>", "Release tag to use when --repo is provided. Defaults to v<package.version>.")
+  .option("--remote <kind>", "Preferred remote style when --repo is provided: https or ssh", "https")
+  .option("--gh-command <command>", "GitHub CLI command to probe when --repo is provided", "gh")
+  .option("--gh-command-arg <arg>", "Argument to prepend before gh probe arguments. Repeat for wrappers.", collectOption, [] as string[])
+  .option("--timeout-ms <ms>", "Per-command timeout in milliseconds for GitHub probes", "8000")
   .option("--json", "Print machine-readable JSON")
   .description("Score skill readiness across validation, bundle verification, and release gates")
   .action((id: string, ...args: unknown[]) => {
     const command = commandFromArgs(args);
-    const options = command.opts<{ json?: boolean }>();
-    const result = scoreSkillReadiness({ id, cwd: process.cwd() });
+    const options = command.opts<{
+      repo?: string;
+      branch?: string;
+      tag?: string;
+      remote: string;
+      ghCommand: string;
+      ghCommandArg: string[];
+      timeoutMs: string;
+      json?: boolean;
+    }>();
+    const timeoutMs = parsePositiveIntegerOption(options.timeoutMs, "timeout-ms", 8_000);
+    const result = scoreSkillReadiness({
+      id,
+      cwd: process.cwd(),
+      repo: options.repo,
+      branch: options.branch,
+      tag: options.tag,
+      remote: parseReleaseRemotePreference(options.remote),
+      ghCommand: options.ghCommand,
+      ghArgsPrefix: options.ghCommandArg,
+      timeoutMs,
+    });
     if (!result.ok) {
       process.exitCode = 1;
     }
@@ -1220,6 +1247,21 @@ skill
       ui.kv("bundle", result.bundle.ok ? `${result.bundle.files} files verified` : "failed"),
       ui.kv("release", `${result.release.checks} checks, ${result.release.failures.length} failure(s), ${result.release.warnings.length} warning(s)`),
     ]);
+    if (result.github) {
+      ui.blank();
+      ui.panel("github", [
+        ui.kv("repo", result.github.repo),
+        ui.kv("branch", result.github.branch),
+        ui.kv("tag", result.github.tag),
+        ui.kv("origin", result.github.origin ?? "not configured"),
+        ui.kv("bootstrap", result.github.ok ? "ready" : "needs setup"),
+      ]);
+      ui.blank();
+      ui.table(
+        ["status", "check", "message"],
+        result.github.checks.map((check) => [check.status, check.name, check.message]),
+      );
+    }
     if (result.blockers.length > 0) {
       ui.blank();
       ui.table(
