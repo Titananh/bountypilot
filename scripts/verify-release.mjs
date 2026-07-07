@@ -6,7 +6,6 @@ import path from "node:path";
 import process from "node:process";
 
 const ROOT = process.cwd();
-const NPM = "npm";
 const CLI = path.join(ROOT, "dist", "cli", "index.js");
 const NPM_CACHE = process.env.BOUNTYPILOT_NPM_CACHE ?? path.join(os.tmpdir(), "bountypilot-verify-release-npm-cache");
 const NPM_ENV = {
@@ -263,12 +262,17 @@ function npm(args) {
     run("npm", process.execPath, [npmExecPath, ...argsWithCache]);
     return;
   }
-  run("npm", NPM, argsWithCache, { shell: process.platform === "win32" });
+  if (process.platform === "win32") {
+    run("npm", "cmd.exe", ["/d", "/c", "npm.cmd", ...argsWithCache], { displayArgs: argsWithCache });
+    return;
+  }
+  run("npm", "npm", argsWithCache);
 }
 
 function run(displayCommand, command, args, options = {}) {
-  console.log(`\n> ${[displayCommand, ...args].join(" ")}`);
-  const result = spawnSync(command, args, { cwd: ROOT, stdio: "inherit", env: NPM_ENV, ...options });
+  const { displayArgs = args, ...spawnOptions } = options;
+  console.log(`\n> ${[displayCommand, ...displayArgs].join(" ")}`);
+  const result = spawnSync(command, args, { cwd: ROOT, stdio: "inherit", env: NPM_ENV, ...spawnOptions });
   if (result.error) throw result.error;
   if (result.status !== 0) {
     process.exitCode = result.status ?? 1;

@@ -348,13 +348,17 @@ function stopChild(child: ChildProcessWithoutNullStreams): Promise<void> {
 
 function runNpm(args: string[], cwd: string): SpawnSyncReturns<string> {
   const npmExecPath = process.env.npm_execpath;
-  const command = npmExecPath && existsSync(npmExecPath) ? process.execPath : process.platform === "win32" ? "npm.cmd" : "npm";
   const argsWithCache = ["--cache", npmCacheDir, ...args];
-  const commandArgs = npmExecPath && existsSync(npmExecPath) ? [npmExecPath, ...argsWithCache] : argsWithCache;
+  const useNodeNpmCli = npmExecPath && npmExecPath.endsWith(".js") && existsSync(npmExecPath);
+  const command = useNodeNpmCli ? process.execPath : process.platform === "win32" ? "cmd.exe" : "npm";
+  const commandArgs = useNodeNpmCli
+    ? [npmExecPath, ...argsWithCache]
+    : process.platform === "win32"
+      ? ["/d", "/c", "npm.cmd", ...argsWithCache]
+      : argsWithCache;
   return spawnSync(command, commandArgs, {
     cwd,
     encoding: "utf8",
-    shell: process.platform === "win32" && command.endsWith(".cmd"),
     env: smokeEnv(),
     timeout: 120_000,
   });
