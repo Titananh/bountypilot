@@ -5629,6 +5629,8 @@ release
     ui.blank();
     ui.commandList("post-push verify", result.commands.postPushVerify);
     ui.blank();
+    ui.commandList("actions verify", result.commands.actionsVerify);
+    ui.blank();
     ui.commandList("install verify", result.commands.installVerify);
     ui.blank();
     ui.commandList("release", result.commands.release);
@@ -5652,6 +5654,7 @@ release
   .option("--tag <tag>", "Release tag expected to be published. Defaults to v<package.version>.")
   .option("--remote <kind>", "Preferred remote style: https or ssh", "https")
   .option("--online", "Use git ls-remote to verify the branch/tag on origin")
+  .option("--actions", "Use GitHub CLI to verify required Actions workflows completed successfully")
   .option("--json", "Print machine-readable JSON")
   .description("Check whether the local checkout is ready for GitHub one-line install and release publishing")
   .action((repo: string, ...args: unknown[]) => {
@@ -5661,6 +5664,7 @@ release
       tag?: string;
       remote: string;
       online?: boolean;
+      actions?: boolean;
       json?: boolean;
     }>();
     const result = buildReleasePublishStatus({
@@ -5670,6 +5674,7 @@ release
       tag: options.tag,
       remote: parseReleaseRemotePreference(options.remote),
       online: options.online,
+      actions: options.actions,
     });
     if (options.json || requestedJsonOutput(process.argv)) {
       ui.json(result);

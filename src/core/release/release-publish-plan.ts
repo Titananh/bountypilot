@@ -38,6 +38,7 @@ export interface ReleasePublishPlanResult {
     repositoryCreate: string[];
     remoteSetup: string[];
     postPushVerify: string[];
+    actionsVerify: string[];
     installVerify: string[];
     release: string[];
   };
@@ -87,6 +88,9 @@ export interface BuildReleasePublishStatusInput {
   tag?: string;
   remote?: "https" | "ssh";
   online?: boolean;
+  actions?: boolean;
+  ghCommand?: string;
+  ghArgsPrefix?: string[];
   timeoutMs?: number;
 }
 
@@ -122,6 +126,10 @@ export function buildReleasePublishPlan(input: BuildReleasePublishPlanInput): Re
       `git push -u origin ${branch}`,
     ],
     postPushVerify: [`bounty release publish-status ${repo.slug} --branch ${branch} --tag ${tag} --online --json`],
+    actionsVerify: [
+      `bounty release publish-status ${repo.slug} --branch ${branch} --tag ${tag} --online --actions --json`,
+      `gh run list --repo ${repo.slug} --limit 10`,
+    ],
     installVerify: [install.npm, install.shellDryRun, install.powershellDryRun],
     release: [`git tag ${tag}`, `git push origin ${tag}`],
   };
@@ -199,6 +207,21 @@ export function buildReleasePublishStatus(input: BuildReleasePublishStatusInput)
       message: "Online GitHub branch/tag checks were skipped. Re-run with --online after pushing.",
     });
   }
+  if (input.actions) {
+    checks.push(...githubActionsStatusChecks({
+      repo: repo.slug,
+      branch,
+      ghCommand: input.ghCommand ?? "gh",
+      ghArgsPrefix: input.ghArgsPrefix ?? [],
+      timeoutMs: input.timeoutMs,
+    }));
+  } else {
+    checks.push({
+      name: "github:actions",
+      status: "warn",
+      message: "GitHub Actions checks were skipped. Re-run with --actions after pushing.",
+    });
+  }
 
   const remote = {
     preferred: remotePreference,
@@ -222,7 +245,7 @@ export function buildReleasePublishStatus(input: BuildReleasePublishStatusInput)
     remote,
     releaseCheck,
     checks,
-    nextCommands: publishStatusNextCommands({ repo, branch, tag, remote, checks, online: Boolean(input.online) }),
+    nextCommands: publishStatusNextCommands({ repo, branch, tag, remote, checks, online: Boolean(input.online), actions: Boolean(input.actions) }),
     urls,
   };
 }
@@ -287,6 +310,12 @@ Verify the pushed branch and release readiness:
 
 \`\`\`bash
 ${input.commands.postPushVerify.join("\n")}
+\`\`\`
+
+Verify GitHub Actions before announcing the install command:
+
+\`\`\`bash
+${input.commands.actionsVerify.join("\n")}
 \`\`\`
 
 ## 3. Install Commands For Users
@@ -434,6 +463,90 @@ function remoteRefStatus(
   }
 }
 
+interface GitHubActionsStatusInput {
+  repo: string;
+  branch: string;
+  ghCommand: string;
+  ghArgsPrefix: string[];
+  timeoutMs?: number;
+}
+
+const REQUIRED_ACTION_WORKFLOWS = [
+  { name: "CI", branchScoped: true },
+  { name: "Release", branchScoped: false },
+  { name: "VM Lab Smoke", branchScoped: true },
+  { name: "Real Tool VM Smoke", branchScoped: true },
+];
+
+function githubActionsStatusChecks(input: GitHubActionsStatusInput): ReleasePublishStatusCheck[] {
+  const ghAvailable = ghCliAvailable(input.ghCommand, input.ghArgsPrefix, input.timeoutMs);
+  if (!ghAvailable.ok) {
+    return [{ name: "github:actions-gh", status: "fail", message: ghAvailable.message }];
+  }
+  return REQUIRED_ACTION_WORKFLOWS.map((workflow) => {
+    const args = [
+      "run",
+      "list",
+      "--repo",
+      input.repo,
+      "--workflow",
+      workflow.name,
+      "--limit",
+      "1",
+      "--json",
+      "status,conclusion,workflowName,url,headBranch,event",
+    ];
+    if (workflow.branchScoped) {
+      args.splice(6, 0, "--branch", input.branch);
+    }
+    const run = ghJson<Array<Record<string, unknown>>>(input.ghCommand, input.ghArgsPrefix, args, input.timeoutMs);
+    if (!run.ok) {
+      return { name: `github:actions:${workflow.name}`, status: "fail", message: run.message };
+    }
+    const latest = Array.isArray(run.value) ? run.value[0] : undefined;
+    if (!latest) {
+      return { name: `github:actions:${workflow.name}`, status: "fail", message: `No GitHub Actions run found for workflow ${workflow.name}.` };
+    }
+    const status = typeof latest.status === "string" ? latest.status : "";
+    const conclusion = typeof latest.conclusion === "string" ? latest.conclusion : "";
+    const url = typeof latest.url === "string" ? latest.url : "";
+    const passed = status === "completed" && conclusion === "success";
+    return {
+      name: `github:actions:${workflow.name}`,
+      status: passed ? "pass" : "fail",
+      message: passed ? `${workflow.name} succeeded${url ? `: ${url}` : ""}` : `${workflow.name} latest run is ${status}/${conclusion || "none"}${url ? `: ${url}` : ""}`,
+    };
+  });
+}
+
+function ghCliAvailable(ghCommand: string, ghArgsPrefix: string[], timeoutMs = 8_000): { ok: boolean; message: string } {
+  try {
+    execFileSync(ghCommand, [...ghArgsPrefix, "--version"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: timeoutMs,
+    });
+    return { ok: true, message: "GitHub CLI is available." };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message.split(/\r?\n/)[0] : String(error);
+    return { ok: false, message: `GitHub CLI is not available or not authenticated: ${reason}` };
+  }
+}
+
+function ghJson<T>(ghCommand: string, ghArgsPrefix: string[], args: string[], timeoutMs = 8_000): { ok: true; value: T } | { ok: false; message: string } {
+  try {
+    const output = execFileSync(ghCommand, [...ghArgsPrefix, ...args], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: timeoutMs,
+    });
+    return { ok: true, value: JSON.parse(output) as T };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message.split(/\r?\n/)[0] : String(error);
+    return { ok: false, message: `GitHub CLI check failed: ${reason}` };
+  }
+}
+
 function publishStatusNextCommands(input: {
   repo: GitHubRepoRef;
   branch: string;
@@ -441,6 +554,7 @@ function publishStatusNextCommands(input: {
   remote: ReleasePublishStatusResult["remote"];
   checks: ReleasePublishStatusCheck[];
   online: boolean;
+  actions: boolean;
 }): string[] {
   const byName = new Map(input.checks.map((check) => [check.name, check]));
   const commands = new Set<string>();
@@ -457,6 +571,10 @@ function publishStatusNextCommands(input: {
   if (byName.get("git:local-tag")?.status === "warn") commands.add(`git tag ${input.tag}`);
   if (byName.get("git:remote-tag")?.status !== "pass") commands.add(`git push origin ${input.tag}`);
   if (!input.online) commands.add(`bounty release publish-status ${input.repo.slug} --branch ${input.branch} --tag ${input.tag} --online --json`);
+  if (!input.actions || input.checks.some((check) => check.name.startsWith("github:actions") && check.status === "fail")) {
+    commands.add(`bounty release publish-status ${input.repo.slug} --branch ${input.branch} --tag ${input.tag} --online --actions --json`);
+    commands.add(`gh run list --repo ${input.repo.slug} --limit 10`);
+  }
   return [...commands];
 }
 

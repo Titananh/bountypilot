@@ -117,9 +117,44 @@ describe("release checks", () => {
         expect.objectContaining({ name: "git:working-tree", status: "pass" }),
         expect.objectContaining({ name: "git:local-tag", status: "pass" }),
         expect.objectContaining({ name: "publish:online", status: "warn" }),
+        expect.objectContaining({ name: "github:actions", status: "warn" }),
       ]),
     );
     expect(result.nextCommands).toContain("bounty release publish-status owner/repo --branch main --tag v0.0.0 --online --json");
+    expect(result.nextCommands).toContain("bounty release publish-status owner/repo --branch main --tag v0.0.0 --online --actions --json");
+  });
+
+  it("verifies required GitHub Actions workflows through an injected gh command", () => {
+    const root = writeReleaseFixture();
+    const fakeGh = writeFakeGh(mkdtempSync(path.join(os.tmpdir(), "bountypilot-fake-gh-")));
+    execFileSync("git", ["init", "-b", "main"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "bountypilot@example.test"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "BountyPilot Test"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["add", "."], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "fixture"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["remote", "add", "origin", "https://github.com/owner/repo.git"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["tag", "v0.0.0"], { cwd: root, stdio: "ignore" });
+
+    const result = buildReleasePublishStatus({
+      cwd: root,
+      repo: "owner/repo",
+      branch: "main",
+      tag: "v0.0.0",
+      actions: true,
+      ghCommand: process.execPath,
+      ghArgsPrefix: [fakeGh],
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "github:actions:CI", status: "pass" }),
+        expect.objectContaining({ name: "github:actions:Release", status: "pass" }),
+        expect.objectContaining({ name: "github:actions:VM Lab Smoke", status: "pass" }),
+        expect.objectContaining({ name: "github:actions:Real Tool VM Smoke", status: "pass" }),
+      ]),
+    );
+    expect(result.nextCommands).not.toContain("gh run list --repo owner/repo --limit 10");
   });
 
   it("fails when generated release artifacts are tracked in source control", () => {
@@ -480,6 +515,28 @@ function writeText(root: string, relativePath: string, content: string): void {
   const filePath = path.join(root, relativePath);
   mkdirSync(path.dirname(filePath), { recursive: true });
   writeFileSync(filePath, content.endsWith("\n") ? content : `${content}\n`, "utf8");
+}
+
+function writeFakeGh(root: string): string {
+  const scriptPath = path.join(root, "fake-gh.mjs");
+  writeFileSync(
+    scriptPath,
+    `const args = process.argv.slice(2);
+if (args.includes("--version")) {
+  console.log("gh version 2.0.0");
+  process.exit(0);
+}
+if (args[0] === "run" && args[1] === "list") {
+  const workflow = args[args.indexOf("--workflow") + 1] || "unknown";
+  console.log(JSON.stringify([{ status: "completed", conclusion: "success", workflowName: workflow, url: "https://github.com/owner/repo/actions/runs/1", headBranch: "main", event: "push" }]));
+  process.exit(0);
+}
+console.error("unexpected gh args " + args.join(" "));
+process.exit(1);
+`,
+    "utf8",
+  );
+  return scriptPath;
 }
 
 function programYaml(program: string, lab: boolean): string {
