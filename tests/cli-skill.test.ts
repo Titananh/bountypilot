@@ -28,6 +28,16 @@ describe("CLI skill commands", () => {
     expect(JSON.parse(outputOf(show))).toMatchObject({
       ok: true,
       id: "bug-bounty-pilot",
+      frontmatter: {
+        name: "bug-bounty-pilot",
+        description: expect.stringContaining("authorized scoped targets"),
+      },
+      agentMetadata: {
+        interface: {
+          display_name: "Bug Bounty Pilot",
+          default_prompt: expect.stringContaining("$bug-bounty-pilot"),
+        },
+      },
       modes: expect.arrayContaining(["passive", "safe", "deep-safe", "lab-offensive"]),
     });
 

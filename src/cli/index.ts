@@ -1133,6 +1133,8 @@ skill
       ok: true,
       id: definition.id,
       root: definition.root,
+      frontmatter: definition.frontmatter,
+      agentMetadata: definition.agentMetadata,
       modes: Object.keys(definition.policy.modes),
       workflowSteps: definition.workflow.steps.map((step) => step.id),
       tools: definition.toolRegistry.tools.map((tool) => tool.name),
@@ -1149,6 +1151,7 @@ skill
     ui.header("skill show");
     ui.panel("skill", [
       ui.kv("id", definition.id),
+      ui.kv("name", definition.frontmatter.name),
       ui.kv("root", definition.root),
       ui.kv("modes", payload.modes.join(", ")),
       ui.kv("steps", payload.workflowSteps.length),

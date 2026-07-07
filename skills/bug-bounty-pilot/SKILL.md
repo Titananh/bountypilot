@@ -1,3 +1,8 @@
+---
+name: "bug-bounty-pilot"
+description: "Safe local-first bug bounty workflow engine for authorized scoped targets. Use when Codex needs to plan or run BountyPilot recon, findings, evidence, report scoring, report drafting, VM setup, or handoff workflows without bypassing scope, policy, approval, and dry-run safety gates."
+---
+
 # Bug Bounty Pilot Skill
 
 ## Purpose

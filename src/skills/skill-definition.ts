@@ -14,6 +14,7 @@ export interface SkillDefinition {
   id: string;
   root: string;
   skillMarkdown: string;
+  frontmatter: SkillFrontmatter;
   agentMetadata: SkillAgentMetadata;
   policy: SkillPolicy;
   workflow: SkillWorkflow;
@@ -50,6 +51,7 @@ export interface SkillValidationResult {
     templates: string[];
     examples: string[];
   };
+  frontmatter?: SkillFrontmatter;
   agentMetadata?: SkillAgentMetadata;
   policy?: SkillPolicy;
   workflow?: SkillWorkflow;
@@ -119,6 +121,13 @@ export interface SkillBundleVerificationResult {
 
 const SkillModeSchema = z.enum(["passive", "safe", "deep-safe", "lab-offensive"]);
 const RiskLevelSchema = z.enum(["low", "medium", "high"]);
+
+const SkillFrontmatterSchema = z
+  .object({
+    name: z.string().min(1),
+    description: z.string().min(80),
+  })
+  .strict();
 
 const SkillBundleManifestSchema = z.object({
   schemaVersion: z.literal("bountypilot.skill.bundle.v1"),
@@ -282,6 +291,7 @@ export type SkillWorkflow = z.infer<typeof SkillWorkflowSchema>;
 export type SkillToolRegistry = z.infer<typeof SkillToolRegistrySchema>;
 export type SkillPlaybookRegistry = z.infer<typeof SkillPlaybookRegistrySchema>;
 export type SkillVmProfile = z.infer<typeof SkillVmProfileSchema>;
+export type SkillFrontmatter = z.infer<typeof SkillFrontmatterSchema>;
 export type SkillAgentMetadata = z.infer<typeof SkillAgentMetadataSchema>;
 
 const REQUIRED_SKILL_FILES = [
@@ -453,6 +463,7 @@ export function loadSkillDefinition(id = BUG_BOUNTY_PILOT_SKILL_ID, cwd = proces
     id,
     root,
     skillMarkdown: readSkillFile(root, "SKILL.md"),
+    frontmatter: validation.frontmatter!,
     agentMetadata: validation.agentMetadata!,
     policy: validation.policy!,
     workflow: validation.workflow!,
@@ -485,6 +496,7 @@ export function validateSkillDefinition(id = BUG_BOUNTY_PILOT_SKILL_ID, cwd = pr
     checks.push(fileCheck(`examples/${file}`, path.join(root, "examples", file)));
   }
 
+  const frontmatter = parseSkillFrontmatter(path.join(root, "SKILL.md"), id, checks);
   const agentMetadata = parseYamlSchema(path.join(root, "agents", "openai.yaml"), SkillAgentMetadataSchema, "agents/openai.yaml", checks);
   const policy = parseYamlSchema(path.join(root, "policy.yml"), SkillPolicySchema, "policy.yml", checks);
   const workflow = parseYamlSchema(path.join(root, "workflow.yml"), SkillWorkflowSchema, "workflow.yml", checks);
@@ -582,6 +594,7 @@ export function validateSkillDefinition(id = BUG_BOUNTY_PILOT_SKILL_ID, cwd = pr
       templates: REQUIRED_TEMPLATES.map((file) => `templates/${file}`),
       examples: REQUIRED_EXAMPLES.map((file) => `examples/${file}`),
     },
+    frontmatter,
     agentMetadata,
     policy,
     workflow,
@@ -861,6 +874,51 @@ function parseYamlSchema<T extends z.ZodType>(
   } catch (error) {
     checks.push({
       name: `${label}:syntax`,
+      status: "fail",
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return undefined;
+  }
+}
+
+function parseSkillFrontmatter(filePath: string, id: string, checks: SkillValidationCheck[]): SkillFrontmatter | undefined {
+  if (!existsSync(filePath)) {
+    return undefined;
+  }
+  const text = readFileSync(filePath, "utf8");
+  if (!text.startsWith("---\n") && !text.startsWith("---\r\n")) {
+    checks.push({ name: "SKILL.md:frontmatter", status: "fail", message: "SKILL.md must start with YAML frontmatter" });
+    return undefined;
+  }
+
+  const delimiter = text.startsWith("---\r\n") ? "\r\n---" : "\n---";
+  const end = text.indexOf(delimiter, 4);
+  if (end < 0) {
+    checks.push({ name: "SKILL.md:frontmatter", status: "fail", message: "SKILL.md frontmatter closing delimiter is missing" });
+    return undefined;
+  }
+
+  try {
+    const raw = text.slice(text.indexOf("\n") + 1, end);
+    const result = SkillFrontmatterSchema.safeParse(YAML.parse(raw));
+    if (!result.success) {
+      checks.push({
+        name: "SKILL.md:frontmatter",
+        status: "fail",
+        message: result.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "),
+      });
+      return undefined;
+    }
+    checks.push({ name: "SKILL.md:frontmatter", status: "pass", message: "name and description present" });
+    checks.push({
+      name: "SKILL.md:name",
+      status: result.data.name === id ? "pass" : "fail",
+      message: result.data.name === id ? id : `Expected ${id}, got ${result.data.name}`,
+    });
+    return result.data;
+  } catch (error) {
+    checks.push({
+      name: "SKILL.md:frontmatter",
       status: "fail",
       message: error instanceof Error ? error.message : String(error),
     });

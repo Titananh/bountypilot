@@ -16,6 +16,8 @@ describe("bug-bounty-pilot skill policy", () => {
     expect(result.files.agents).toContain("agents/openai.yaml");
     expect(result.checks).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({ name: "SKILL.md:frontmatter", status: "pass" }),
+        expect.objectContaining({ name: "SKILL.md:name", status: "pass" }),
         expect.objectContaining({ name: "agents/openai.yaml:schema", status: "pass" }),
         expect.objectContaining({ name: "agents/openai.yaml:default_prompt", status: "pass" }),
       ]),
@@ -74,6 +76,35 @@ describe("bug-bounty-pilot skill policy", () => {
             name: "agents/openai.yaml:default_prompt",
             status: "fail",
             message: expect.stringContaining("$bug-bounty-pilot"),
+          }),
+        ]),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails validation when SKILL.md frontmatter drifts from the skill id", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "bountypilot-skill-frontmatter-"));
+    try {
+      const skillRoot = path.join(root, "skills", BUG_BOUNTY_PILOT_SKILL_ID);
+      cpSync(path.join(repoRoot, "skills", BUG_BOUNTY_PILOT_SKILL_ID), skillRoot, { recursive: true });
+      const skillPath = path.join(skillRoot, "SKILL.md");
+      writeFileSync(
+        skillPath,
+        readFileSync(skillPath, "utf8").replace('name: "bug-bounty-pilot"', 'name: "bug-hunter"'),
+        "utf8",
+      );
+
+      const result = validateSkillDefinition(BUG_BOUNTY_PILOT_SKILL_ID, root);
+
+      expect(result.ok).toBe(false);
+      expect(result.checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "SKILL.md:name",
+            status: "fail",
+            message: expect.stringContaining("bug-bounty-pilot"),
           }),
         ]),
       );
