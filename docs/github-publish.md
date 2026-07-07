@@ -28,7 +28,7 @@ bounty release publish-plan OWNER/REPO --write
 ```bash
 npm ci
 npm run verify:release
-bounty skill score bug-bounty-pilot --json
+bounty skill score bug-bounty-pilot --repo OWNER/REPO --json
 bounty release bundle --output .release --force --json
 bounty release verify-bundle .release --json
 bounty release github-bootstrap OWNER/REPO --write

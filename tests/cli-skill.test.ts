@@ -127,6 +127,7 @@ describe("CLI skill commands", () => {
           "bounty release publish-status OWNER/REPO --branch main --tag v0.1.0 --online --actions --json",
           "bounty release publish-status OWNER/REPO --online --actions --json",
           "bugbounty release install-check --json",
+          "bounty skill score bug-bounty-pilot --json",
         ]),
       );
     }
@@ -166,6 +167,7 @@ describe("CLI skill commands", () => {
         "bounty release github-bootstrap octo/bountypilot --write",
         "gh repo create octo/bountypilot --public --source . --remote origin --push",
         "git push -u origin HEAD:main",
+        "bounty skill score bug-bounty-pilot --repo octo/bountypilot --json",
       ]),
     );
     expect(parsedForRepo.warnings).toEqual(

@@ -296,7 +296,6 @@ export type SkillAgentMetadata = z.infer<typeof SkillAgentMetadataSchema>;
 
 const REQUIRED_SKILL_FILES = [
   "SKILL.md",
-  "README.md",
   "policy.yml",
   "workflow.yml",
   "tool-registry.yml",

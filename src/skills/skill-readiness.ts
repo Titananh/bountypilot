@@ -264,8 +264,13 @@ function readinessNextSteps(input: {
     }
   }
   input.githubNextCommands?.forEach((command) => steps.add(command));
+  if (steps.size > 0) {
+    const repoArg = input.repoSlug ? ` --repo ${input.repoSlug}` : "";
+    steps.add(`bounty skill score ${input.id}${repoArg} --json`);
+  }
   if (steps.size === 0) {
-    steps.add("Review warnings, then rerun `bounty skill score bug-bounty-pilot`.");
+    const repoArg = input.repoSlug ? ` --repo ${input.repoSlug}` : "";
+    steps.add(`Review warnings, then rerun \`bounty skill score ${input.id}${repoArg} --json\`.`);
   }
   return [...steps];
 }
