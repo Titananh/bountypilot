@@ -167,10 +167,11 @@ describe("release checks", () => {
     expect(plan.branch).toBe("codex/release-candidate");
     expect(plan.publicBranch).toBe("main");
     expect(plan.commands.publicBranchVerify).toEqual([
+      "git push -u origin HEAD:main",
       "bounty release publish-plan owner/repo --branch main --tag v0.0.0 --write",
       "bounty release publish-status owner/repo --branch main --tag v0.0.0 --online --actions --json",
     ]);
-    expect(plan.markdown).toContain("Before announcing the default one-line install, verify the public branch too:");
+    expect(plan.markdown).toContain("Before announcing the default one-line install, push and verify the public branch too:");
   });
 
   it("adds public-branch verification commands when publish status targets a dev branch", () => {
@@ -187,6 +188,7 @@ describe("release checks", () => {
     expect(result.checks).toEqual(
       expect.arrayContaining([expect.objectContaining({ name: "publish:public-branch", status: "warn" })]),
     );
+    expect(result.nextCommands).toContain("git push -u origin HEAD:main");
     expect(result.nextCommands).toContain("bounty release publish-plan owner/repo --branch main --tag v0.0.0 --write");
     expect(result.nextCommands).toContain("bounty release publish-status owner/repo --branch main --tag v0.0.0 --online --actions --json");
   });
@@ -350,6 +352,28 @@ describe("release checks", () => {
     expect(readFileSync(result.outputFiles!.shell, "utf8")).toContain("npm run verify:release");
     expect(readFileSync(result.outputFiles!.shell, "utf8")).toContain("node dist/cli/index.js release verify-bundle .release --json");
     expect(readFileSync(result.outputFiles!.shell, "utf8")).toContain("bugbounty release install-check --json");
+  });
+
+  it("adds public branch push verification to GitHub bootstrap for non-public branches", () => {
+    const root = writeReleaseFixture();
+    const fakeGh = writeFakeGh(mkdtempSync(path.join(os.tmpdir(), "bountypilot-fake-gh-public-branch-")));
+
+    const result = buildReleaseGithubBootstrap({
+      cwd: root,
+      repo: "owner/repo",
+      branch: "codex/release-candidate",
+      tag: "v0.0.0",
+      ghCommand: process.execPath,
+      ghArgsPrefix: [fakeGh],
+    });
+
+    expect(result.commands.verify).toEqual(
+      expect.arrayContaining([
+        "git push -u origin HEAD:main",
+        "bounty release publish-plan owner/repo --branch main --tag v0.0.0 --write",
+        "bounty release publish-status owner/repo --branch main --tag v0.0.0 --online --actions --json",
+      ]),
+    );
   });
 
   it("fails when generated release artifacts are tracked in source control", () => {

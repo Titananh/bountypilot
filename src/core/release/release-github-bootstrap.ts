@@ -171,6 +171,7 @@ function releaseGithubBootstrapCommands(plan: ReleasePublishPlanResult): Release
     verify: [
       ...plan.commands.postPushVerify,
       ...plan.commands.actionsVerify,
+      ...plan.commands.publicBranchVerify,
       ...plan.commands.installVerify,
     ],
   };

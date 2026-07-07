@@ -145,6 +145,7 @@ export function buildReleasePublishPlan(input: BuildReleasePublishPlanInput): Re
       branch === publicBranch
         ? []
         : [
+            `git push -u origin HEAD:${publicBranch}`,
             `bounty release publish-plan ${repo.slug} --branch ${publicBranch} --tag ${tag} --write`,
             `bounty release publish-status ${repo.slug} --branch ${publicBranch} --tag ${tag} --online --actions --json`,
           ],
@@ -375,7 +376,7 @@ Verify GitHub Actions before announcing the install command:
 ${input.commands.actionsVerify.join("\n")}
 \`\`\`
 
-${input.commands.publicBranchVerify.length > 0 ? `Before announcing the default one-line install, verify the public branch too:
+${input.commands.publicBranchVerify.length > 0 ? `Before announcing the default one-line install, push and verify the public branch too:
 
 \`\`\`bash
 ${input.commands.publicBranchVerify.join("\n")}
@@ -663,6 +664,7 @@ function publishStatusNextCommands(input: {
   if (byName.get("git:local-tag")?.status === "warn") commands.add(`git tag ${input.tag}`);
   if (byName.get("git:remote-tag")?.status !== "pass") commands.add(`git push origin ${input.tag}`);
   if (byName.get("publish:public-branch")?.status === "warn") {
+    commands.add(`git push -u origin HEAD:${input.publicBranch}`);
     commands.add(`bounty release publish-plan ${input.repo.slug} --branch ${input.publicBranch} --tag ${input.tag} --write`);
     commands.add(`bounty release publish-status ${input.repo.slug} --branch ${input.publicBranch} --tag ${input.tag} --online --actions --json`);
   }

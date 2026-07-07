@@ -107,6 +107,7 @@ describe("CLI skill commands", () => {
           "gh auth status",
           "gh auth login",
           "gh repo create OWNER/REPO --public --source . --remote origin --push",
+          "git push -u origin HEAD:main",
           "git tag v0.1.0",
           "git push origin v0.1.0",
           "bounty release publish-plan OWNER/REPO --branch main --tag v0.1.0 --write",
@@ -151,6 +152,7 @@ describe("CLI skill commands", () => {
       expect.arrayContaining([
         "bounty release github-bootstrap octo/bountypilot --write",
         "gh repo create octo/bountypilot --public --source . --remote origin --push",
+        "git push -u origin HEAD:main",
       ]),
     );
     expect(parsedForRepo.nextSteps.join("\n")).not.toContain("OWNER/REPO");

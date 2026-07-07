@@ -94,6 +94,12 @@ git push -u origin main
 
 If `bounty release check --json` reports `github:origin` as `warn`, add or fix the `origin` remote before announcing the GitHub install command.
 
+If you are preparing the release from a feature or Codex branch, publish the reviewed source to the public install branch before announcing `npm install -g github:OWNER/REPO`:
+
+```bash
+git push -u origin HEAD:main
+```
+
 After the branch is pushed, verify publish readiness from the CLI:
 
 ```bash
