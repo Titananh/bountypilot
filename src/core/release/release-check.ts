@@ -79,11 +79,18 @@ const REQUIRED_PUBLIC_REPO_FILES = ["LICENSE", "SECURITY.md", "CONTRIBUTING.md"]
 const REQUIRED_INSTALLER_FILES = [
   {
     name: "scripts/install.sh",
-    snippets: ["MIN_NODE_VERSION=\"22.13.0\"", "BOUNTYPILOT_INSTALL_DRY_RUN", "npm install -g"],
+    snippets: ["MIN_NODE_VERSION=\"22.13.0\"", "validate_source_spec", "Invalid BOUNTYPILOT_SOURCE", "BOUNTYPILOT_INSTALL_DRY_RUN", "npm install -g"],
   },
   {
     name: "scripts/install.ps1",
-    snippets: ["$MinNodeVersion = [version]\"22.13.0\"", "BOUNTYPILOT_INSTALL_DRY_RUN", "$LASTEXITCODE", "npm install -g"],
+    snippets: [
+      "$MinNodeVersion = [version]\"22.13.0\"",
+      "Assert-BountyPilotSourceSpec",
+      "Invalid BOUNTYPILOT_SOURCE",
+      "BOUNTYPILOT_INSTALL_DRY_RUN",
+      "$LASTEXITCODE",
+      "npm install -g",
+    ],
   },
 ];
 const REQUIRED_RELEASE_SCRIPT_FILES = [

@@ -3,6 +3,19 @@ set -euo pipefail
 
 MIN_NODE_VERSION="22.13.0"
 
+validate_source_spec() {
+  local value="$1"
+  if [[ "${value}" =~ ^bountypilot(@[0-9A-Za-z._+-]+)?$ ]]; then
+    return 0
+  fi
+  if [[ "${value}" =~ ^github:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+    return 0
+  fi
+  echo "Invalid BOUNTYPILOT_SOURCE: ${value}" >&2
+  echo "Use bountypilot, bountypilot@<version>, or github:OWNER/REPO." >&2
+  return 1
+}
+
 if ! command -v node >/dev/null 2>&1; then
   echo "BountyPilot requires Node.js ${MIN_NODE_VERSION} or newer."
   echo "Install Node.js first, then rerun this installer."
@@ -38,6 +51,8 @@ fi
 if [[ -n "${BOUNTYPILOT_VERSION:-}" && "${source_spec}" == "bountypilot" ]]; then
   source_spec="bountypilot@${BOUNTYPILOT_VERSION}"
 fi
+
+validate_source_spec "${source_spec}"
 
 echo "Installing BountyPilot from ${source_spec}"
 if [[ "${BOUNTYPILOT_INSTALL_DRY_RUN:-}" == "1" || "${BOUNTYPILOT_INSTALL_DRY_RUN:-}" == "true" ]]; then

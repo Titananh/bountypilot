@@ -2,6 +2,19 @@ $ErrorActionPreference = "Stop"
 
 $MinNodeVersion = [version]"22.13.0"
 
+function Assert-BountyPilotSourceSpec {
+  param([Parameter(Mandatory = $true)][string]$Value)
+
+  if ($Value -match '^bountypilot(@[0-9A-Za-z._+-]+)?$') {
+    return
+  }
+  if ($Value -match '^github:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') {
+    return
+  }
+
+  Write-Error "Invalid BOUNTYPILOT_SOURCE: $Value. Use bountypilot, bountypilot@<version>, or github:OWNER/REPO."
+}
+
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   Write-Error "BountyPilot requires Node.js $MinNodeVersion or newer. Install Node.js first, then rerun this installer."
 }
@@ -30,6 +43,8 @@ if ([string]::IsNullOrWhiteSpace($SourceSpec)) {
 if (-not [string]::IsNullOrWhiteSpace($env:BOUNTYPILOT_VERSION) -and $SourceSpec -eq "bountypilot") {
   $SourceSpec = "bountypilot@$($env:BOUNTYPILOT_VERSION)"
 }
+
+Assert-BountyPilotSourceSpec -Value $SourceSpec
 
 Write-Host "Installing BountyPilot from $SourceSpec"
 if ($env:BOUNTYPILOT_INSTALL_DRY_RUN -eq "1" -or $env:BOUNTYPILOT_INSTALL_DRY_RUN -eq "true") {

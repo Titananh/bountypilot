@@ -234,6 +234,17 @@ function writeReleaseFixture(): string {
     "scripts/install.sh",
     `#!/usr/bin/env bash
 MIN_NODE_VERSION="22.13.0"
+validate_source_spec() {
+  local value="$1"
+  if [[ "\${value}" =~ ^bountypilot(@[0-9A-Za-z._+-]+)?$ ]]; then
+    return 0
+  fi
+  if [[ "\${value}" =~ ^github:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+    return 0
+  fi
+  echo "Invalid BOUNTYPILOT_SOURCE: \${value}" >&2
+  return 1
+}
 if [[ "\${BOUNTYPILOT_INSTALL_DRY_RUN:-}" == "1" ]]; then
   echo "Dry run: npm install -g bountypilot"
   exit 0
@@ -245,6 +256,12 @@ npm install -g bountypilot
     root,
     "scripts/install.ps1",
     `$MinNodeVersion = [version]"22.13.0"
+function Assert-BountyPilotSourceSpec {
+  param([string]$Value)
+  if ($Value -match '^bountypilot(@[0-9A-Za-z._+-]+)?$') { return }
+  if ($Value -match '^github:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') { return }
+  Write-Error "Invalid BOUNTYPILOT_SOURCE: $Value"
+}
 if ($env:BOUNTYPILOT_INSTALL_DRY_RUN -eq "1") {
   Write-Host "Dry run: npm install -g bountypilot"
   exit 0

@@ -24,6 +24,24 @@ describe("installer scripts", () => {
     expect(outputOf(result)).toContain("Dry run: npm install -g github:OWNER/REPO");
   });
 
+  it("rejects unsupported Bash installer sources before npm install", () => {
+    if (!commandAvailable("bash")) return;
+
+    const result = spawnSync("bash", [path.join(repoRoot, "scripts", "install.sh")], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        BOUNTYPILOT_INSTALL_DRY_RUN: "1",
+        BOUNTYPILOT_SOURCE: "https://example.com/package.tgz",
+      },
+    });
+
+    expect(result.status, outputOf(result)).not.toBe(0);
+    expect(outputOf(result)).toContain("Invalid BOUNTYPILOT_SOURCE");
+    expect(outputOf(result)).not.toContain("Dry run: npm install -g");
+  });
+
   it("resolves the npm version source in PowerShell dry-run mode without installing globally", () => {
     const shell = process.platform === "win32" ? "powershell.exe" : "pwsh";
     if (!commandAvailable(shell)) return;
@@ -45,6 +63,29 @@ describe("installer scripts", () => {
     expect(result.status, outputOf(result)).toBe(0);
     expect(outputOf(result)).toContain("Installing BountyPilot from bountypilot@0.1.0");
     expect(outputOf(result)).toContain("Dry run: npm install -g bountypilot@0.1.0");
+  });
+
+  it("rejects unsupported PowerShell installer sources before npm install", () => {
+    const shell = process.platform === "win32" ? "powershell.exe" : "pwsh";
+    if (!commandAvailable(shell)) return;
+
+    const args =
+      process.platform === "win32"
+        ? ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(repoRoot, "scripts", "install.ps1")]
+        : ["-NoProfile", "-File", path.join(repoRoot, "scripts", "install.ps1")];
+    const result = spawnSync(shell, args, {
+      cwd: repoRoot,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        BOUNTYPILOT_INSTALL_DRY_RUN: "true",
+        BOUNTYPILOT_SOURCE: "file:../unexpected",
+      },
+    });
+
+    expect(result.status, outputOf(result)).not.toBe(0);
+    expect(outputOf(result)).toContain("Invalid BOUNTYPILOT_SOURCE");
+    expect(outputOf(result)).not.toContain("Dry run: npm install -g");
   });
 });
 
