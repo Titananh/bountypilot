@@ -79,6 +79,8 @@ Windows PowerShell:
 $env:BOUNTYPILOT_SOURCE="github:OWNER/REPO"; irm https://raw.githubusercontent.com/OWNER/REPO/main/scripts/install.ps1 | iex
 ```
 
+Set `BOUNTYPILOT_INSTALL_DRY_RUN=1` when testing either installer to verify Node/npm and print the resolved install command without changing the global npm prefix.
+
 ## 5. Create A GitHub Release
 
 The release workflow runs when a `v*` tag is pushed:

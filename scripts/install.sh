@@ -40,6 +40,11 @@ if [[ -n "${BOUNTYPILOT_VERSION:-}" && "${source_spec}" == "bountypilot" ]]; the
 fi
 
 echo "Installing BountyPilot from ${source_spec}"
+if [[ "${BOUNTYPILOT_INSTALL_DRY_RUN:-}" == "1" || "${BOUNTYPILOT_INSTALL_DRY_RUN:-}" == "true" ]]; then
+  echo "Dry run: npm install -g ${source_spec}"
+  exit 0
+fi
+
 npm install -g "${source_spec}"
 
 echo

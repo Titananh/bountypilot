@@ -165,6 +165,30 @@ function writeReleaseFixture(): string {
   writeText(root, "CONTRIBUTING.md", "# Contributing\n");
   writeText(
     root,
+    "scripts/install.sh",
+    `#!/usr/bin/env bash
+MIN_NODE_VERSION="22.13.0"
+if [[ "\${BOUNTYPILOT_INSTALL_DRY_RUN:-}" == "1" ]]; then
+  echo "Dry run: npm install -g bountypilot"
+  exit 0
+fi
+npm install -g bountypilot
+`,
+  );
+  writeText(
+    root,
+    "scripts/install.ps1",
+    `$MinNodeVersion = [version]"22.13.0"
+if ($env:BOUNTYPILOT_INSTALL_DRY_RUN -eq "1") {
+  Write-Host "Dry run: npm install -g bountypilot"
+  exit 0
+}
+npm install -g bountypilot
+if ($LASTEXITCODE -ne 0) { Write-Error "npm install failed" }
+`,
+  );
+  writeText(
+    root,
     ".github/workflows/ci.yml",
     `name: CI
 on: [push]

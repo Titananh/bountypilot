@@ -11,6 +11,9 @@ if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
 }
 
 $CurrentNodeVersion = [version]((node -p "process.versions.node").Trim())
+if ($LASTEXITCODE -ne 0) {
+  Write-Error "Could not read Node.js version."
+}
 if ($CurrentNodeVersion -lt $MinNodeVersion) {
   Write-Error "BountyPilot requires Node.js $MinNodeVersion or newer. Current: $CurrentNodeVersion"
 }
@@ -29,11 +32,22 @@ if (-not [string]::IsNullOrWhiteSpace($env:BOUNTYPILOT_VERSION) -and $SourceSpec
 }
 
 Write-Host "Installing BountyPilot from $SourceSpec"
+if ($env:BOUNTYPILOT_INSTALL_DRY_RUN -eq "1" -or $env:BOUNTYPILOT_INSTALL_DRY_RUN -eq "true") {
+  Write-Host "Dry run: npm install -g $SourceSpec"
+  exit 0
+}
+
 npm install -g $SourceSpec
+if ($LASTEXITCODE -ne 0) {
+  Write-Error "npm install failed with exit code $LASTEXITCODE"
+}
 
 Write-Host ""
 Write-Host "Installed:"
 bugbounty --version
+if ($LASTEXITCODE -ne 0) {
+  Write-Error "bugbounty was installed but did not run successfully."
+}
 Write-Host ""
 Write-Host "Next:"
 Write-Host "  bugbounty --help"

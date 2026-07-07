@@ -40,6 +40,8 @@ Windows PowerShell installer:
 $env:BOUNTYPILOT_SOURCE="github:OWNER/REPO"; irm https://raw.githubusercontent.com/OWNER/REPO/main/scripts/install.ps1 | iex
 ```
 
+Set `BOUNTYPILOT_INSTALL_DRY_RUN=1` to make either installer verify Node/npm and print the resolved `npm install -g ...` command without installing globally.
+
 If the package is later published to npm, the shortest install command becomes:
 
 ```bash

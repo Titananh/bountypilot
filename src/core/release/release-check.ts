@@ -63,6 +63,16 @@ const REQUIRED_EXAMPLES = [
 ];
 const REQUIRED_PROGRAM_EXAMPLES = ["examples/program.yml", "examples/local-program.yml"];
 const REQUIRED_PUBLIC_REPO_FILES = ["LICENSE", "SECURITY.md", "CONTRIBUTING.md"];
+const REQUIRED_INSTALLER_FILES = [
+  {
+    name: "scripts/install.sh",
+    snippets: ["MIN_NODE_VERSION=\"22.13.0\"", "BOUNTYPILOT_INSTALL_DRY_RUN", "npm install -g"],
+  },
+  {
+    name: "scripts/install.ps1",
+    snippets: ["$MinNodeVersion = [version]\"22.13.0\"", "BOUNTYPILOT_INSTALL_DRY_RUN", "$LASTEXITCODE", "npm install -g"],
+  },
+];
 const REQUIRED_GITHUB_COMMUNITY_FILES = [
   {
     name: ".github/pull_request_template.md",
@@ -137,6 +147,11 @@ export function runReleaseCheck(cwd = process.cwd()): ReleaseCheckResult {
     const communityPath = path.join(cwd, communityFile.name);
     checks.push(fileCheck(communityFile.name, communityPath));
     checks.push(workflowContentCheck(communityFile.name, communityPath, communityFile.snippets));
+  }
+  for (const installerFile of REQUIRED_INSTALLER_FILES) {
+    const installerPath = path.join(cwd, installerFile.name);
+    checks.push(fileCheck(installerFile.name, installerPath));
+    checks.push(workflowContentCheck(`${installerFile.name}:content`, installerPath, installerFile.snippets));
   }
 
   if (packageJson) {
