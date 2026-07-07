@@ -41,6 +41,7 @@ import { ProviderManager, type ProviderSummary, type ProviderVerifyResult } from
 import { ProviderChatClient, type ProviderChatMessage, type ProviderChatSession } from "../providers/provider-chat-client.js";
 import {
   BUG_BOUNTY_PILOT_SKILL_ID,
+  bundleSkillDefinition,
   exportSkillDefinition,
   listSkillDefinitions,
   loadSkillDefinition,
@@ -1208,6 +1209,34 @@ skill
     ]);
     ui.blank();
     ui.commandList("next commands", [`bounty skill validate ${result.id}`, `bounty skill show ${result.id}`]);
+  });
+
+skill
+  .command("bundle")
+  .argument("[id]", "Skill id", BUG_BOUNTY_PILOT_SKILL_ID)
+  .option("--output <path>", "Destination ZIP path. Defaults to .bounty/skills/bundles/<id>.skill.zip.")
+  .option("--json", "Print machine-readable JSON")
+  .description("Write a portable skill ZIP bundle with a SHA-256 manifest")
+  .action((id: string, ...args: unknown[]) => {
+    const command = commandFromArgs(args);
+    const options = command.opts<{ output?: string; json?: boolean }>();
+    const result = bundleSkillDefinition({ id, output: options.output, cwd: process.cwd() });
+    if (options.json || requestedJsonOutput(process.argv)) {
+      ui.json(result);
+      return;
+    }
+    ui.header("skill bundle");
+    ui.status("ok", `bundled ${result.id}`);
+    ui.panel("bundle", [
+      ui.kv("source", result.source),
+      ui.kv("output", result.output),
+      ui.kv("format", result.format),
+      ui.kv("files", result.files),
+      ui.kv("bytes", result.bytes),
+      ui.kv("sha256", result.sha256),
+    ]);
+    ui.blank();
+    ui.commandList("next commands", [`bounty skill validate ${result.id}`, `Get-FileHash -Algorithm SHA256 ${result.output}`]);
   });
 
 skill

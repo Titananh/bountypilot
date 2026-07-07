@@ -40,6 +40,27 @@ describe("CLI skill commands", () => {
     expectCommand(exported).toExit(0);
     expect(JSON.parse(outputOf(exported))).toMatchObject({ ok: true, id: "bug-bounty-pilot", output });
     expect(existsSync(path.join(output, "SKILL.md"))).toBe(true);
+
+    const bundlePath = path.join(workspace, "bug-bounty-pilot.skill.zip");
+    const bundled = runCli(["skill", "bundle", "bug-bounty-pilot", "--output", bundlePath, "--json"], workspace);
+    expectCommand(bundled).toExit(0);
+    const parsedBundle = JSON.parse(outputOf(bundled));
+    expect(parsedBundle).toMatchObject({
+      ok: true,
+      id: "bug-bounty-pilot",
+      output: bundlePath,
+      format: "zip",
+      manifest: {
+        schemaVersion: "bountypilot.skill.bundle.v1",
+        id: "bug-bounty-pilot",
+        validation: { failures: 0 },
+      },
+    });
+    expect(parsedBundle.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(parsedBundle.manifest.files.map((file: any) => file.path)).toEqual(expect.arrayContaining(["SKILL.md", "policy.yml", "workflow.yml"]));
+    const bundleBytes = readFileSync(bundlePath);
+    expect(bundleBytes.subarray(0, 4).toString("latin1")).toBe("PK\u0003\u0004");
+    expect(bundleBytes.toString("utf8")).toContain("bug-bounty-pilot/MANIFEST.bountypilot.json");
   });
 
   it("runs passive skill workflow as dry-run against imported scope", () => {
@@ -132,4 +153,3 @@ evidence:
 integrations: {}
 `;
 }
-

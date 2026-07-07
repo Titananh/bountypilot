@@ -1,4 +1,5 @@
-import { cpSync, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
@@ -52,6 +53,43 @@ export interface SkillValidationResult {
   toolRegistry?: SkillToolRegistry;
   playbooks?: SkillPlaybookRegistry;
   vmProfile?: SkillVmProfile;
+}
+
+export interface SkillBundleFile {
+  path: string;
+  size: number;
+  sha256: string;
+}
+
+export interface SkillBundleManifest {
+  schemaVersion: "bountypilot.skill.bundle.v1";
+  id: string;
+  title: string;
+  generatedAt: string;
+  contentsPrefix: string;
+  validation: {
+    checks: number;
+    failures: number;
+    warnings: number;
+  };
+  modes: string[];
+  workflowSteps: string[];
+  tools: string[];
+  playbooks: string[];
+  files: SkillBundleFile[];
+  totalBytes: number;
+}
+
+export interface SkillBundleResult {
+  ok: true;
+  id: string;
+  source: string;
+  output: string;
+  format: "zip";
+  files: number;
+  bytes: number;
+  sha256: string;
+  manifest: SkillBundleManifest;
 }
 
 const SkillModeSchema = z.enum(["passive", "safe", "deep-safe", "lab-offensive"]);
@@ -421,6 +459,57 @@ export function exportSkillDefinition(input: { id?: string; output: string; cwd?
   };
 }
 
+export function bundleSkillDefinition(input: { id?: string; output?: string; cwd?: string; generatedAt?: string }): SkillBundleResult {
+  const cwd = input.cwd ?? process.cwd();
+  const id = input.id ?? BUG_BOUNTY_PILOT_SKILL_ID;
+  const validation = validateSkillDefinition(id, cwd);
+  if (!validation.ok) {
+    const details = validation.checks.filter((check) => check.status === "fail").map((check) => `${check.name}: ${check.message}`).join("; ");
+    throw new BountyPilotError(`Skill ${id} is invalid and cannot be bundled. ${details}`, "SKILL_INVALID");
+  }
+  const source = validation.root;
+  const output = path.resolve(cwd, input.output ?? path.join(".bounty", "skills", "bundles", `${id}.skill.zip`));
+  const generatedAt = input.generatedAt ?? new Date().toISOString();
+  const files = collectSkillBundleFiles(source);
+  const manifest: SkillBundleManifest = {
+    schemaVersion: "bountypilot.skill.bundle.v1",
+    id,
+    title: readSkillTitle(source) ?? id,
+    generatedAt,
+    contentsPrefix: id,
+    validation: {
+      checks: validation.checks.length,
+      failures: validation.checks.filter((check) => check.status === "fail").length,
+      warnings: validation.checks.filter((check) => check.status === "warn").length,
+    },
+    modes: Object.keys(validation.policy?.modes ?? {}),
+    workflowSteps: validation.workflow?.steps.map((step) => step.id) ?? [],
+    tools: validation.toolRegistry?.tools.map((tool) => tool.name) ?? [],
+    playbooks: validation.playbooks?.playbooks.map((playbook) => playbook.id) ?? [],
+    files: files.map(({ data: _data, ...file }) => file),
+    totalBytes: files.reduce((sum, file) => sum + file.size, 0),
+  };
+  const manifestData = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  const zipEntries = [
+    { name: `${id}/MANIFEST.bountypilot.json`, data: manifestData },
+    ...files.map((file) => ({ name: `${id}/${file.path}`, data: file.data })),
+  ];
+  mkdirSync(path.dirname(output), { recursive: true });
+  const archive = writeZipStoreArchive(zipEntries, generatedAt);
+  writeFileSync(output, archive);
+  return {
+    ok: true,
+    id,
+    source,
+    output,
+    format: "zip",
+    files: files.length,
+    bytes: archive.length,
+    sha256: sha256Hex(archive),
+    manifest,
+  };
+}
+
 export function resolveSkillRoot(id = BUG_BOUNTY_PILOT_SKILL_ID, cwd = process.cwd()): string {
   const candidates = candidateSkillParents(cwd).map((parent) => path.join(parent, id));
   for (const candidate of candidates) {
@@ -528,6 +617,146 @@ function countFiles(root: string): number {
   return count;
 }
 
+interface SkillBundleFileWithData extends SkillBundleFile {
+  data: Buffer;
+}
+
+interface ZipEntry {
+  name: string;
+  data: Buffer;
+}
+
+function collectSkillBundleFiles(root: string, current = root): SkillBundleFileWithData[] {
+  const files: SkillBundleFileWithData[] = [];
+  for (const entry of readdirSync(current, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+    const fullPath = path.join(current, entry.name);
+    const stats = lstatSync(fullPath);
+    if (stats.isSymbolicLink()) {
+      throw new BountyPilotError(`Skill bundle refuses symbolic links: ${fullPath}`, "SKILL_BUNDLE_INVALID");
+    }
+    if (stats.isDirectory()) {
+      files.push(...collectSkillBundleFiles(root, fullPath));
+      continue;
+    }
+    if (!stats.isFile()) continue;
+    const data = readFileSync(fullPath);
+    const relativePath = path.relative(root, fullPath).split(path.sep).join("/");
+    files.push({
+      path: relativePath,
+      size: data.byteLength,
+      sha256: sha256Hex(data),
+      data,
+    });
+  }
+  return files;
+}
+
+function writeZipStoreArchive(entries: ZipEntry[], generatedAt: string): Buffer {
+  const localParts: Buffer[] = [];
+  const centralParts: Buffer[] = [];
+  let offset = 0;
+  const timestamp = dosTimestamp(new Date(generatedAt));
+
+  for (const entry of entries) {
+    const name = Buffer.from(entry.name, "utf8");
+    const size = entry.data.byteLength;
+    if (size > 0xffffffff || offset > 0xffffffff) {
+      throw new BountyPilotError("Skill bundle is too large for the built-in ZIP writer.", "SKILL_BUNDLE_TOO_LARGE");
+    }
+    const crc = crc32(entry.data);
+    const localHeader = Buffer.alloc(30 + name.byteLength);
+    localHeader.writeUInt32LE(0x04034b50, 0);
+    localHeader.writeUInt16LE(20, 4);
+    localHeader.writeUInt16LE(0, 6);
+    localHeader.writeUInt16LE(0, 8);
+    localHeader.writeUInt16LE(timestamp.time, 10);
+    localHeader.writeUInt16LE(timestamp.date, 12);
+    localHeader.writeUInt32LE(crc, 14);
+    localHeader.writeUInt32LE(size, 18);
+    localHeader.writeUInt32LE(size, 22);
+    localHeader.writeUInt16LE(name.byteLength, 26);
+    localHeader.writeUInt16LE(0, 28);
+    name.copy(localHeader, 30);
+    localParts.push(localHeader, entry.data);
+
+    const centralHeader = Buffer.alloc(46 + name.byteLength);
+    centralHeader.writeUInt32LE(0x02014b50, 0);
+    centralHeader.writeUInt16LE(20, 4);
+    centralHeader.writeUInt16LE(20, 6);
+    centralHeader.writeUInt16LE(0, 8);
+    centralHeader.writeUInt16LE(0, 10);
+    centralHeader.writeUInt16LE(timestamp.time, 12);
+    centralHeader.writeUInt16LE(timestamp.date, 14);
+    centralHeader.writeUInt32LE(crc, 16);
+    centralHeader.writeUInt32LE(size, 20);
+    centralHeader.writeUInt32LE(size, 24);
+    centralHeader.writeUInt16LE(name.byteLength, 28);
+    centralHeader.writeUInt16LE(0, 30);
+    centralHeader.writeUInt16LE(0, 32);
+    centralHeader.writeUInt16LE(0, 34);
+    centralHeader.writeUInt16LE(0, 36);
+    centralHeader.writeUInt32LE(0, 38);
+    centralHeader.writeUInt32LE(offset, 42);
+    name.copy(centralHeader, 46);
+    centralParts.push(centralHeader);
+
+    offset += localHeader.byteLength + entry.data.byteLength;
+  }
+
+  const centralDirectory = Buffer.concat(centralParts);
+  const centralOffset = offset;
+  const centralSize = centralDirectory.byteLength;
+  if (entries.length > 0xffff || centralOffset > 0xffffffff || centralSize > 0xffffffff) {
+    throw new BountyPilotError("Skill bundle is too large for the built-in ZIP writer.", "SKILL_BUNDLE_TOO_LARGE");
+  }
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(0, 4);
+  end.writeUInt16LE(0, 6);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(centralSize, 12);
+  end.writeUInt32LE(centralOffset, 16);
+  end.writeUInt16LE(0, 20);
+  return Buffer.concat([...localParts, centralDirectory, end]);
+}
+
+function dosTimestamp(date: Date): { time: number; date: number } {
+  const safeDate = Number.isNaN(date.getTime()) ? new Date("1980-01-01T00:00:00.000Z") : date;
+  const year = Math.min(Math.max(safeDate.getUTCFullYear(), 1980), 2107);
+  return {
+    time: (safeDate.getUTCHours() << 11) | (safeDate.getUTCMinutes() << 5) | Math.floor(safeDate.getUTCSeconds() / 2),
+    date: ((year - 1980) << 9) | ((safeDate.getUTCMonth() + 1) << 5) | safeDate.getUTCDate(),
+  };
+}
+
+let crc32Table: Uint32Array | undefined;
+
+function crc32(data: Buffer): number {
+  const table = crc32Table ?? (crc32Table = buildCrc32Table());
+  let crc = 0xffffffff;
+  for (const byte of data) {
+    crc = (crc >>> 8) ^ table[(crc ^ byte) & 0xff];
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function buildCrc32Table(): Uint32Array {
+  const table = new Uint32Array(256);
+  for (let index = 0; index < table.length; index += 1) {
+    let value = index;
+    for (let bit = 0; bit < 8; bit += 1) {
+      value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    }
+    table[index] = value >>> 0;
+  }
+  return table;
+}
+
+function sha256Hex(data: Buffer): string {
+  return createHash("sha256").update(data).digest("hex");
+}
+
 function readText(filePath: string): string | undefined {
   try {
     return readFileSync(filePath, "utf8");
@@ -535,4 +764,3 @@ function readText(filePath: string): string | undefined {
     return undefined;
   }
 }
-

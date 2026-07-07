@@ -147,6 +147,9 @@ Dry-run is the recommended first command for every target because it exercises s
 | Release | `bounty release check` | No | Checks whether the built local CLI package is ready for handoff or local release. |
 | Release | `bounty release check --json` | No | Prints release readiness checks as machine-readable JSON, including structured example validation. |
 | Release | `npm run verify:release` | No | Runs build, docs command-snippet verification, tests, fresh-install package-bin smoke, release checks, and dry-run pack as one gate. |
+| Skill | `bounty skill validate bug-bounty-pilot` | No | Validates the bundled skill policy, workflow, tool registry, playbooks, prompts, templates, and examples. |
+| Skill | `bounty skill bundle bug-bounty-pilot --output bug-bounty-pilot.skill.zip` | No | Writes a portable ZIP bundle with `MANIFEST.bountypilot.json` and SHA-256 hashes for every skill file. |
+| Skill | `bounty skill run bug-bounty-pilot <target> --program <program> --mode passive --dry-run` | No | Runs the skill workflow through the existing scoped dry-run safety engine. |
 | Beta | `bounty beta readiness` | No | Scores workspace, imported programs, package, examples, scripts, and release checks for beta handoff readiness. |
 | Beta | `bounty beta readiness --write [--output beta-readiness.json]` | No | Writes a local beta readiness report with blockers, warnings, release details, and next commands. |
 | Beta | `bounty beta checklist` | No | Generates a beta handoff checklist from the current readiness checks, blockers, warnings, safety notes, and required commands. |
