@@ -79,6 +79,17 @@ describe("packaged bugbounty bin", () => {
       expectCommand(skillVerify).toExit(0);
       expect(JSON.parse(skillVerify.stdout)).toMatchObject({ ok: true, files: { missing: [], mismatched: [], extra: [] } });
 
+      const installCheck = runBounty(binPath, ["release", "install-check", "--command", binPath, "--json"], consumerDir);
+      expectCommand(installCheck).toExit(0);
+      expect(JSON.parse(installCheck.stdout)).toMatchObject({
+        ok: true,
+        checks: expect.arrayContaining([
+          expect.objectContaining({ name: "command:version", status: "pass" }),
+          expect.objectContaining({ name: "skill:validate", status: "pass" }),
+          expect.objectContaining({ name: "quickstart:fresh-user", status: "pass" }),
+        ]),
+      });
+
       const freshQuickstart = runBounty(binPath, ["quickstart", "--json"], consumerDir);
       expectCommand(freshQuickstart).toExit(0);
       const parsedFreshQuickstart = JSON.parse(freshQuickstart.stdout);

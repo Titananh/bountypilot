@@ -178,6 +178,7 @@ function readinessNextSteps(input: {
     steps.add(`bounty release publish-plan OWNER/REPO --branch main --tag ${input.releaseTag} --write`);
     steps.add(`bounty release publish-status OWNER/REPO --branch main --tag ${input.releaseTag} --online --actions --json`);
     steps.add("bounty release publish-status OWNER/REPO --online --actions --json");
+    steps.add("bugbounty release install-check --json");
   }
   if (steps.size === 0) {
     steps.add("Review warnings, then rerun `bounty skill score bug-bounty-pilot`.");

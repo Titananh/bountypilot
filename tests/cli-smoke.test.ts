@@ -425,6 +425,23 @@ integrations: {}
         npmPinned: "npm install -g github:octo/bountypilot#main",
       });
       expect(parsedPublishStatus.installVerify).toContain("npm install -g github:octo/bountypilot#main");
+      expect(parsedPublishStatus.installVerify).toContain("bugbounty release install-check --json");
+
+      const fakeInstalledCli = writeFakeInstalledBounty(mkdtempSync(path.join(os.tmpdir(), "bountypilot-cli-install-check-")));
+      const installCheck = runCli(
+        ["release", "install-check", "--command", process.execPath, "--command-arg", fakeInstalledCli, "--json"],
+        repoRoot,
+      );
+      expectCommand(installCheck).toExit(0);
+      const parsedInstallCheck = JSON.parse(installCheck.stdout);
+      expect(parsedInstallCheck).toMatchObject({ ok: true, version: "0.1.0" });
+      expect(parsedInstallCheck.checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: "command:version", status: "pass" }),
+          expect.objectContaining({ name: "skill:validate", status: "pass" }),
+          expect.objectContaining({ name: "quickstart:fresh-user", status: "pass" }),
+        ]),
+      );
 
       const deepDoctorJson = runCli(["doctor", "--deep", "--json"], repoRoot);
     expectCommand(deepDoctorJson).toExit(0);
@@ -1484,6 +1501,36 @@ function writeFakePlaywrightMcpPackage(workspace: string): void {
     "utf8",
   );
   writeFileSync(path.join(packageRoot, "cli.js"), "console.log('fake playwright mcp');\n", "utf8");
+}
+
+function writeFakeInstalledBounty(root: string): string {
+  mkdirSync(root, { recursive: true });
+  const scriptPath = path.join(root, "fake-bugbounty.mjs");
+  writeFileSync(
+    scriptPath,
+    `const args = process.argv.slice(2);
+if (args[0] === "--version") {
+  console.log("0.1.0");
+  process.exit(0);
+}
+if (args[0] === "--help") {
+  console.log("BountyPilot safe, local-first, scoped bug bounty CLI");
+  process.exit(0);
+}
+if (args.join(" ") === "skill validate bug-bounty-pilot --json") {
+  console.log(JSON.stringify({ ok: true, checks: [{ name: "skill", status: "pass" }] }));
+  process.exit(0);
+}
+if (args.join(" ") === "quickstart --json") {
+  console.log(JSON.stringify({ status: "needs_review", workspace: { found: false }, nextCommands: ["bounty init --guided"] }));
+  process.exit(0);
+}
+console.error("unexpected fake bugbounty args " + args.join(" "));
+process.exit(1);
+`,
+    "utf8",
+  );
+  return scriptPath;
 }
 
 async function allowVitestRpc(): Promise<void> {

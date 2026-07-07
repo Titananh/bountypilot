@@ -289,7 +289,7 @@ function releaseInstallCommands(repo: GitHubRepoRef, branch: string): ReleasePub
 }
 
 function releaseInstallVerifyCommands(install: ReleasePublishPlanResult["install"]): string[] {
-  return [install.npm, install.npmPinned, install.shellDryRun, install.powershellDryRun];
+  return [install.npm, install.npmPinned, "bugbounty release install-check --json", install.shellDryRun, install.powershellDryRun];
 }
 
 function parseGitHubRepo(value: string): GitHubRepoRef {

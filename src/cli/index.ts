@@ -27,6 +27,7 @@ import { McpStdioExecutor, type McpSessionStepInput } from "../integrations/mcp/
 import { ToolManager } from "../integrations/tool-manager/tool-manager.js";
 import { latestToolApproval, toolApprovalIntegrationName } from "../integrations/tool-manager/tool-adapter-runner.js";
 import { buildReleaseBundle, verifyReleaseBundle } from "../core/release/release-bundle.js";
+import { buildReleaseInstallCheck } from "../core/release/release-install-check.js";
 import { buildReleasePublishPlan, buildReleasePublishStatus } from "../core/release/release-publish-plan.js";
 import {
   ARSENAL_TOOLS,
@@ -5575,6 +5576,45 @@ release
       ["status", "check", "message"],
       result.checks.map((check) => [check.status, check.name, check.message]),
     );
+  });
+
+release
+  .command("install-check")
+  .option("--command <command>", "Installed bugbounty command to execute. Defaults to bugbounty.", "bugbounty")
+  .option("--command-arg <arg>", "Argument to prepend before install-check arguments. Repeat for wrappers.", collectOption, [] as string[])
+  .option("--timeout-ms <ms>", "Per-command timeout in milliseconds", "30000")
+  .option("--json", "Print machine-readable JSON")
+  .description("Verify an installed BountyPilot CLI can boot, validate the bundled skill, and render fresh quickstart JSON")
+  .action((...args: unknown[]) => {
+    const command = commandFromArgs(args);
+    const options = command.opts<{ command: string; commandArg: string[]; timeoutMs: string; json?: boolean }>();
+    const timeoutMs = parsePositiveIntegerOption(options.timeoutMs, "timeout-ms", 30_000);
+    const result = buildReleaseInstallCheck({
+      cwd: process.cwd(),
+      command: options.command,
+      argsPrefix: options.commandArg,
+      timeoutMs,
+    });
+    if (options.json || requestedJsonOutput(process.argv)) {
+      ui.json(result);
+      process.exitCode = result.ok ? 0 : 1;
+      return;
+    }
+    ui.header("release install-check");
+    ui.status(result.ok ? "ok" : "blocked", result.ok ? "installed CLI verified" : "installed CLI failed verification");
+    ui.panel("command", [
+      ui.kv("command", result.command),
+      ui.kv("resolved", result.resolvedCommand),
+      ui.kv("version", result.version),
+    ]);
+    ui.blank();
+    ui.table(
+      ["status", "check", "message"],
+      result.checks.map((check) => [check.status, check.name, check.message]),
+    );
+    ui.blank();
+    ui.commandList("next commands", result.nextCommands);
+    process.exitCode = result.ok ? 0 : 1;
   });
 
 release

@@ -121,6 +121,12 @@ $env:BOUNTYPILOT_SOURCE="github:OWNER/REPO"; irm https://raw.githubusercontent.c
 
 Set `BOUNTYPILOT_INSTALL_DRY_RUN=1` when testing either installer to verify Node/npm and print the resolved install command without changing the global npm prefix.
 
+After any global install path, verify the installed command from a clean temporary workspace:
+
+```bash
+bugbounty release install-check --json
+```
+
 ## 5. Create A GitHub Release
 
 The release workflow runs when a `v*` tag is pushed:

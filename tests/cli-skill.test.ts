@@ -108,6 +108,7 @@ describe("CLI skill commands", () => {
           "bounty release publish-plan OWNER/REPO --branch main --tag v0.1.0 --write",
           "bounty release publish-status OWNER/REPO --branch main --tag v0.1.0 --online --actions --json",
           "bounty release publish-status OWNER/REPO --online --actions --json",
+          "bugbounty release install-check --json",
         ]),
       );
     }

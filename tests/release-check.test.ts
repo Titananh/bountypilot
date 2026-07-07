@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { nodeEngineSupportsSqliteRuntime, runReleaseCheck } from "../src/core/release/release-check.js";
+import { buildReleaseInstallCheck } from "../src/core/release/release-install-check.js";
 import { buildReleasePublishPlan, buildReleasePublishStatus } from "../src/core/release/release-publish-plan.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -131,7 +132,28 @@ describe("release checks", () => {
       expect.arrayContaining([
         "npm install -g github:owner/repo",
         "npm install -g github:owner/repo#main",
+        "bugbounty release install-check --json",
         expect.stringContaining("BOUNTYPILOT_INSTALL_DRY_RUN=1"),
+      ]),
+    );
+  });
+
+  it("verifies an installed CLI command through the release install check", () => {
+    const fakeCli = writeFakeInstalledBounty(mkdtempSync(path.join(os.tmpdir(), "bountypilot-fake-install-")));
+
+    const result = buildReleaseInstallCheck({
+      command: process.execPath,
+      argsPrefix: [fakeCli],
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.version).toBe("0.1.0");
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "command:version", status: "pass" }),
+        expect.objectContaining({ name: "command:help", status: "pass" }),
+        expect.objectContaining({ name: "skill:validate", status: "pass" }),
+        expect.objectContaining({ name: "quickstart:fresh-user", status: "pass" }),
       ]),
     );
   });
@@ -594,6 +616,35 @@ if (args[0] === "run" && args[1] === "list") {
   process.exit(0);
 }
 console.error("unexpected gh args " + args.join(" "));
+process.exit(1);
+`,
+    "utf8",
+  );
+  return scriptPath;
+}
+
+function writeFakeInstalledBounty(root: string): string {
+  const scriptPath = path.join(root, "fake-bugbounty.mjs");
+  writeFileSync(
+    scriptPath,
+    `const args = process.argv.slice(2);
+if (args[0] === "--version") {
+  console.log("0.1.0");
+  process.exit(0);
+}
+if (args[0] === "--help") {
+  console.log("BountyPilot safe, local-first, scoped bug bounty CLI");
+  process.exit(0);
+}
+if (args.join(" ") === "skill validate bug-bounty-pilot --json") {
+  console.log(JSON.stringify({ ok: true, checks: [{ name: "skill", status: "pass" }] }));
+  process.exit(0);
+}
+if (args.join(" ") === "quickstart --json") {
+  console.log(JSON.stringify({ status: "needs_review", workspace: { found: false }, nextCommands: ["bounty init --guided"] }));
+  process.exit(0);
+}
+console.error("unexpected fake bugbounty args " + args.join(" "));
 process.exit(1);
 `,
     "utf8",
