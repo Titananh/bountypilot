@@ -39,6 +39,19 @@ describe("packaged bugbounty bin", () => {
       });
       expectCommand(skillValidate).toExit(0);
       expect(JSON.parse(skillValidate.stdout).ok).toBe(true);
+
+      const skillShow = spawnSync(process.execPath, [cliPath, "skill", "show", "bug-bounty-pilot", "--json"], {
+        cwd: sourceDir,
+        encoding: "utf8",
+        env: smokeEnv(),
+        timeout: 30_000,
+      });
+      expectCommand(skillShow).toExit(0);
+      expect(JSON.parse(skillShow.stdout)).toMatchObject({
+        ok: true,
+        frontmatter: { name: "bug-bounty-pilot" },
+        agentMetadata: { interface: { default_prompt: expect.stringContaining("$bug-bounty-pilot") } },
+      });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -71,6 +84,14 @@ describe("packaged bugbounty bin", () => {
       expectCommand(skillValidate).toExit(0);
       expect(JSON.parse(skillValidate.stdout).ok).toBe(true);
 
+      const skillShow = runBounty(binPath, ["skill", "show", "bug-bounty-pilot", "--json"], consumerDir);
+      expectCommand(skillShow).toExit(0);
+      expect(JSON.parse(skillShow.stdout)).toMatchObject({
+        ok: true,
+        frontmatter: { name: "bug-bounty-pilot" },
+        agentMetadata: { interface: { default_prompt: expect.stringContaining("$bug-bounty-pilot") } },
+      });
+
       const skillBundlePath = path.join(consumerDir, "bug-bounty-pilot.skill.zip");
       const skillBundle = runBounty(binPath, ["skill", "bundle", "bug-bounty-pilot", "--output", skillBundlePath, "--json"], consumerDir);
       expectCommand(skillBundle).toExit(0);
@@ -86,6 +107,7 @@ describe("packaged bugbounty bin", () => {
         checks: expect.arrayContaining([
           expect.objectContaining({ name: "command:version", status: "pass" }),
           expect.objectContaining({ name: "skill:validate", status: "pass" }),
+          expect.objectContaining({ name: "skill:metadata", status: "pass" }),
           expect.objectContaining({ name: "quickstart:fresh-user", status: "pass" }),
         ]),
       });

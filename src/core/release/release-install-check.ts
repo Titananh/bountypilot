@@ -85,6 +85,26 @@ export function buildReleaseInstallCheck(input: BuildReleaseInstallCheckInput = 
           : commandFailureMessage(skillRun),
     });
 
+    const skillShowRun = runInstalledCommand({
+      ...resolved,
+      argsPrefix,
+      args: ["skill", "show", "bug-bounty-pilot", "--json"],
+      cwd: verificationCwd,
+      timeoutMs,
+    });
+    const skillShowJson = parseJsonObject(skillShowRun.stdout);
+    const defaultPrompt = skillShowJson?.agentMetadata?.interface?.default_prompt;
+    const skillMetadataOk =
+      skillShowRun.status === 0 &&
+      skillShowJson?.frontmatter?.name === "bug-bounty-pilot" &&
+      typeof defaultPrompt === "string" &&
+      defaultPrompt.includes("$bug-bounty-pilot");
+    checks.push({
+      name: "skill:metadata",
+      status: skillMetadataOk ? "pass" : "fail",
+      message: skillMetadataOk ? "frontmatter and agent metadata are present" : commandFailureMessage(skillShowRun),
+    });
+
     const quickstartRun = runInstalledCommand({ ...resolved, argsPrefix, args: ["quickstart", "--json"], cwd: verificationCwd, timeoutMs });
     const quickstartJson = parseJsonObject(quickstartRun.stdout);
     const nextCommands = Array.isArray(quickstartJson?.nextCommands) ? quickstartJson.nextCommands : [];

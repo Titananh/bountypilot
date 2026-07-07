@@ -154,6 +154,7 @@ describe("release checks", () => {
         expect.objectContaining({ name: "command:version", status: "pass" }),
         expect.objectContaining({ name: "command:help", status: "pass" }),
         expect.objectContaining({ name: "skill:validate", status: "pass" }),
+        expect.objectContaining({ name: "skill:metadata", status: "pass" }),
         expect.objectContaining({ name: "quickstart:fresh-user", status: "pass" }),
       ]),
     );
@@ -796,6 +797,23 @@ if (args[0] === "--help") {
 }
 if (args.join(" ") === "skill validate bug-bounty-pilot --json") {
   console.log(JSON.stringify({ ok: true, checks: [{ name: "skill", status: "pass" }] }));
+  process.exit(0);
+}
+if (args.join(" ") === "skill show bug-bounty-pilot --json") {
+  console.log(JSON.stringify({
+    ok: true,
+    id: "bug-bounty-pilot",
+    frontmatter: {
+      name: "bug-bounty-pilot",
+      description: "Safe local-first bug bounty workflow engine for authorized scoped targets."
+    },
+    agentMetadata: {
+      interface: {
+        display_name: "Bug Bounty Pilot",
+        default_prompt: "Use $bug-bounty-pilot to plan a scoped workflow."
+      }
+    }
+  }));
   process.exit(0);
 }
 if (args.join(" ") === "quickstart --json") {
