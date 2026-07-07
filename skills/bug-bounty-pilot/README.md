@@ -5,10 +5,11 @@
 ```bash
 bounty skill validate bug-bounty-pilot
 bounty skill bundle bug-bounty-pilot --output bug-bounty-pilot.skill.zip
+bounty skill verify-bundle bug-bounty-pilot.skill.zip
 bounty skill run bug-bounty-pilot https://target.example --program example --mode passive --dry-run
 ```
 
-The skill is local-first and safe-by-default. It can plan recon, collect observations, queue review-required actions, create evidence manifests, score report readiness, and draft local reports. It never auto-submits reports and never bypasses scope, policy, rate limit, or approval gates. The bundle command writes a portable ZIP with `MANIFEST.bountypilot.json` and SHA-256 hashes for each skill file.
+The skill is local-first and safe-by-default. It can plan recon, collect observations, queue review-required actions, create evidence manifests, score report readiness, and draft local reports. It never auto-submits reports and never bypasses scope, policy, rate limit, or approval gates. The bundle command writes a portable ZIP with `MANIFEST.bountypilot.json` and SHA-256 hashes for each skill file; `verify-bundle` checks the manifest and hashes before use.
 
 ## Modes
 

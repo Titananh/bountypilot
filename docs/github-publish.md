@@ -89,7 +89,7 @@ git push origin v0.1.0
 ```
 
 The workflow verifies the release gate, creates an npm tarball, bundles `bug-bounty-pilot.skill.zip`, generates `SHA256SUMS.txt`, attests release provenance, and attaches the artifacts to the GitHub release.
-It also generates and attaches `bountypilot-sbom.cdx.json` as a CycloneDX SBOM for supply-chain review. The standalone skill ZIP includes `MANIFEST.bountypilot.json` with SHA-256 hashes for every skill file.
+It also generates and attaches `bountypilot-sbom.cdx.json` as a CycloneDX SBOM for supply-chain review. The standalone skill ZIP includes `MANIFEST.bountypilot.json` with SHA-256 hashes for every skill file; verify it with `bounty skill verify-bundle bug-bounty-pilot.skill.zip`.
 
 ## 6. Verify A Fresh Install
 

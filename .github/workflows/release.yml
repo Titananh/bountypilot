@@ -41,6 +41,9 @@ jobs:
       - name: Bundle standalone skill
         run: node dist/cli/index.js skill bundle bug-bounty-pilot --output bug-bounty-pilot.skill.zip --json
 
+      - name: Verify standalone skill bundle
+        run: node dist/cli/index.js skill verify-bundle bug-bounty-pilot.skill.zip --json
+
       - name: Generate checksums
         shell: bash
         run: sha256sum bountypilot-*.tgz bug-bounty-pilot.skill.zip bountypilot-sbom.cdx.json > SHA256SUMS.txt

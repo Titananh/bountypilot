@@ -61,6 +61,24 @@ describe("CLI skill commands", () => {
     const bundleBytes = readFileSync(bundlePath);
     expect(bundleBytes.subarray(0, 4).toString("latin1")).toBe("PK\u0003\u0004");
     expect(bundleBytes.toString("utf8")).toContain("bug-bounty-pilot/MANIFEST.bountypilot.json");
+
+    const verified = runCli(["skill", "verify-bundle", bundlePath, "--json"], workspace);
+    expectCommand(verified).toExit(0);
+    expect(JSON.parse(outputOf(verified))).toMatchObject({
+      ok: true,
+      manifest: { id: "bug-bounty-pilot" },
+      files: { expected: parsedBundle.files, verified: parsedBundle.files },
+    });
+
+    const tamperedPath = path.join(workspace, "bug-bounty-pilot-tampered.skill.zip");
+    const tamperedBytes = Buffer.from(bundleBytes);
+    const markerIndex = tamperedBytes.indexOf(Buffer.from("Bug Bounty Pilot Skill", "utf8"));
+    expect(markerIndex).toBeGreaterThanOrEqual(0);
+    tamperedBytes[markerIndex] = "b".charCodeAt(0);
+    writeFileSync(tamperedPath, tamperedBytes);
+    const tampered = runCli(["skill", "verify-bundle", tamperedPath, "--json"], workspace);
+    expectCommand(tampered).toExit(1);
+    expect(JSON.parse(outputOf(tampered))).toMatchObject({ ok: false });
   });
 
   it("runs passive skill workflow as dry-run against imported scope", () => {

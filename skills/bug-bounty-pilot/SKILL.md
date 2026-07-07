@@ -66,6 +66,7 @@ Reports are drafted locally only when readiness checks pass. No platform submiss
 - `bounty skill validate bug-bounty-pilot`
 - `bounty skill export bug-bounty-pilot --output .bounty/skills/bug-bounty-pilot`
 - `bounty skill bundle bug-bounty-pilot --output bug-bounty-pilot.skill.zip`
+- `bounty skill verify-bundle bug-bounty-pilot.skill.zip`
 - `bounty skill run bug-bounty-pilot <target> --program <program> --mode passive --dry-run`
 
 ## VM Setup

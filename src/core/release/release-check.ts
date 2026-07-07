@@ -100,6 +100,7 @@ const REQUIRED_GITHUB_WORKFLOWS = [
       "npm pack",
       "npm run --silent sbom",
       "skill bundle bug-bounty-pilot",
+      "skill verify-bundle bug-bounty-pilot.skill.zip",
       "bug-bounty-pilot.skill.zip",
       "sha256sum",
       "SHA256SUMS.txt",

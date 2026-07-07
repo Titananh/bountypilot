@@ -92,8 +92,55 @@ export interface SkillBundleResult {
   manifest: SkillBundleManifest;
 }
 
+export interface SkillBundleVerificationCheck {
+  name: string;
+  status: "pass" | "fail";
+  message: string;
+}
+
+export interface SkillBundleVerificationResult {
+  ok: boolean;
+  bundle: string;
+  bytes: number;
+  sha256: string;
+  manifest?: SkillBundleManifest;
+  checks: SkillBundleVerificationCheck[];
+  files: {
+    expected: number;
+    verified: number;
+    missing: string[];
+    mismatched: string[];
+    extra: string[];
+  };
+}
+
 const SkillModeSchema = z.enum(["passive", "safe", "deep-safe", "lab-offensive"]);
 const RiskLevelSchema = z.enum(["low", "medium", "high"]);
+
+const SkillBundleManifestSchema = z.object({
+  schemaVersion: z.literal("bountypilot.skill.bundle.v1"),
+  id: z.string().min(1),
+  title: z.string().min(1),
+  generatedAt: z.string().min(1),
+  contentsPrefix: z.string().min(1),
+  validation: z.object({
+    checks: z.number(),
+    failures: z.number(),
+    warnings: z.number(),
+  }),
+  modes: z.array(z.string()),
+  workflowSteps: z.array(z.string()),
+  tools: z.array(z.string()),
+  playbooks: z.array(z.string()),
+  files: z.array(
+    z.object({
+      path: z.string().min(1),
+      size: z.number(),
+      sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    }),
+  ),
+  totalBytes: z.number(),
+});
 
 const ModePolicySchema = z.object({
   allowed_capabilities: z.array(z.string()),
@@ -510,6 +557,135 @@ export function bundleSkillDefinition(input: { id?: string; output?: string; cwd
   };
 }
 
+export function verifySkillBundle(input: { bundle: string; cwd?: string }): SkillBundleVerificationResult {
+  const bundle = path.resolve(input.cwd ?? process.cwd(), input.bundle);
+  const checks: SkillBundleVerificationCheck[] = [];
+  if (!existsSync(bundle)) {
+    checks.push({ name: "bundle:file", status: "fail", message: `Missing bundle: ${bundle}` });
+    return emptyBundleVerification(bundle, checks);
+  }
+
+  const archive = readFileSync(bundle);
+  checks.push({ name: "bundle:file", status: "pass", message: bundle });
+  checks.push({ name: "bundle:sha256", status: "pass", message: sha256Hex(archive) });
+
+  let entries: Map<string, Buffer>;
+  try {
+    entries = readZipStoreEntries(archive);
+    checks.push({ name: "zip:entries", status: "pass", message: `${entries.size} file entries` });
+  } catch (error) {
+    checks.push({ name: "zip:entries", status: "fail", message: error instanceof Error ? error.message : String(error) });
+    return bundleVerificationResult({ bundle, archive, checks });
+  }
+
+  const manifestName = [...entries.keys()].find((entry) => entry.endsWith("/MANIFEST.bountypilot.json"));
+  if (!manifestName) {
+    checks.push({ name: "manifest:file", status: "fail", message: "MANIFEST.bountypilot.json is missing" });
+    return bundleVerificationResult({ bundle, archive, checks });
+  }
+  checks.push({ name: "manifest:file", status: "pass", message: manifestName });
+
+  const manifestText = entries.get(manifestName)!.toString("utf8");
+  let manifest: SkillBundleManifest | undefined;
+  try {
+    const parsed = SkillBundleManifestSchema.safeParse(JSON.parse(manifestText));
+    if (!parsed.success) {
+      checks.push({ name: "manifest:schema", status: "fail", message: parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ") });
+    } else {
+      manifest = parsed.data;
+      checks.push({ name: "manifest:schema", status: "pass", message: manifest.schemaVersion });
+    }
+  } catch (error) {
+    checks.push({ name: "manifest:json", status: "fail", message: error instanceof Error ? error.message : String(error) });
+  }
+  if (!manifest) {
+    return bundleVerificationResult({ bundle, archive, checks });
+  }
+
+  const expectedPrefix = `${manifest.contentsPrefix}/`;
+  checks.push({
+    name: "manifest:prefix",
+    status: manifestName === `${expectedPrefix}MANIFEST.bountypilot.json` ? "pass" : "fail",
+    message: manifestName,
+  });
+  checks.push({
+    name: "manifest:validation",
+    status: manifest.validation.failures === 0 ? "pass" : "fail",
+    message: `${manifest.validation.checks} checks, ${manifest.validation.failures} failure(s), ${manifest.validation.warnings} warning(s)`,
+  });
+
+  const duplicatePaths = duplicateSkillBundlePaths(manifest.files.map((file) => file.path));
+  const unsafePaths = manifest.files.map((file) => file.path).filter((filePath) => !isSafeBundleRelativePath(filePath));
+  checks.push({
+    name: "manifest:paths",
+    status: duplicatePaths.length === 0 && unsafePaths.length === 0 ? "pass" : "fail",
+    message:
+      duplicatePaths.length === 0 && unsafePaths.length === 0
+        ? `${manifest.files.length} safe unique paths`
+        : `duplicates: ${duplicatePaths.join(", ") || "-"}; unsafe: ${unsafePaths.join(", ") || "-"}`,
+  });
+
+  const missing: string[] = [];
+  const mismatched: string[] = [];
+  let verified = 0;
+  let totalBytes = 0;
+  const expectedEntryNames = new Set<string>([manifestName]);
+  for (const file of manifest.files) {
+    const entryName = `${expectedPrefix}${file.path}`;
+    expectedEntryNames.add(entryName);
+    const data = entries.get(entryName);
+    if (!data) {
+      missing.push(file.path);
+      continue;
+    }
+    totalBytes += data.byteLength;
+    if (data.byteLength !== file.size || sha256Hex(data) !== file.sha256) {
+      mismatched.push(file.path);
+      continue;
+    }
+    verified += 1;
+  }
+
+  checks.push({
+    name: "files:presence",
+    status: missing.length === 0 ? "pass" : "fail",
+    message: missing.length === 0 ? `${manifest.files.length}/${manifest.files.length} files present` : `Missing: ${missing.join(", ")}`,
+  });
+  checks.push({
+    name: "files:hashes",
+    status: mismatched.length === 0 ? "pass" : "fail",
+    message: mismatched.length === 0 ? `${verified}/${manifest.files.length} hashes verified` : `Mismatched: ${mismatched.join(", ")}`,
+  });
+  checks.push({
+    name: "files:totalBytes",
+    status: totalBytes === manifest.totalBytes ? "pass" : "fail",
+    message: `${totalBytes}/${manifest.totalBytes}`,
+  });
+
+  const extra = [...entries.keys()]
+    .filter((entry) => !expectedEntryNames.has(entry))
+    .filter((entry) => !entry.endsWith("/"));
+  checks.push({
+    name: "files:extra",
+    status: extra.length === 0 ? "pass" : "fail",
+    message: extra.length === 0 ? "no extra files" : extra.join(", "),
+  });
+
+  return bundleVerificationResult({
+    bundle,
+    archive,
+    checks,
+    manifest,
+    files: {
+      expected: manifest.files.length,
+      verified,
+      missing,
+      mismatched,
+      extra,
+    },
+  });
+}
+
 export function resolveSkillRoot(id = BUG_BOUNTY_PILOT_SKILL_ID, cwd = process.cwd()): string {
   const candidates = candidateSkillParents(cwd).map((parent) => path.join(parent, id));
   for (const candidate of candidates) {
@@ -626,6 +802,47 @@ interface ZipEntry {
   data: Buffer;
 }
 
+function emptyBundleVerification(bundle: string, checks: SkillBundleVerificationCheck[]): SkillBundleVerificationResult {
+  return {
+    ok: false,
+    bundle,
+    bytes: 0,
+    sha256: "",
+    checks,
+    files: {
+      expected: 0,
+      verified: 0,
+      missing: [],
+      mismatched: [],
+      extra: [],
+    },
+  };
+}
+
+function bundleVerificationResult(input: {
+  bundle: string;
+  archive: Buffer;
+  checks: SkillBundleVerificationCheck[];
+  manifest?: SkillBundleManifest;
+  files?: SkillBundleVerificationResult["files"];
+}): SkillBundleVerificationResult {
+  return {
+    ok: input.checks.every((check) => check.status !== "fail"),
+    bundle: input.bundle,
+    bytes: input.archive.byteLength,
+    sha256: sha256Hex(input.archive),
+    manifest: input.manifest,
+    checks: input.checks,
+    files: input.files ?? {
+      expected: 0,
+      verified: 0,
+      missing: [],
+      mismatched: [],
+      extra: [],
+    },
+  };
+}
+
 function collectSkillBundleFiles(root: string, current = root): SkillBundleFileWithData[] {
   const files: SkillBundleFileWithData[] = [];
   for (const entry of readdirSync(current, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
@@ -649,6 +866,53 @@ function collectSkillBundleFiles(root: string, current = root): SkillBundleFileW
     });
   }
   return files;
+}
+
+function readZipStoreEntries(archive: Buffer): Map<string, Buffer> {
+  const entries = new Map<string, Buffer>();
+  let offset = 0;
+  while (offset + 4 <= archive.byteLength) {
+    const signature = archive.readUInt32LE(offset);
+    if (signature === 0x02014b50 || signature === 0x06054b50) break;
+    if (signature !== 0x04034b50) {
+      throw new BountyPilotError(`Unsupported ZIP structure at byte ${offset}.`, "SKILL_BUNDLE_ZIP_INVALID");
+    }
+    if (offset + 30 > archive.byteLength) {
+      throw new BountyPilotError("Truncated ZIP local header.", "SKILL_BUNDLE_ZIP_INVALID");
+    }
+    const flags = archive.readUInt16LE(offset + 6);
+    const method = archive.readUInt16LE(offset + 8);
+    const expectedCrc = archive.readUInt32LE(offset + 14);
+    const compressedSize = archive.readUInt32LE(offset + 18);
+    const uncompressedSize = archive.readUInt32LE(offset + 22);
+    const nameLength = archive.readUInt16LE(offset + 26);
+    const extraLength = archive.readUInt16LE(offset + 28);
+    const nameStart = offset + 30;
+    const dataStart = nameStart + nameLength + extraLength;
+    const dataEnd = dataStart + compressedSize;
+    if ((flags & 0x08) !== 0) {
+      throw new BountyPilotError("ZIP data descriptors are not supported for skill bundles.", "SKILL_BUNDLE_ZIP_UNSUPPORTED");
+    }
+    if (method !== 0) {
+      throw new BountyPilotError("Compressed ZIP entries are not supported for skill bundles.", "SKILL_BUNDLE_ZIP_UNSUPPORTED");
+    }
+    if (nameLength <= 0 || dataEnd > archive.byteLength) {
+      throw new BountyPilotError("Truncated ZIP entry.", "SKILL_BUNDLE_ZIP_INVALID");
+    }
+    if (compressedSize !== uncompressedSize) {
+      throw new BountyPilotError("Stored ZIP entry size mismatch.", "SKILL_BUNDLE_ZIP_INVALID");
+    }
+    const name = archive.subarray(nameStart, nameStart + nameLength).toString("utf8");
+    const data = archive.subarray(dataStart, dataEnd);
+    if (crc32(data) !== expectedCrc) {
+      throw new BountyPilotError(`ZIP CRC mismatch for ${name}.`, "SKILL_BUNDLE_ZIP_INVALID");
+    }
+    if (!name.endsWith("/")) {
+      entries.set(name, Buffer.from(data));
+    }
+    offset = dataEnd;
+  }
+  return entries;
 }
 
 function writeZipStoreArchive(entries: ZipEntry[], generatedAt: string): Buffer {
@@ -755,6 +1019,21 @@ function buildCrc32Table(): Uint32Array {
 
 function sha256Hex(data: Buffer): string {
   return createHash("sha256").update(data).digest("hex");
+}
+
+function duplicateSkillBundlePaths(paths: string[]): string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const filePath of paths) {
+    if (seen.has(filePath)) duplicates.add(filePath);
+    seen.add(filePath);
+  }
+  return [...duplicates].sort();
+}
+
+function isSafeBundleRelativePath(filePath: string): boolean {
+  if (!filePath || filePath.startsWith("/") || filePath.startsWith("\\") || filePath.includes("\\")) return false;
+  return filePath.split("/").every((part) => part.length > 0 && part !== "." && part !== "..");
 }
 
 function readText(filePath: string): string | undefined {

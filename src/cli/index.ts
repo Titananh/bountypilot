@@ -46,6 +46,7 @@ import {
   listSkillDefinitions,
   loadSkillDefinition,
   validateSkillDefinition,
+  verifySkillBundle,
   type SkillRunMode,
 } from "../skills/skill-definition.js";
 import { runSkill, type SkillRunResult } from "../skills/skill-runner.js";
@@ -1237,6 +1238,38 @@ skill
     ]);
     ui.blank();
     ui.commandList("next commands", [`bounty skill validate ${result.id}`, `Get-FileHash -Algorithm SHA256 ${result.output}`]);
+  });
+
+skill
+  .command("verify-bundle")
+  .argument("<bundle>", "Path to a bug-bounty-pilot.skill.zip bundle")
+  .option("--json", "Print machine-readable JSON")
+  .description("Verify a standalone skill ZIP bundle manifest and SHA-256 hashes")
+  .action((bundle: string, ...args: unknown[]) => {
+    const command = commandFromArgs(args);
+    const options = command.opts<{ json?: boolean }>();
+    const result = verifySkillBundle({ bundle, cwd: process.cwd() });
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
+    if (options.json || requestedJsonOutput(process.argv)) {
+      ui.json(result);
+      return;
+    }
+    ui.header("skill verify-bundle");
+    ui.status(result.ok ? "ok" : "blocked", result.ok ? "skill bundle verified" : "skill bundle failed verification");
+    ui.panel("bundle", [
+      ui.kv("path", result.bundle),
+      ui.kv("bytes", result.bytes),
+      ui.kv("sha256", result.sha256),
+      ui.kv("skill", result.manifest?.id),
+      ui.kv("files", `${result.files.verified}/${result.files.expected}`),
+    ]);
+    ui.blank();
+    ui.table(
+      ["status", "check", "message"],
+      result.checks.map((check) => [check.status, check.name, check.message]),
+    );
   });
 
 skill

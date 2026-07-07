@@ -199,6 +199,7 @@ jobs:
       - run: npm pack
       - run: npm run --silent sbom > bountypilot-sbom.cdx.json
       - run: node dist/cli/index.js skill bundle bug-bounty-pilot --output bug-bounty-pilot.skill.zip --json
+      - run: node dist/cli/index.js skill verify-bundle bug-bounty-pilot.skill.zip --json
       - run: sha256sum bountypilot-*.tgz bug-bounty-pilot.skill.zip bountypilot-sbom.cdx.json > SHA256SUMS.txt
       - uses: actions/attest-build-provenance@v2
       - uses: softprops/action-gh-release@v2
