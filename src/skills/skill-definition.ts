@@ -341,6 +341,15 @@ const SKILL_PLACEHOLDER_SCAN_FILES = [
   ...REQUIRED_EXAMPLES.map((file) => `examples/${file}`),
 ];
 const PUBLIC_SAMPLE_TARGET_PATTERN = /\b(?:https?:\/\/)?(?:[a-z0-9-]+\.)*example\.(?:com|org|net)\b/i;
+const FORBIDDEN_SKILL_AUXILIARY_DOCS = new Set([
+  "readme.md",
+  "installation_guide.md",
+  "install.md",
+  "quick_reference.md",
+  "quickstart.md",
+  "changelog.md",
+  "release_notes.md",
+]);
 const REQUIRED_PROMPT_CONTRACTS: Record<string, Array<{ label: string; pattern: RegExp }>> = {
   "planner.md": [
     { label: "scope guard", pattern: /\bScopeGuard\b/i },
@@ -548,6 +557,7 @@ export function validateSkillDefinition(id = BUG_BOUNTY_PILOT_SKILL_ID, cwd = pr
   for (const file of REQUIRED_EXAMPLES) {
     checks.push(fileCheck(`examples/${file}`, path.join(root, "examples", file)));
   }
+  checks.push(skillAuxiliaryDocsCheck(root));
   checks.push(skillPromptContractCheck(root));
   checks.push(skillTemplateSyntaxCheck(root));
   checks.push(skillPlaceholderTargetCheck(root));
@@ -1007,6 +1017,20 @@ function skillPlaceholderTargetCheck(root: string): SkillValidationCheck {
   };
 }
 
+function skillAuxiliaryDocsCheck(root: string): SkillValidationCheck {
+  const offenders = collectSkillRelativeFiles(root).filter((relativePath) =>
+    FORBIDDEN_SKILL_AUXILIARY_DOCS.has(path.basename(relativePath).toLowerCase()),
+  );
+  return {
+    name: "skill:no-auxiliary-docs",
+    status: offenders.length === 0 ? "pass" : "fail",
+    message:
+      offenders.length === 0
+        ? "skill package contains only required instructions and bundled resources"
+        : `Remove auxiliary docs from skill package: ${offenders.join(", ")}`,
+  };
+}
+
 function skillPromptContractCheck(root: string): SkillValidationCheck {
   const failures: string[] = [];
   for (const [prompt, contracts] of Object.entries(REQUIRED_PROMPT_CONTRACTS)) {
@@ -1023,6 +1047,20 @@ function skillPromptContractCheck(root: string): SkillValidationCheck {
     status: failures.length === 0 ? "pass" : "fail",
     message: failures.length === 0 ? "prompt safety and output contracts are present" : failures.join("; "),
   };
+}
+
+function collectSkillRelativeFiles(root: string, current = root): string[] {
+  if (!existsSync(current)) return [];
+  const files: string[] = [];
+  for (const entry of readdirSync(current, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+    const fullPath = path.join(current, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...collectSkillRelativeFiles(root, fullPath));
+    } else if (entry.isFile()) {
+      files.push(path.relative(root, fullPath).split(path.sep).join("/"));
+    }
+  }
+  return files;
 }
 
 function skillTemplateSyntaxCheck(root: string): SkillValidationCheck {
