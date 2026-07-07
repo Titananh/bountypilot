@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams, type SpawnSyncReturns } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +9,41 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const npmCacheDir = path.join(os.tmpdir(), "bountypilot-package-bin-npm-cache");
 
 describe("packaged bugbounty bin", () => {
+  it("builds a GitHub-style source checkout through prepare", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "bountypilot-source-prepare-"));
+    try {
+      const sourceDir = path.join(root, "source");
+      copySourceCheckout(sourceDir);
+      rmSync(path.join(sourceDir, "dist"), { recursive: true, force: true });
+      linkWorkspaceNodeModules(sourceDir);
+
+      const prepared = runNpm(["run", "prepare"], sourceDir);
+      expectCommand(prepared).toExit(0);
+      const cliPath = path.join(sourceDir, "dist", "cli", "index.js");
+      expect(existsSync(cliPath)).toBe(true);
+
+      const help = spawnSync(process.execPath, [cliPath, "--help"], {
+        cwd: sourceDir,
+        encoding: "utf8",
+        env: smokeEnv(),
+        timeout: 30_000,
+      });
+      expectCommand(help).toExit(0);
+      expect(outputOf(help)).toContain("BountyPilot safe, local-first");
+
+      const skillValidate = spawnSync(process.execPath, [cliPath, "skill", "validate", "bug-bounty-pilot", "--json"], {
+        cwd: sourceDir,
+        encoding: "utf8",
+        env: smokeEnv(),
+        timeout: 30_000,
+      });
+      expectCommand(skillValidate).toExit(0);
+      expect(JSON.parse(skillValidate.stdout).ok).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 120_000);
+
   it("installs the packed package and runs a fresh-user first-run flow", async () => {
     const root = mkdtempSync(path.join(os.tmpdir(), "bountypilot-package-bin-"));
     try {
@@ -102,6 +137,25 @@ describe("packaged bugbounty bin", () => {
     }
   }, 120_000);
 });
+
+function copySourceCheckout(destination: string): void {
+  cpSync(repoRoot, destination, {
+    recursive: true,
+    filter(source) {
+      const relative = path.relative(repoRoot, source);
+      if (!relative) return true;
+      const first = relative.split(path.sep)[0];
+      return ![".bounty", ".git", ".release", "dist", "node_modules"].includes(first ?? "");
+    },
+  });
+}
+
+function linkWorkspaceNodeModules(sourceDir: string): void {
+  const source = path.join(repoRoot, "node_modules");
+  const destination = path.join(sourceDir, "node_modules");
+  if (existsSync(destination)) return;
+  symlinkSync(source, destination, process.platform === "win32" ? "junction" : "dir");
+}
 
 function runBounty(binPath: string, args: string[], cwd: string): SpawnSyncReturns<string> {
   const command = process.platform === "win32" ? "cmd.exe" : binPath;
