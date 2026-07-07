@@ -155,6 +155,8 @@ describe("CLI skill commands", () => {
       repo: "octo/bountypilot",
       tag: "v0.1.0",
     });
+    expect(parsedForRepo.score).toBeLessThan(97);
+    expect(parsedForRepo.readiness).toBe("ready_with_warnings");
     expect(parsedForRepo.github.checks).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "gh:version", status: "pass" }),
@@ -176,6 +178,9 @@ describe("CLI skill commands", () => {
           name: "github:origin",
           message: "No origin remote configured. Add one with: git remote add origin https://github.com/octo/bountypilot.git",
         }),
+        expect.objectContaining({ name: "git:origin" }),
+        expect.objectContaining({ name: "git:origin-target" }),
+        expect.objectContaining({ name: "git:local-tag" }),
       ]),
     );
     expect(parsedForRepo.release.warnings).toEqual(

@@ -101,8 +101,9 @@ export function scoreSkillReadiness(
     : undefined;
   const releaseFailures = contextualizeReleaseIssues(issuesFor(release.checks, "fail"), github);
   const releaseWarnings = contextualizeReleaseIssues(issuesFor(release.checks, "warn"), github);
+  const githubWarnings = github ? githubPreflightIssues(github) : [];
   const blockers = [...validationFailures, ...bundle.failures, ...releaseFailures];
-  const warnings = [...validationWarnings, ...releaseWarnings];
+  const warnings = dedupeIssues([...validationWarnings, ...releaseWarnings, ...githubWarnings]);
   const score = readinessScore({
     validationFailures: validationFailures.length,
     bundleFailures: bundle.failures.length,
@@ -168,6 +169,28 @@ function contextualizeReleaseIssues(
         : `No origin remote configured. Add one with: ${github.remote.addCommand}`,
     };
   });
+}
+
+function githubPreflightIssues(github: ReturnType<typeof buildReleaseGithubBootstrap>): SkillReadinessIssue[] {
+  return github.checks
+    .filter((check) => check.name !== "release:check")
+    .filter((check) => check.status !== "pass")
+    .map((check) => ({
+      name: check.name,
+      message: check.message,
+    }));
+}
+
+function dedupeIssues(issues: SkillReadinessIssue[]): SkillReadinessIssue[] {
+  const seen = new Set<string>();
+  const deduped: SkillReadinessIssue[] = [];
+  for (const issue of issues) {
+    const key = `${issue.name}\n${issue.message}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(issue);
+  }
+  return deduped;
 }
 
 function scoreSkillBundle(input: { id: string; cwd: string; generatedAt?: string }): SkillReadinessResult["bundle"] {
