@@ -682,6 +682,45 @@ describe("WorkflowRunner", () => {
     );
   });
 
+  it("drafts workflow reports with the configured Bugcrowd platform", async () => {
+    const server = await startServer((_request, response) => {
+      response.writeHead(200, {
+        "content-type": "text/html",
+        "access-control-allow-origin": "https://bountypilot.local",
+        "access-control-allow-credentials": "true",
+      });
+      response.end("<!doctype html><title>bugcrowd report fixture</title>");
+    });
+    try {
+      const address = server.address() as AddressInfo;
+      const origin = `http://127.0.0.1:${address.port}`;
+      const runtime = createTestRuntime({
+        ...config,
+        program: "workflow-bugcrowd-report-test",
+        platform: "bugcrowd",
+        in_scope: ["127.0.0.1"],
+      });
+
+      const summary = await new WorkflowRunner(runtime).run({
+        target: `${origin}/`,
+        mode: "safe",
+        withComponents: ["safe-checks", "triage"],
+        dryRun: false,
+        draftReports: true,
+      });
+
+      const reportArtifacts = runtime.evidence.list().filter((artifact) => artifact.kind === "report");
+      const bugcrowdReport = reportArtifacts.find((artifact) => artifact.path.endsWith("-bugcrowd.md"));
+
+      expect(summary.reportsDrafted).toBeGreaterThan(0);
+      expect(reportArtifacts.every((artifact) => !artifact.path.endsWith("-hackerone.md"))).toBe(true);
+      expect(bugcrowdReport).toBeDefined();
+      expect(readFileSync(bugcrowdReport!.path, "utf8")).toContain("## Vulnerability Summary");
+    } finally {
+      await closeServer(server);
+    }
+  });
+
   it("executes explicitly enabled external workflow components", async () => {
     const root = mkdtempSync(path.join(os.tmpdir(), "bountypilot-workflow-external-"));
     const scriptPath = path.join(root, "fake-crawler.mjs");

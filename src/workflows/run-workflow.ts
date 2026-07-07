@@ -5,7 +5,11 @@ import { AgentPlanner, type PlannerActionContext, type PlannerLoopResult } from 
 import { DuplicateRiskEngine } from "../engines/duplicate-risk/duplicate-risk-engine.js";
 import { candidateBaselineReportabilityScore, evaluateFindingCandidateReadiness } from "../engines/finding-candidates/finding-candidate-engine.js";
 import { analyzeJavaScript, type JsAnalysisResult } from "../engines/js-analyzer/js-analyzer.js";
-import { writeHackerOneReport } from "../engines/report-generator/report-generator.js";
+import {
+  isSupportedReportPlatform,
+  writePlatformReport,
+  type ReportPlatform,
+} from "../engines/report-generator/report-generator.js";
 import { runSafeChecks } from "../engines/safe-checks/safe-checks.js";
 import { TriageEngine, type TriageResult } from "../engines/triage/triage-engine.js";
 import type { EvidenceArtifact, ExecutionMode, NormalizedFinding, PolicyDecision, RiskLevel } from "../types.js";
@@ -1106,7 +1110,8 @@ ${actions.map((action) => `- ${action.id}: ${action.target ?? "program"} (${acti
       if (triage.reportabilityScore < 60 || triage.recommendation === "do_not_report_alone") {
         continue;
       }
-      const reportPath = writeHackerOneReport(this.runtime.paths.reportsDir, finding, evidence);
+      const reportPlatform = workflowReportPlatform(this.runtime.config.platform);
+      const reportPath = writePlatformReport(this.runtime.paths.reportsDir, reportPlatform, finding, evidence);
       this.runtime.evidence.create({
         findingId: finding.id,
         adapterName: "report-generator",
@@ -1532,6 +1537,10 @@ function emptyActionCounts(): ActionQueueSummary {
     blocked: 0,
     failed: 0,
   };
+}
+
+function workflowReportPlatform(platform: string): ReportPlatform {
+  return isSupportedReportPlatform(platform) ? platform : "hackerone";
 }
 
 function emptyResumeProgress(): ResumeProgress {
