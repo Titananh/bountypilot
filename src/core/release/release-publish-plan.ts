@@ -17,6 +17,7 @@ export interface ReleasePublishPlanResult {
   ok: boolean;
   repo: GitHubRepoRef;
   branch: string;
+  publicBranch: string;
   tag: string;
   remote: {
     preferred: "https" | "ssh";
@@ -43,6 +44,7 @@ export interface ReleasePublishPlanResult {
     actionsVerify: string[];
     installVerify: string[];
     release: string[];
+    publicBranchVerify: string[];
   };
   urls: {
     repository: string;
@@ -74,6 +76,7 @@ export interface ReleasePublishStatusResult {
   ok: boolean;
   repo: GitHubRepoRef;
   branch: string;
+  publicBranch: string;
   tag: string;
   online: boolean;
   remote: ReleasePublishPlanResult["remote"];
@@ -104,6 +107,7 @@ export function buildReleasePublishPlan(input: BuildReleasePublishPlanInput): Re
   const packageJson = readPackageJson(cwd);
   const version = typeof packageJson.version === "string" && packageJson.version.trim() ? packageJson.version.trim() : "0.1.0";
   const branch = input.branch?.trim() || currentGitBranch(cwd) || "main";
+  const publicBranch = "main";
   const tag = input.tag?.trim() || `v${version}`;
   const remotePreference = input.remote ?? "https";
   const targetRemote = remotePreference === "ssh" ? repo.sshRemote : repo.httpsRemote;
@@ -131,6 +135,13 @@ export function buildReleasePublishPlan(input: BuildReleasePublishPlanInput): Re
     ],
     installVerify: releaseInstallVerifyCommands(install),
     release: [`git tag ${tag}`, `git push origin ${tag}`],
+    publicBranchVerify:
+      branch === publicBranch
+        ? []
+        : [
+            `bounty release publish-plan ${repo.slug} --branch ${publicBranch} --tag ${tag} --write`,
+            `bounty release publish-status ${repo.slug} --branch ${publicBranch} --tag ${tag} --online --actions --json`,
+          ],
   };
   const urls = {
     repository: repo.webUrl,
@@ -142,6 +153,7 @@ export function buildReleasePublishPlan(input: BuildReleasePublishPlanInput): Re
     ok: releaseCheck.ok,
     repo,
     branch,
+    publicBranch,
     tag,
     remote: {
       preferred: remotePreference,
@@ -170,6 +182,7 @@ export function buildReleasePublishStatus(input: BuildReleasePublishStatusInput)
   const packageJson = readPackageJson(cwd);
   const version = typeof packageJson.version === "string" && packageJson.version.trim() ? packageJson.version.trim() : "0.1.0";
   const branch = input.branch?.trim() || currentGitBranch(cwd) || "main";
+  const publicBranch = "main";
   const tag = input.tag?.trim() || `v${version}`;
   const remotePreference = input.remote ?? "https";
   const targetRemote = remotePreference === "ssh" ? repo.sshRemote : repo.httpsRemote;
@@ -195,6 +208,7 @@ export function buildReleasePublishStatus(input: BuildReleasePublishStatusInput)
         },
     workingTreeStatus(cwd),
     currentBranchStatus(cwd, branch),
+    publicBranchStatus(branch, publicBranch),
     localTagStatus(cwd, tag),
   ];
 
@@ -241,6 +255,7 @@ export function buildReleasePublishStatus(input: BuildReleasePublishStatusInput)
     ok: checks.every((check) => check.status !== "fail"),
     repo,
     branch,
+    publicBranch,
     tag,
     online: Boolean(input.online),
     remote,
@@ -248,7 +263,16 @@ export function buildReleasePublishStatus(input: BuildReleasePublishStatusInput)
     install,
     installVerify,
     checks,
-    nextCommands: publishStatusNextCommands({ repo, branch, tag, remote, checks, online: Boolean(input.online), actions: Boolean(input.actions) }),
+    nextCommands: publishStatusNextCommands({
+      repo,
+      branch,
+      publicBranch,
+      tag,
+      remote,
+      checks,
+      online: Boolean(input.online),
+      actions: Boolean(input.actions),
+    }),
     urls,
   };
 }
@@ -299,6 +323,7 @@ function renderReleasePublishPlan(input: Omit<ReleasePublishPlanResult, "markdow
 
 Repository: ${input.repo.slug}
 Branch: ${input.branch}
+Public branch: ${input.publicBranch}
 Release tag: ${input.tag}
 Preferred remote: ${input.remote.preferred}
 Current origin: ${input.remote.origin ?? "not configured"}
@@ -343,6 +368,13 @@ Verify GitHub Actions before announcing the install command:
 \`\`\`bash
 ${input.commands.actionsVerify.join("\n")}
 \`\`\`
+
+${input.commands.publicBranchVerify.length > 0 ? `Before announcing the default one-line install, verify the public branch too:
+
+\`\`\`bash
+${input.commands.publicBranchVerify.join("\n")}
+\`\`\`
+` : ""}
 
 ## 4. Install Commands For Users
 
@@ -451,6 +483,17 @@ function currentBranchStatus(cwd: string, expectedBranch: string): ReleasePublis
   return branch === expectedBranch
     ? { name: "git:branch", status: "pass", message: branch }
     : { name: "git:branch", status: "warn", message: `Current branch is ${branch}; publish plan targets ${expectedBranch}.` };
+}
+
+function publicBranchStatus(branch: string, publicBranch: string): ReleasePublishStatusCheck {
+  if (branch === publicBranch) {
+    return { name: "publish:public-branch", status: "pass", message: `publishing from ${publicBranch}` };
+  }
+  return {
+    name: "publish:public-branch",
+    status: "warn",
+    message: `Branch ${branch} is suitable for pre-release verification. Announce default install commands only after ${publicBranch} is pushed and verified.`,
+  };
 }
 
 function localTagStatus(cwd: string, tag: string): ReleasePublishStatusCheck {
@@ -579,6 +622,7 @@ function ghJson<T>(ghCommand: string, ghArgsPrefix: string[], args: string[], ti
 function publishStatusNextCommands(input: {
   repo: GitHubRepoRef;
   branch: string;
+  publicBranch: string;
   tag: string;
   remote: ReleasePublishStatusResult["remote"];
   checks: ReleasePublishStatusCheck[];
@@ -603,6 +647,10 @@ function publishStatusNextCommands(input: {
   if (byName.get("git:remote-branch")?.status === "fail") commands.add(`git push -u origin ${input.branch}`);
   if (byName.get("git:local-tag")?.status === "warn") commands.add(`git tag ${input.tag}`);
   if (byName.get("git:remote-tag")?.status !== "pass") commands.add(`git push origin ${input.tag}`);
+  if (byName.get("publish:public-branch")?.status === "warn") {
+    commands.add(`bounty release publish-plan ${input.repo.slug} --branch ${input.publicBranch} --tag ${input.tag} --write`);
+    commands.add(`bounty release publish-status ${input.repo.slug} --branch ${input.publicBranch} --tag ${input.tag} --online --actions --json`);
+  }
   if (!input.online) commands.add(`bounty release publish-status ${input.repo.slug} --branch ${input.branch} --tag ${input.tag} --online --json`);
   if (!input.actions || input.checks.some((check) => check.name.startsWith("github:actions") && check.status === "fail")) {
     commands.add(`bounty release publish-status ${input.repo.slug} --branch ${input.branch} --tag ${input.tag} --online --actions --json`);

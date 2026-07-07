@@ -5615,6 +5615,7 @@ release
     ui.panel("github", [
       ui.kv("repo", result.repo.webUrl),
       ui.kv("branch", result.branch),
+      ui.kv("public branch", result.publicBranch),
       ui.kv("tag", result.tag),
       ui.kv("origin", result.remote.origin ?? "not configured"),
       ui.kv("origin matches", result.remote.matchesTarget),
@@ -5630,6 +5631,10 @@ release
     ui.commandList("post-push verify", result.commands.postPushVerify);
     ui.blank();
     ui.commandList("actions verify", result.commands.actionsVerify);
+    if (result.commands.publicBranchVerify.length > 0) {
+      ui.blank();
+      ui.commandList("public branch verify", result.commands.publicBranchVerify);
+    }
     ui.blank();
     ui.commandList("install verify", result.commands.installVerify);
     ui.blank();
@@ -5686,6 +5691,7 @@ release
     ui.panel("github", [
       ui.kv("repo", result.repo.webUrl),
       ui.kv("branch", result.branch),
+      ui.kv("public branch", result.publicBranch),
       ui.kv("tag", result.tag),
       ui.kv("origin", result.remote.origin ?? "not configured"),
       ui.kv("online", result.online),

@@ -175,6 +175,8 @@ function readinessNextSteps(input: {
     steps.add("git push -u origin HEAD");
     steps.add(`git tag ${input.releaseTag}`);
     steps.add(`git push origin ${input.releaseTag}`);
+    steps.add(`bounty release publish-plan OWNER/REPO --branch main --tag ${input.releaseTag} --write`);
+    steps.add(`bounty release publish-status OWNER/REPO --branch main --tag ${input.releaseTag} --online --actions --json`);
     steps.add("bounty release publish-status OWNER/REPO --online --actions --json");
   }
   if (steps.size === 0) {

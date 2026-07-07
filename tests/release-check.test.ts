@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { nodeEngineSupportsSqliteRuntime, runReleaseCheck } from "../src/core/release/release-check.js";
-import { buildReleasePublishStatus } from "../src/core/release/release-publish-plan.js";
+import { buildReleasePublishPlan, buildReleasePublishStatus } from "../src/core/release/release-publish-plan.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -115,6 +115,7 @@ describe("release checks", () => {
       expect.arrayContaining([
         expect.objectContaining({ name: "git:origin-target", status: "pass" }),
         expect.objectContaining({ name: "git:working-tree", status: "pass" }),
+        expect.objectContaining({ name: "publish:public-branch", status: "pass" }),
         expect.objectContaining({ name: "git:local-tag", status: "pass" }),
         expect.objectContaining({ name: "publish:online", status: "warn" }),
         expect.objectContaining({ name: "github:actions", status: "warn" }),
@@ -133,6 +134,38 @@ describe("release checks", () => {
         expect.stringContaining("BOUNTYPILOT_INSTALL_DRY_RUN=1"),
       ]),
     );
+  });
+
+  it("warns when a publish plan targets a non-public branch", () => {
+    const root = writeReleaseFixture();
+
+    const plan = buildReleasePublishPlan({ cwd: root, repo: "owner/repo", branch: "codex/release-candidate", tag: "v0.0.0" });
+
+    expect(plan.branch).toBe("codex/release-candidate");
+    expect(plan.publicBranch).toBe("main");
+    expect(plan.commands.publicBranchVerify).toEqual([
+      "bounty release publish-plan owner/repo --branch main --tag v0.0.0 --write",
+      "bounty release publish-status owner/repo --branch main --tag v0.0.0 --online --actions --json",
+    ]);
+    expect(plan.markdown).toContain("Before announcing the default one-line install, verify the public branch too:");
+  });
+
+  it("adds public-branch verification commands when publish status targets a dev branch", () => {
+    const root = writeReleaseFixture();
+    execFileSync("git", ["init", "-b", "main"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "bountypilot@example.test"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "BountyPilot Test"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["add", "."], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "fixture"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["remote", "add", "origin", "https://github.com/owner/repo.git"], { cwd: root, stdio: "ignore" });
+
+    const result = buildReleasePublishStatus({ cwd: root, repo: "owner/repo", branch: "codex/release-candidate", tag: "v0.0.0" });
+
+    expect(result.checks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "publish:public-branch", status: "warn" })]),
+    );
+    expect(result.nextCommands).toContain("bounty release publish-plan owner/repo --branch main --tag v0.0.0 --write");
+    expect(result.nextCommands).toContain("bounty release publish-status owner/repo --branch main --tag v0.0.0 --online --actions --json");
   });
 
   it("verifies required GitHub Actions workflows through an injected gh command", () => {
