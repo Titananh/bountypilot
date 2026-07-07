@@ -24,6 +24,14 @@ npm run verify:release
 npm pack --dry-run
 ```
 
+The release check also verifies the public repository contract:
+
+- `LICENSE`
+- `SECURITY.md`
+- `CONTRIBUTING.md`
+- `.github/workflows/ci.yml`
+- `.github/workflows/release.yml`
+
 ## 3. Push Source To GitHub
 
 If this folder has not been initialized as a Git repository yet:

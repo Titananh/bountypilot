@@ -61,6 +61,7 @@ const REQUIRED_EXAMPLES = [
   "examples/evidence/finding-example-security-header/safe-check-output.json",
 ];
 const REQUIRED_PROGRAM_EXAMPLES = ["examples/program.yml", "examples/local-program.yml"];
+const REQUIRED_PUBLIC_REPO_FILES = ["LICENSE", "SECURITY.md", "CONTRIBUTING.md"];
 const REQUIRED_GITHUB_WORKFLOWS = [
   {
     name: ".github/workflows/ci.yml",
@@ -82,6 +83,9 @@ export function runReleaseCheck(cwd = process.cwd()): ReleaseCheckResult {
   checks.push(fileCheck("README.md", path.join(cwd, "README.md")));
   checks.push(fileCheck("tsconfig.json", path.join(cwd, "tsconfig.json")));
   checks.push(fileCheck("package-lock.json", path.join(cwd, "package-lock.json")));
+  for (const publicFile of REQUIRED_PUBLIC_REPO_FILES) {
+    checks.push(fileCheck(publicFile, path.join(cwd, publicFile)));
+  }
   for (const workflow of REQUIRED_GITHUB_WORKFLOWS) {
     const workflowPath = path.join(cwd, workflow.name);
     checks.push(fileCheck(workflow.name, workflowPath));

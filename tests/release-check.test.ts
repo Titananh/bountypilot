@@ -72,6 +72,18 @@ describe("release checks", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("fails when public repository files are missing", () => {
+    const root = writeReleaseFixture();
+    rmSync(path.join(root, "LICENSE"));
+
+    const result = runReleaseCheck(root);
+
+    expect(result.checks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "LICENSE", status: "fail" })]),
+    );
+    expect(result.ok).toBe(false);
+  });
+
   it("fails malformed workflow summary examples", () => {
     const root = writeReleaseFixture();
     writeText(
@@ -123,6 +135,9 @@ function writeReleaseFixture(): string {
   writeText(root, "README.md", "# fixture\n");
   writeText(root, "tsconfig.json", "{}\n");
   writeText(root, "package-lock.json", "{}\n");
+  writeText(root, "LICENSE", "MIT License\n");
+  writeText(root, "SECURITY.md", "# Security\n");
+  writeText(root, "CONTRIBUTING.md", "# Contributing\n");
   writeText(
     root,
     ".github/workflows/ci.yml",
