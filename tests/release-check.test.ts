@@ -347,6 +347,7 @@ describe("release checks", () => {
     expect(result.commands.verify).toContain("bugbounty release install-check --json");
     expect(result.outputFiles?.markdown).toBe(path.join(outputDir, "README.md"));
     expect(readFileSync(result.outputFiles!.markdown, "utf8")).toContain("## Local Verification");
+    expect(readFileSync(result.outputFiles!.markdown, "utf8")).toContain("gh --version");
     expect(readFileSync(result.outputFiles!.markdown, "utf8")).toContain("bounty release verify-bundle .release --json");
     expect(readFileSync(result.outputFiles!.powershell, "utf8")).toContain("npm run verify:release");
     expect(readFileSync(result.outputFiles!.powershell, "utf8")).toContain("node dist/cli/index.js release verify-bundle .release --json");
@@ -354,6 +355,37 @@ describe("release checks", () => {
     expect(readFileSync(result.outputFiles!.shell, "utf8")).toContain("npm run verify:release");
     expect(readFileSync(result.outputFiles!.shell, "utf8")).toContain("node dist/cli/index.js release verify-bundle .release --json");
     expect(readFileSync(result.outputFiles!.shell, "utf8")).toContain("bugbounty release install-check --json");
+  });
+
+  it("orders GitHub CLI verification before bootstrap repo creation when gh is missing", () => {
+    const root = writeReleaseFixture();
+
+    const result = buildReleaseGithubBootstrap({
+      cwd: root,
+      repo: "owner/repo",
+      branch: "main",
+      tag: "v0.0.0",
+      ghCommand: "bountypilot-missing-gh-command",
+      timeoutMs: 500,
+    });
+
+    expect(result.nextCommands).toEqual(
+      expect.arrayContaining([
+        "winget install --id GitHub.cli -e",
+        "brew install gh",
+        "sudo apt-get update && sudo apt-get install -y gh",
+        "gh --version",
+        "gh auth status",
+        "gh auth login",
+        "gh repo create owner/repo --public --source . --remote origin --push",
+      ]),
+    );
+    expect(result.nextCommands.indexOf("gh --version")).toBeGreaterThan(result.nextCommands.indexOf("winget install --id GitHub.cli -e"));
+    expect(result.nextCommands.indexOf("gh auth status")).toBeGreaterThan(result.nextCommands.indexOf("gh --version"));
+    expect(result.nextCommands.indexOf("gh auth login")).toBeGreaterThan(result.nextCommands.indexOf("gh auth status"));
+    expect(result.nextCommands.indexOf("gh repo create owner/repo --public --source . --remote origin --push")).toBeGreaterThan(
+      result.nextCommands.indexOf("gh auth login"),
+    );
   });
 
   it("adds public branch push verification to GitHub bootstrap for non-public branches", () => {

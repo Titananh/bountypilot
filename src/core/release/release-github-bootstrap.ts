@@ -214,9 +214,10 @@ function nextCommandsForBootstrap(input: {
   const originMissing = byName.get("git:origin")?.status === "fail";
   if (byName.get("gh:version")?.status === "fail") {
     input.commands.installGh.forEach((command) => commands.add(command));
+    commands.add("gh --version");
   }
   if (byName.get("gh:auth")?.status === "fail") {
-    commands.add("gh auth login");
+    input.commands.auth.forEach((command) => commands.add(command));
   }
   if (byName.get("release:check")?.status === "fail") {
     commands.add("npm run verify:release");
@@ -282,6 +283,7 @@ Origin: ${input.plan.remote.origin ?? "not configured"}
 
 \`\`\`bash
 ${input.commands.installGh.join("\n")}
+gh --version
 ${input.commands.auth.join("\n")}
 \`\`\`
 
