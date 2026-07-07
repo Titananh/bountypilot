@@ -24,6 +24,9 @@ describe("bug-bounty-pilot skill workflow", () => {
     );
     expect(workflow.steps.every((step) => step.cli_commands.length > 0)).toBe(true);
     expect(workflow.steps.every((step) => step.artifacts.length > 0)).toBe(true);
+    const handoff = workflow.steps.find((step) => step.id === "handoff_bundle");
+    expect(handoff?.cli_commands).toContain("bounty export bundle --job <job-id> --include-artifacts");
+    expect(workflow.steps.flatMap((step) => step.cli_commands).join("\n")).not.toContain("--include-evidence");
   });
 
   it("keeps active workflow phases scoped and approval-aware", () => {
@@ -46,4 +49,3 @@ describe("bug-bounty-pilot skill workflow", () => {
     expect(reportDraft?.blocked_capabilities).toContain("auto_submit_report");
   });
 });
-

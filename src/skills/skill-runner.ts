@@ -199,6 +199,6 @@ function skillNextCommands(input: {
   if (input.mode !== "passive") {
     commands.push(`bounty reports score <candidate-id> --json`);
   }
-  commands.push(`bounty export bundle --job ${input.jobId} --include-evidence`);
+  commands.push(`bounty export bundle --job ${input.jobId} --include-artifacts`);
   return commands;
 }

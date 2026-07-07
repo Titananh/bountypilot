@@ -102,6 +102,8 @@ describe("CLI skill commands", () => {
       dryRun: true,
     });
     expect(parsed.recon.tools.map((tool: any) => tool.status)).toEqual(expect.arrayContaining(["planned"]));
+    expect(parsed.nextCommands).toEqual(expect.arrayContaining([expect.stringContaining("--include-artifacts")]));
+    expect(parsed.nextCommands.join("\n")).not.toContain("--include-evidence");
     expect(readFileSync(path.join(workspace, ".bounty", "programs", "skill-cli", "program.yml"), "utf8")).toContain("skill-cli");
   }, 60_000);
 });
