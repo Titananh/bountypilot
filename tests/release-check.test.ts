@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -70,6 +71,30 @@ describe("release checks", () => {
       expect.arrayContaining([expect.objectContaining({ name: ".github/workflows/release.yml", status: "fail" })]),
     );
     expect(result.ok).toBe(false);
+  });
+
+  it("warns when the source checkout has no GitHub origin remote", () => {
+    const root = writeReleaseFixture();
+
+    const result = runReleaseCheck(root);
+
+    expect(result.checks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "github:origin", status: "warn" })]),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("passes when a GitHub origin remote is configured", () => {
+    const root = writeReleaseFixture();
+    execFileSync("git", ["init"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["remote", "add", "origin", "https://github.com/owner/repo.git"], { cwd: root, stdio: "ignore" });
+
+    const result = runReleaseCheck(root);
+
+    expect(result.checks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "github:origin", status: "pass" })]),
+    );
+    expect(result.ok).toBe(true);
   });
 
   it("fails when GitHub CodeQL workflow is missing", () => {

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
@@ -143,6 +144,7 @@ export function runReleaseCheck(cwd = process.cwd()): ReleaseCheckResult {
     checks.push(fileCheck(workflow.name, workflowPath));
     checks.push(workflowContentCheck(workflow.name, workflowPath, workflow.snippets));
   }
+  checks.push(githubRemoteCheck(cwd));
   for (const communityFile of REQUIRED_GITHUB_COMMUNITY_FILES) {
     const communityPath = path.join(cwd, communityFile.name);
     checks.push(fileCheck(communityFile.name, communityPath));
@@ -315,6 +317,49 @@ function fileCheck(name: string, filePath: string): ReleaseCheckItem {
   } catch {
     return { name, status: "fail", message: `Not readable: ${filePath}` };
   }
+}
+
+function githubRemoteCheck(cwd: string): ReleaseCheckItem {
+  if (!existsSync(path.join(cwd, ".git"))) {
+    return {
+      name: "github:origin",
+      status: "warn",
+      message: "No .git directory found; packaged installs can ignore this, but source releases should be pushed to GitHub.",
+    };
+  }
+
+  let remote = "";
+  try {
+    remote = execFileSync("git", ["remote", "get-url", "origin"], {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 2_000,
+    }).trim();
+  } catch {
+    return {
+      name: "github:origin",
+      status: "warn",
+      message: "No origin remote configured. Add one with: git remote add origin https://github.com/OWNER/REPO.git",
+    };
+  }
+
+  if (!remote) {
+    return {
+      name: "github:origin",
+      status: "warn",
+      message: "Origin remote is empty. Add a GitHub remote before publishing a public release.",
+    };
+  }
+
+  const githubRemote = /^(?:https:\/\/github\.com\/|git@github\.com:)[^/:\s]+\/[^/\s]+(?:\.git)?$/i.test(remote);
+  return {
+    name: "github:origin",
+    status: githubRemote ? "pass" : "warn",
+    message: githubRemote
+      ? remote
+      : `Origin remote is not a GitHub repository (${remote}). Public one-command installs expect a GitHub or npm release source.`,
+  };
 }
 
 function programExampleCheck(name: string, filePath: string): ReleaseCheckItem {

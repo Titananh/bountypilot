@@ -29,6 +29,7 @@ The release check also verifies the public repository contract:
 - `LICENSE`
 - `SECURITY.md`
 - `CONTRIBUTING.md`
+- `github:origin` warning/pass state
 - `.github/workflows/ci.yml`
 - `.github/workflows/release.yml`
 - `.github/workflows/codeql.yml`
@@ -58,6 +59,8 @@ git commit -m "Release BountyPilot CLI"
 git remote add origin https://github.com/OWNER/REPO.git
 git push -u origin main
 ```
+
+If `bounty release check --json` reports `github:origin` as `warn`, add or fix the `origin` remote before announcing the GitHub install command.
 
 ## 4. One-Line Install
 
