@@ -165,6 +165,7 @@ function readinessNextSteps(input: {
     steps.add("npm run verify:release");
   }
   if (input.warnings.some((issue) => issue.name === "github:origin")) {
+    steps.add("bounty release publish-plan OWNER/REPO --write");
     steps.add("git remote add origin https://github.com/OWNER/REPO.git");
     steps.add("git push -u origin HEAD");
   }

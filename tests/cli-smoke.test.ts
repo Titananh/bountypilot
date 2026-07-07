@@ -383,10 +383,16 @@ integrations: {}
       outputPath: publishPlanPath,
     });
     expect(parsedPublishPlan.commands.remoteSetup.join("\n")).toContain("https://github.com/octo/bountypilot.git");
+    expect(parsedPublishPlan.commands.repositoryCreate).toContain("gh repo create octo/bountypilot --public --source . --remote origin --push");
     expect(parsedPublishPlan.commands.localVerify).toContain("bounty release verify-bundle .release --json");
+    expect(parsedPublishPlan.commands.installVerify.join("\n")).toContain("BOUNTYPILOT_INSTALL_DRY_RUN=1");
     expect(parsedPublishPlan.install.npm).toBe("npm install -g github:octo/bountypilot");
+    expect(parsedPublishPlan.install.shellDryRun).toContain("BOUNTYPILOT_INSTALL_DRY_RUN=1");
+    expect(parsedPublishPlan.install.powershellDryRun).toContain('BOUNTYPILOT_INSTALL_DRY_RUN="1"');
     expect(existsSync(publishPlanPath)).toBe(true);
     expect(readFileSync(publishPlanPath, "utf8")).toContain("bounty release verify-bundle .release --json");
+    expect(readFileSync(publishPlanPath, "utf8")).toContain("gh repo create octo/bountypilot");
+    expect(readFileSync(publishPlanPath, "utf8")).toContain("Verify installer resolution");
     expect(readFileSync(publishPlanPath, "utf8")).toContain("git push origin v0.1.0");
 
     const deepDoctorJson = runCli(["doctor", "--deep", "--json"], repoRoot);

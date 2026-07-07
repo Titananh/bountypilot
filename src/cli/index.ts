@@ -5623,11 +5623,21 @@ release
     ui.blank();
     ui.commandList("local verify", result.commands.localVerify);
     ui.blank();
+    ui.commandList("create repository", result.commands.repositoryCreate);
+    ui.blank();
     ui.commandList("remote setup", result.commands.remoteSetup);
+    ui.blank();
+    ui.commandList("install verify", result.commands.installVerify);
     ui.blank();
     ui.commandList("release", result.commands.release);
     ui.blank();
-    ui.panel("install", [ui.kv("npm", result.install.npm), ui.kv("shell", result.install.shell), ui.kv("powershell", result.install.powershell)]);
+    ui.panel("install", [
+      ui.kv("npm", result.install.npm),
+      ui.kv("shell", result.install.shell),
+      ui.kv("powershell", result.install.powershell),
+      ui.kv("shell dry-run", result.install.shellDryRun),
+      ui.kv("powershell dry-run", result.install.powershellDryRun),
+    ]);
     if (!result.ok) {
       process.exitCode = 1;
     }

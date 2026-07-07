@@ -95,6 +95,9 @@ describe("CLI skill commands", () => {
     expect(parsed.score).toBeGreaterThanOrEqual(90);
     expect(["ultimate", "ready_with_warnings"]).toContain(parsed.readiness);
     expect(parsed.nextSteps.length).toBeGreaterThan(0);
+    if (parsed.warnings.some((warning: any) => warning.name === "github:origin")) {
+      expect(parsed.nextSteps).toEqual(expect.arrayContaining(["bounty release publish-plan OWNER/REPO --write"]));
+    }
   }, 60_000);
 
   it("runs passive skill workflow as dry-run against imported scope", () => {

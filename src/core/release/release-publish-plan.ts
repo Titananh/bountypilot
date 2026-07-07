@@ -30,10 +30,14 @@ export interface ReleasePublishPlanResult {
     npm: string;
     shell: string;
     powershell: string;
+    shellDryRun: string;
+    powershellDryRun: string;
   };
   commands: {
     localVerify: string[];
+    repositoryCreate: string[];
     remoteSetup: string[];
+    installVerify: string[];
     release: string[];
   };
   urls: {
@@ -71,6 +75,8 @@ export function buildReleasePublishPlan(input: BuildReleasePublishPlanInput): Re
     npm: `npm install -g github:${repo.slug}`,
     shell: `curl -fsSL https://raw.githubusercontent.com/${repo.slug}/${branch}/scripts/install.sh | BOUNTYPILOT_SOURCE=github:${repo.slug} bash`,
     powershell: `$env:BOUNTYPILOT_SOURCE="github:${repo.slug}"; irm https://raw.githubusercontent.com/${repo.slug}/${branch}/scripts/install.ps1 | iex`,
+    shellDryRun: `curl -fsSL https://raw.githubusercontent.com/${repo.slug}/${branch}/scripts/install.sh | BOUNTYPILOT_SOURCE=github:${repo.slug} BOUNTYPILOT_INSTALL_DRY_RUN=1 bash`,
+    powershellDryRun: `$env:BOUNTYPILOT_SOURCE="github:${repo.slug}"; $env:BOUNTYPILOT_INSTALL_DRY_RUN="1"; irm https://raw.githubusercontent.com/${repo.slug}/${branch}/scripts/install.ps1 | iex`,
   };
   const commands = {
     localVerify: [
@@ -80,10 +86,12 @@ export function buildReleasePublishPlan(input: BuildReleasePublishPlanInput): Re
       "bounty release bundle --output .release --force --json",
       "bounty release verify-bundle .release --json",
     ],
+    repositoryCreate: [`gh repo create ${repo.slug} --public --source . --remote origin --push`],
     remoteSetup: [
       origin ? `git remote set-url origin ${targetRemote}` : `git remote add origin ${targetRemote}`,
       `git push -u origin ${branch}`,
     ],
+    installVerify: [install.npm, install.shellDryRun, install.powershellDryRun],
     release: [`git tag ${tag}`, `git push origin ${tag}`],
   };
   const urls = {
@@ -162,6 +170,14 @@ ${input.commands.localVerify.join("\n")}
 
 ## 2. GitHub Remote
 
+If GitHub CLI is installed and authenticated, this single command can create the public repository, set \`origin\`, and push the branch:
+
+\`\`\`bash
+${input.commands.repositoryCreate.join("\n")}
+\`\`\`
+
+If the repository already exists or GitHub CLI is unavailable, use the explicit remote setup:
+
 \`\`\`bash
 ${input.commands.remoteSetup.join("\n")}
 \`\`\`
@@ -175,6 +191,16 @@ ${input.install.shell}
 
 \`\`\`powershell
 ${input.install.powershell}
+\`\`\`
+
+Verify installer resolution without changing the global npm prefix:
+
+\`\`\`bash
+${input.install.shellDryRun}
+\`\`\`
+
+\`\`\`powershell
+${input.install.powershellDryRun}
 \`\`\`
 
 ## 4. Release Tag
