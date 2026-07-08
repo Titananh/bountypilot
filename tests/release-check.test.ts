@@ -125,6 +125,9 @@ describe("release checks", () => {
     );
     expect(result.nextCommands).toContain("bounty release publish-status owner/repo --branch main --tag v0.0.0 --online --json");
     expect(result.nextCommands).toContain("bounty release publish-status owner/repo --branch main --tag v0.0.0 --online --actions --json");
+    expect(result.nextCommands).toContain(
+      "bounty release public-gate owner/repo --branch main --tag v0.0.0 --online --actions --install-check --write-public-plan .bounty/release/public-readiness.md --json",
+    );
     expect(result.install).toMatchObject({
       npm: "npm install -g github:owner/repo",
       npmPinned: "npm install -g github:owner/repo#main",
@@ -703,6 +706,26 @@ bugbounty skill score bug-bounty-pilot --json
     );
     expect(result.ok).toBe(false);
     });
+  });
+
+  it("fails publish status when the local release check fails", () => {
+    const root = writeReleaseFixture();
+    rmSync(path.join(root, "LICENSE"));
+    execFileSync("git", ["init", "-b", "main"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "bountypilot@example.test"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "BountyPilot Test"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["add", "."], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "broken-release"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["remote", "add", "origin", "https://github.com/owner/repo.git"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["tag", "v0.0.0"], { cwd: root, stdio: "ignore" });
+
+    const result = buildReleasePublishStatus({ cwd: root, repo: "owner/repo", branch: "main", tag: "v0.0.0" });
+
+    expect(result.ok).toBe(false);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "release:check", status: "fail" })]),
+    );
+    expect(result.nextCommands).toContain("npm run verify:release");
   });
 
   it("warns when the local release tag does not point at HEAD", () => {
