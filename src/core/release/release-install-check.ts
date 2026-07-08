@@ -163,7 +163,12 @@ export function buildReleaseInstallCheck(input: BuildReleaseInstallCheckInput = 
     checks,
     version,
     nextCommands: ok
-      ? ["bugbounty quickstart <in-scope-target>", "bugbounty providers catalog", "bugbounty hunt profiles"]
+      ? [
+          "bugbounty skill score bug-bounty-pilot --json",
+          "bugbounty quickstart <in-scope-target>",
+          "bugbounty providers catalog",
+          "bugbounty hunt profiles",
+        ]
       : ["npm install -g bountypilot", "bugbounty release install-check --json"],
   };
 }

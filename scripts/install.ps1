@@ -71,10 +71,11 @@ $InstallCheck = bugbounty release install-check --json
 if ($LASTEXITCODE -ne 0) {
   Write-Error "BountyPilot install verification failed after install."
 }
-Write-Host "Install verified: bug-bounty-pilot skill, metadata, and fresh-user quickstart"
+Write-Host "Install verified: bug-bounty-pilot skill, metadata, readiness score, and fresh-user quickstart"
 Write-Host ""
 Write-Host "Next:"
 Write-Host "  bugbounty --help"
+Write-Host "  bugbounty skill score bug-bounty-pilot --json"
 Write-Host "  bugbounty quickstart <in-scope-target>"
 Write-Host "  bugbounty lab demo --port 8080"
 Write-Host ""

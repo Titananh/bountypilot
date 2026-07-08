@@ -660,6 +660,8 @@ fi
 npm install -g bountypilot
 bugbounty skill validate bug-bounty-pilot --json
 bugbounty release install-check --json
+echo "Install verified: readiness score"
+bugbounty skill score bug-bounty-pilot --json
 `,
   );
   writeText(
@@ -680,6 +682,8 @@ npm install -g bountypilot
 if ($LASTEXITCODE -ne 0) { Write-Error "npm install failed" }
 bugbounty skill validate bug-bounty-pilot --json
 bugbounty release install-check --json
+Write-Host "Install verified: readiness score"
+bugbounty skill score bug-bounty-pilot --json
 `,
   );
   writeText(

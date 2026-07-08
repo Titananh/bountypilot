@@ -88,6 +88,8 @@ const REQUIRED_INSTALLER_FILES = [
       "npm install -g",
       "skill validate bug-bounty-pilot",
       "release install-check",
+      "readiness score",
+      "skill score bug-bounty-pilot",
     ],
   },
   {
@@ -101,6 +103,8 @@ const REQUIRED_INSTALLER_FILES = [
       "npm install -g",
       "skill validate bug-bounty-pilot",
       "release install-check",
+      "readiness score",
+      "skill score bug-bounty-pilot",
     ],
   },
 ];

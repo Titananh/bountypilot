@@ -67,10 +67,11 @@ echo "Installed:"
 bugbounty --version
 bugbounty skill validate bug-bounty-pilot --json >/dev/null
 bugbounty release install-check --json >/dev/null
-echo "Install verified: bug-bounty-pilot skill, metadata, and fresh-user quickstart"
+echo "Install verified: bug-bounty-pilot skill, metadata, readiness score, and fresh-user quickstart"
 echo
 echo "Next:"
 echo "  bugbounty --help"
+echo "  bugbounty skill score bug-bounty-pilot --json"
 echo "  bugbounty quickstart <in-scope-target>"
 echo "  bugbounty lab demo --port 8080"
 echo
