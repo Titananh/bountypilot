@@ -579,6 +579,48 @@ describe("release checks", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("fails when private workspace data is tracked in source control", () => {
+    const root = writeReleaseFixture();
+    execFileSync("git", ["init"], { cwd: root, stdio: "ignore" });
+    writeText(root, ".bounty/providers/openai.json", JSON.stringify({ provider: "openai", apiKeyEnv: "OPENAI_API_KEY" }, null, 2));
+    execFileSync("git", ["add", ".bounty/providers/openai.json"], { cwd: root, stdio: "ignore" });
+
+    const result = runReleaseCheck(root);
+
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "git:tracked-private-data",
+          status: "fail",
+          message: expect.stringContaining(".bounty/providers/openai.json"),
+        }),
+      ]),
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("fails when tracked files contain provider tokens", () => {
+    const root = writeReleaseFixture();
+    const token = "sk-" + "a".repeat(40);
+    execFileSync("git", ["init"], { cwd: root, stdio: "ignore" });
+    writeText(root, "README.md", `# Fixture\n\nAccidental token: ${token}\n`);
+    execFileSync("git", ["add", "README.md"], { cwd: root, stdio: "ignore" });
+
+    const result = runReleaseCheck(root);
+
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "git:tracked-secret-content",
+          status: "fail",
+          message: "Remove or rotate tracked secrets before publishing: README.md (openai-api-key)",
+        }),
+      ]),
+    );
+    expect(JSON.stringify(result)).not.toContain(token);
+    expect(result.ok).toBe(false);
+  });
+
   it("fails when installers do not support pinned GitHub refs", () => {
     const root = writeReleaseFixture();
     writeText(

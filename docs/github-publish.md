@@ -2,7 +2,7 @@
 
 Use this checklist when you are ready to make the CLI installable by other users.
 
-Safety reminder: publish only source code, examples, and generated release artifacts. Do not publish private program data, authorization files, real target evidence, secrets, provider keys, or bounty reports. BountyPilot remains local-first: it drafts local reports and evidence bundles, but it never auto-submits bug bounty reports or runs out-of-scope testing for users.
+Safety reminder: publish only source code, examples, and generated release artifacts. Do not publish private program data, authorization files, real target evidence, secrets, provider keys, or bounty reports. BountyPilot remains local-first: it drafts local reports and evidence bundles, but it never auto-submits bug bounty reports or runs out-of-scope testing for users. The release gate fails if tracked files include `.bounty/`, generated artifacts, `.env` files, provider configs, key/evidence captures, or obvious provider/platform token patterns.
 
 Public release reminder: `gh repo create ... --public`, `git push -u origin HEAD:main`, and release tag pushes make the selected source publicly installable. Review the current commit, default branch target, and generated public-readiness plan before running those commands. Use `git tag -f v0.1.0 HEAD` only before a tag has been published; do not move a release tag after other users may have installed or pinned it.
 

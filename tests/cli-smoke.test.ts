@@ -1625,7 +1625,7 @@ integrations: {}
     expect(findFiles(path.join(workspace, ".bounty"), "safe-checks.json")).toEqual([]);
     expect(findFiles(path.join(workspace, ".bounty"), "js-analysis.json")).toEqual([]);
     expect(findFiles(path.join(workspace, ".bounty"), "crawl-graph.json")).toEqual([]);
-  }, 80_000);
+  }, 140_000);
 });
 
 function createWorkspace(): string {

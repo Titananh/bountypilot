@@ -52,6 +52,20 @@ const FORBIDDEN_TRACKED_RELEASE_ARTIFACTS = [
   /^release-manifest\.json$/,
   /^SHA256SUMS\.txt$/,
 ];
+const FORBIDDEN_TRACKED_PRIVATE_DATA = [
+  { pattern: /^\.bounty\//, reason: "local workspace state" },
+  { pattern: /^artifacts\//, reason: "local generated artifacts" },
+  { pattern: /(^|\/)\.env(?:\..*)?$/i, reason: "environment secret file" },
+  { pattern: /(^|\/)(?:credentials|secrets|providers?)(?:[-_.].*)?\.(?:json|ya?ml|txt)$/i, reason: "credential or provider config" },
+  { pattern: /\.(?:har|sqlite|sqlite3|db|key|pem|p12)$/i, reason: "captured evidence or key material" },
+];
+const TRACKED_SECRET_PATTERNS = [
+  { name: "github-token", pattern: /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{20,}\b/ },
+  { name: "github-fine-grained-token", pattern: /\bgithub_pat_[A-Za-z0-9_]{20,}_[A-Za-z0-9_]{20,}\b/ },
+  { name: "openai-api-key", pattern: /\bsk-(?:proj-)?[A-Za-z0-9_-]{32,}\b/ },
+  { name: "anthropic-api-key", pattern: /\bsk-ant-[A-Za-z0-9_-]{20,}\b/ },
+  { name: "openrouter-api-key", pattern: /\bsk-or-v1-[A-Za-z0-9_-]{20,}\b/ },
+];
 const REQUIRED_SKILL_FILES = [
   "skills/bug-bounty-pilot/SKILL.md",
   "skills/bug-bounty-pilot/policy.yml",
@@ -209,6 +223,8 @@ export function runReleaseCheck(cwd = process.cwd()): ReleaseCheckResult {
   }
   checks.push(githubRemoteCheck(cwd));
   checks.push(trackedReleaseArtifactCheck(cwd));
+  checks.push(trackedPrivateDataCheck(cwd));
+  checks.push(trackedSecretContentCheck(cwd));
   for (const communityFile of REQUIRED_GITHUB_COMMUNITY_FILES) {
     const communityPath = path.join(cwd, communityFile.name);
     checks.push(fileCheck(communityFile.name, communityPath));
@@ -517,36 +533,23 @@ function githubRemoteCheck(cwd: string): ReleaseCheckItem {
 }
 
 function trackedReleaseArtifactCheck(cwd: string): ReleaseCheckItem {
-  if (!existsSync(path.join(cwd, ".git"))) {
+  const trackedFiles = inspectTrackedFiles(cwd);
+  if (trackedFiles.status === "not-git") {
     return {
       name: "git:tracked-release-artifacts",
       status: "pass",
       message: "not a git checkout; tracked release artifact check skipped",
     };
   }
-
-  let output = "";
-  try {
-    output = execFileSync("git", ["ls-files"], {
-      cwd,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 2_000,
-    });
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
+  if (trackedFiles.status === "error") {
     return {
       name: "git:tracked-release-artifacts",
       status: "warn",
-      message: `Could not inspect tracked release artifacts: ${reason}`,
+      message: `Could not inspect tracked release artifacts: ${trackedFiles.reason}`,
     };
   }
 
-  const tracked = output
-    .split(/\r?\n/)
-    .map((entry) => entry.trim().replaceAll("\\", "/"))
-    .filter(Boolean);
-  const offenders = tracked.filter((entry) => FORBIDDEN_TRACKED_RELEASE_ARTIFACTS.some((pattern) => pattern.test(entry)));
+  const offenders = trackedFiles.files.filter((entry) => FORBIDDEN_TRACKED_RELEASE_ARTIFACTS.some((pattern) => pattern.test(entry)));
   return {
     name: "git:tracked-release-artifacts",
     status: offenders.length === 0 ? "pass" : "fail",
@@ -555,6 +558,103 @@ function trackedReleaseArtifactCheck(cwd: string): ReleaseCheckItem {
         ? "no generated release artifacts are tracked"
         : `Remove generated release artifacts from git: ${offenders.join(", ")}`,
   };
+}
+
+function trackedPrivateDataCheck(cwd: string): ReleaseCheckItem {
+  const trackedFiles = inspectTrackedFiles(cwd);
+  if (trackedFiles.status === "not-git") {
+    return {
+      name: "git:tracked-private-data",
+      status: "pass",
+      message: "not a git checkout; tracked private data check skipped",
+    };
+  }
+  if (trackedFiles.status === "error") {
+    return {
+      name: "git:tracked-private-data",
+      status: "warn",
+      message: `Could not inspect tracked private data: ${trackedFiles.reason}`,
+    };
+  }
+
+  const offenders = trackedFiles.files.flatMap((entry) => {
+    const rule = FORBIDDEN_TRACKED_PRIVATE_DATA.find((candidate) => candidate.pattern.test(entry));
+    return rule ? [`${entry} (${rule.reason})`] : [];
+  });
+  return {
+    name: "git:tracked-private-data",
+    status: offenders.length === 0 ? "pass" : "fail",
+    message:
+      offenders.length === 0
+        ? "no private workspace data is tracked"
+        : `Remove private publish data from git: ${offenders.join(", ")}`,
+  };
+}
+
+function trackedSecretContentCheck(cwd: string): ReleaseCheckItem {
+  const trackedFiles = inspectTrackedFiles(cwd);
+  if (trackedFiles.status === "not-git") {
+    return {
+      name: "git:tracked-secret-content",
+      status: "pass",
+      message: "not a git checkout; tracked secret content check skipped",
+    };
+  }
+  if (trackedFiles.status === "error") {
+    return {
+      name: "git:tracked-secret-content",
+      status: "warn",
+      message: `Could not inspect tracked secret content: ${trackedFiles.reason}`,
+    };
+  }
+
+  const offenders: string[] = [];
+  for (const entry of trackedFiles.files) {
+    const filePath = path.join(cwd, ...entry.split("/"));
+    let content: string;
+    try {
+      const raw = readFileSync(filePath);
+      if (raw.length > 1_000_000 || raw.includes(0)) continue;
+      content = raw.toString("utf8");
+    } catch {
+      continue;
+    }
+    const match = TRACKED_SECRET_PATTERNS.find((rule) => rule.pattern.test(content));
+    if (match) offenders.push(`${entry} (${match.name})`);
+  }
+
+  return {
+    name: "git:tracked-secret-content",
+    status: offenders.length === 0 ? "pass" : "fail",
+    message:
+      offenders.length === 0
+        ? "no obvious provider or platform tokens found in tracked files"
+        : `Remove or rotate tracked secrets before publishing: ${offenders.join(", ")}`,
+  };
+}
+
+function inspectTrackedFiles(cwd: string): { status: "ok"; files: string[] } | { status: "not-git" } | { status: "error"; reason: string } {
+  if (!existsSync(path.join(cwd, ".git"))) {
+    return { status: "not-git" };
+  }
+
+  try {
+    const output = execFileSync("git", ["ls-files", "-z"], {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 2_000,
+    });
+    return {
+      status: "ok",
+      files: output
+        .split("\0")
+        .map((entry) => entry.trim().replaceAll("\\", "/"))
+        .filter(Boolean),
+    };
+  } catch (error) {
+    return { status: "error", reason: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 function programExampleCheck(name: string, filePath: string): ReleaseCheckItem {
