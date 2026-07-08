@@ -559,6 +559,11 @@ integrations: {}
           "v0.1.0",
           "--write-public-plan",
           publicGatePlanPath,
+          "--actions",
+          "--gh-command",
+          process.execPath,
+          "--gh-command-arg",
+          fakeGh,
           "--json",
         ],
         repoRoot,
@@ -571,6 +576,12 @@ integrations: {}
       expect(parsedPublicGate.publicReadinessPlanPath).toBe(publicGatePlanPath);
       expect(parsedPublicGate.publishStatus.ok).toBe(false);
       expect(parsedPublicGate.skillScore.layers.local.ultimate).toBe(true);
+      expect(parsedPublicGate.publishStatus.checks).toEqual(
+        expect.arrayContaining([expect.objectContaining({ name: "github:actions:CI", status: "pass" })]),
+      );
+      expect(parsedPublicGate.publishStatus.checks).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ name: "github:actions-gh", status: "fail" })]),
+      );
       expect(parsedPublicGate.checks).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ name: "release:publish-status", status: "fail" }),
@@ -1729,6 +1740,11 @@ if (args.includes("--version")) {
 }
 if (args[0] === "auth" && args[1] === "status") {
   console.log("Logged in to github.com as bountypilot-test");
+  process.exit(0);
+}
+if (args[0] === "run" && args[1] === "list") {
+  const workflow = args[args.indexOf("--workflow") + 1] || "unknown";
+  console.log(JSON.stringify([{ status: "completed", conclusion: "success", workflowName: workflow, url: "https://github.com/octo/bountypilot/actions/runs/1", headBranch: "main", event: "push" }]));
   process.exit(0);
 }
 console.error("unexpected fake gh args " + args.join(" "));

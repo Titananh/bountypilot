@@ -6255,6 +6255,9 @@ release
   .option("--remote <kind>", "Preferred remote style: https or ssh", "https")
   .option("--online", "Use git ls-remote to verify the branch/tag on origin")
   .option("--actions", "Use GitHub CLI to verify required Actions workflows completed successfully")
+  .option("--gh-command <command>", "GitHub CLI command to probe when --actions is used", "gh")
+  .option("--gh-command-arg <arg>", "Argument to prepend before gh probe arguments. Repeat for wrappers.", collectOption, [] as string[])
+  .option("--timeout-ms <ms>", "Per-command timeout in milliseconds for GitHub probes", "8000")
   .option("--write-public-plan <path>", "Write a Markdown public-readiness checklist alongside the gate result")
   .option("--json", "Print machine-readable JSON")
   .description("Run the final public readiness gate for GitHub install, skill score, and publish status")
@@ -6266,10 +6269,14 @@ release
       remote: string;
       online?: boolean;
       actions?: boolean;
+      ghCommand: string;
+      ghCommandArg: string[];
+      timeoutMs: string;
       writePublicPlan?: string;
       json?: boolean;
     }>();
     const remote = parseReleaseRemotePreference(options.remote);
+    const timeoutMs = parsePositiveIntegerOption(options.timeoutMs, "timeout-ms", 8_000);
     const publishStatus = buildReleasePublishStatus({
       cwd: process.cwd(),
       repo,
@@ -6278,6 +6285,9 @@ release
       remote,
       online: options.online,
       actions: options.actions,
+      ghCommand: options.ghCommand,
+      ghArgsPrefix: options.ghCommandArg,
+      timeoutMs,
     });
     const skillScore = scoreSkillReadiness({
       id: BUG_BOUNTY_PILOT_SKILL_ID,
@@ -6288,6 +6298,9 @@ release
       remote,
       online: options.online,
       actions: options.actions,
+      ghCommand: options.ghCommand,
+      ghArgsPrefix: options.ghCommandArg,
+      timeoutMs,
     });
     const publicReadinessPlanPath = options.writePublicPlan
       ? writePublicReadinessPlan(options.writePublicPlan, renderSkillReadinessPublicPlan(skillScore))
