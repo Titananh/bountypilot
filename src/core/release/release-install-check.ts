@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -197,15 +197,54 @@ function installedPackageRoot(resolvedCommand: string, cwd: string): string {
   const candidates = [
     path.join(cwd, "node_modules", "bountypilot"),
     npmBinPackageRoot(resolvedCommand),
+    npmGlobalPackageRoot(resolvedCommand),
+    packageRootFromPath(resolvedCommand),
+    packageRootFromRealPath(resolvedCommand),
     cwd,
   ].filter((candidate): candidate is string => Boolean(candidate));
-  return candidates.find((candidate) => existsSync(path.join(candidate, "package.json"))) ?? cwd;
+  return unique(candidates).find(isBountyPilotPackageRoot) ?? cwd;
 }
 
 function npmBinPackageRoot(resolvedCommand: string): string | undefined {
   const binDir = path.dirname(resolvedCommand);
   if (path.basename(binDir).toLowerCase() !== ".bin") return undefined;
   return path.join(path.dirname(binDir), "bountypilot");
+}
+
+function npmGlobalPackageRoot(resolvedCommand: string): string {
+  return path.join(path.dirname(resolvedCommand), "node_modules", "bountypilot");
+}
+
+function packageRootFromRealPath(resolvedCommand: string): string | undefined {
+  try {
+    return packageRootFromPath(realpathSync(resolvedCommand));
+  } catch {
+    return undefined;
+  }
+}
+
+function packageRootFromPath(filePath: string): string | undefined {
+  let current = path.resolve(filePath);
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (isBountyPilotPackageRoot(current)) return current;
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return undefined;
+}
+
+function isBountyPilotPackageRoot(candidate: string): boolean {
+  try {
+    const packageJson = JSON.parse(readFileSync(path.join(candidate, "package.json"), "utf8")) as { name?: unknown };
+    return packageJson.name === "bountypilot" || existsSync(path.join(candidate, "skills", "bug-bounty-pilot", "SKILL.md"));
+  } catch {
+    return false;
+  }
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values.map((value) => path.resolve(value)))];
 }
 
 function findOnPath(command: string): string | undefined {

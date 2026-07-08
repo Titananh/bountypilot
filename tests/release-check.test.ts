@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -159,6 +159,23 @@ describe("release checks", () => {
         expect.objectContaining({ name: "quickstart:fresh-user", status: "pass" }),
       ]),
     );
+  });
+
+  it("runs installed skill score from a global npm package root", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "bountypilot-global-install-"));
+    try {
+      const fakeGlobal = writeFakeGlobalInstalledBounty(root);
+
+      const result = buildReleaseInstallCheck({
+        command: fakeGlobal.command,
+        cwd: root,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.checks).toEqual(expect.arrayContaining([expect.objectContaining({ name: "skill:score", status: "pass" })]));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("checks an installed runtime package without requiring source checkout files", () => {
@@ -933,6 +950,71 @@ process.exit(1);
     "utf8",
   );
   return scriptPath;
+}
+
+function writeFakeGlobalInstalledBounty(root: string): { command: string; packageRoot: string } {
+  const prefix = path.join(root, "prefix");
+  const packageRoot = path.join(prefix, "node_modules", "bountypilot");
+  mkdirSync(packageRoot, { recursive: true });
+  writeFileSync(path.join(packageRoot, "package.json"), JSON.stringify({ name: "bountypilot", version: "0.1.0" }), "utf8");
+  const scriptPath = path.join(root, "fake-global-bugbounty.mjs");
+  writeFileSync(
+    scriptPath,
+    `const args = process.argv.slice(2);
+const expectedPackageRoot = ${JSON.stringify(packageRoot)};
+if (args[0] === "--version") {
+  console.log("0.1.0");
+  process.exit(0);
+}
+if (args[0] === "--help") {
+  console.log("BountyPilot safe, local-first, scoped bug bounty CLI");
+  process.exit(0);
+}
+if (args.join(" ") === "skill validate bug-bounty-pilot --json") {
+  console.log(JSON.stringify({ ok: true, checks: [{ name: "skill", status: "pass" }] }));
+  process.exit(0);
+}
+if (args.join(" ") === "skill show bug-bounty-pilot --json") {
+  console.log(JSON.stringify({
+    ok: true,
+    frontmatter: { name: "bug-bounty-pilot" },
+    agentMetadata: { interface: { default_prompt: "Use $bug-bounty-pilot to plan a scoped workflow." } }
+  }));
+  process.exit(0);
+}
+if (args.join(" ") === "skill score bug-bounty-pilot --json") {
+  if (process.cwd() !== expectedPackageRoot) {
+    console.error("skill score cwd was " + process.cwd());
+    process.exit(1);
+  }
+  console.log(JSON.stringify({
+    ok: true,
+    score: 97,
+    readiness: "ready_with_warnings",
+    validation: { failures: [] },
+    bundle: { ok: true },
+    release: { ok: true }
+  }));
+  process.exit(0);
+}
+if (args.join(" ") === "quickstart --json") {
+  console.log(JSON.stringify({ status: "needs_review", workspace: { found: false }, nextCommands: ["bounty init --guided"] }));
+  process.exit(0);
+}
+console.error("unexpected fake global bugbounty args " + args.join(" "));
+process.exit(1);
+`,
+    "utf8",
+  );
+  if (process.platform === "win32") {
+    const command = path.join(prefix, "bugbounty.cmd");
+    writeFileSync(command, `@echo off\r\n"${process.execPath}" "${scriptPath}" %*\r\n`, "utf8");
+    return { command, packageRoot };
+  }
+  const command = path.join(prefix, "bugbounty");
+  writeFileSync(command, `#!/usr/bin/env sh\nexec "${process.execPath}" "${scriptPath}" "$@"\n`, "utf8");
+  chmodSync(command, 0o755);
+  return { command, packageRoot };
 }
 
 function programYaml(program: string, lab: boolean): string {
