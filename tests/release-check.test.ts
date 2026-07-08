@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { nodeEngineSupportsSqliteRuntime, runReleaseCheck } from "../src/core/release/release-check.js";
+import { nodeEngineSupportsSqliteRuntime, runPackageReleaseCheck, runReleaseCheck } from "../src/core/release/release-check.js";
 import { buildReleaseGithubBootstrap } from "../src/core/release/release-github-bootstrap.js";
 import { buildReleaseInstallCheck } from "../src/core/release/release-install-check.js";
 import { buildReleasePublishPlan, buildReleasePublishStatus } from "../src/core/release/release-publish-plan.js";
@@ -155,9 +155,56 @@ describe("release checks", () => {
         expect.objectContaining({ name: "command:help", status: "pass" }),
         expect.objectContaining({ name: "skill:validate", status: "pass" }),
         expect.objectContaining({ name: "skill:metadata", status: "pass" }),
+        expect.objectContaining({ name: "skill:score", status: "pass" }),
         expect.objectContaining({ name: "quickstart:fresh-user", status: "pass" }),
       ]),
     );
+  });
+
+  it("checks an installed runtime package without requiring source checkout files", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "bountypilot-installed-runtime-"));
+    try {
+      writeText(
+        root,
+        "package.json",
+        JSON.stringify(
+          {
+            name: "bountypilot",
+            version: "0.1.0",
+            type: "module",
+            license: "MIT",
+            bin: {
+              bugbounty: "dist/cli/index.js",
+              bounty: "dist/cli/index.js",
+            },
+            engines: { node: ">=22.13.0" },
+          },
+          null,
+          2,
+        ),
+      );
+      writeText(root, "README.md", "# BountyPilot\n");
+      writeText(root, "dist/cli/index.js", "#!/usr/bin/env node\n");
+      writeText(root, "examples/program.yml", "program: placeholder\n");
+      writeText(root, "examples/local-program.yml", "program: local\n");
+      writeText(root, "examples/local-lab-authorization.md", "authorized lab\n");
+      writeText(root, "examples/safe-workflow.md", "# safe workflow\n");
+      cpSync(path.join(repoRoot, "skills", "bug-bounty-pilot"), path.join(root, "skills", "bug-bounty-pilot"), { recursive: true });
+
+      const result = runPackageReleaseCheck(root);
+
+      expect(result.ok).toBe(true);
+      expect(result.checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: "compiled bin", status: "pass" }),
+          expect.objectContaining({ name: "dist cli shebang", status: "pass" }),
+          expect.objectContaining({ name: "skills/bug-bounty-pilot:valid", status: "pass" }),
+        ]),
+      );
+      expect(result.checks).not.toEqual(expect.arrayContaining([expect.objectContaining({ name: ".github/workflows/release.yml" })]));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("warns when a publish plan targets a non-public branch", () => {
@@ -855,6 +902,17 @@ if (args.join(" ") === "skill show bug-bounty-pilot --json") {
         default_prompt: "Use $bug-bounty-pilot to plan a scoped workflow."
       }
     }
+  }));
+  process.exit(0);
+}
+if (args.join(" ") === "skill score bug-bounty-pilot --json") {
+  console.log(JSON.stringify({
+    ok: true,
+    score: 97,
+    readiness: "ready_with_warnings",
+    validation: { failures: [] },
+    bundle: { ok: true },
+    release: { ok: true }
   }));
   process.exit(0);
 }

@@ -317,6 +317,84 @@ export function runReleaseCheck(cwd = process.cwd()): ReleaseCheckResult {
   };
 }
 
+export function runPackageReleaseCheck(cwd = process.cwd()): ReleaseCheckResult {
+  if (existsSync(path.join(cwd, "tsconfig.json")) && existsSync(path.join(cwd, "package-lock.json"))) {
+    return runReleaseCheck(cwd);
+  }
+  return runInstalledRuntimeReleaseCheck(cwd);
+}
+
+function runInstalledRuntimeReleaseCheck(cwd: string): ReleaseCheckResult {
+  const packagePath = path.join(cwd, "package.json");
+  const packageJson = readPackageJson(packagePath);
+  const checks: ReleaseCheckItem[] = [
+    fileCheck("package.json", packagePath),
+    fileCheck("README.md", path.join(cwd, "README.md")),
+  ];
+
+  if (packageJson) {
+    checks.push(packageFieldCheck("name", typeof packageJson.name === "string" && packageJson.name.length > 0));
+    checks.push(packageFieldCheck("version", typeof packageJson.version === "string" && packageJson.version.length > 0));
+    checks.push(packageFieldCheck("type=module", packageJson.type === "module"));
+    checks.push(packageFieldCheck("license", typeof packageJson.license === "string" && packageJson.license.length > 0));
+    checks.push({
+      name: "package:files excludes source/tests",
+      status: !existsSync(path.join(cwd, "src")) && !existsSync(path.join(cwd, "tests")) ? "pass" : "fail",
+      message: "runtime package should not include source or test trees",
+    });
+    const binPath = typeof packageJson.bin?.bugbounty === "string" ? packageJson.bin.bugbounty : undefined;
+    checks.push({
+      name: "bin.bugbounty",
+      status: binPath ? "pass" : "fail",
+      message: binPath ? `bugbounty -> ${binPath}` : "package.json must expose bin.bugbounty",
+    });
+    const legacyBinPath = typeof packageJson.bin?.bounty === "string" ? packageJson.bin.bounty : undefined;
+    checks.push({
+      name: "bin.bounty",
+      status: legacyBinPath ? "pass" : "warn",
+      message: legacyBinPath ? `bounty -> ${legacyBinPath}` : "optional legacy alias bin.bounty is not configured",
+    });
+    if (binPath) {
+      const compiledBin = path.resolve(cwd, binPath);
+      checks.push(fileCheck("compiled bin", compiledBin));
+      checks.push({
+        name: "dist cli shebang",
+        status: readText(compiledBin)?.startsWith("#!/usr/bin/env node") ? "pass" : "fail",
+        message: "compiled bin should be executable by Node",
+      });
+    }
+    const nodeEngine = packageJson.engines?.node;
+    const nodeEngineOk = typeof nodeEngine === "string" && nodeEngineSupportsSqliteRuntime(nodeEngine);
+    checks.push({
+      name: "engines.node",
+      status: nodeEngineOk ? "pass" : "fail",
+      message: typeof nodeEngine === "string" ? nodeEngine : "Node engine is not declared; node:sqlite requires >=22.13.0",
+    });
+  }
+
+  for (const example of [
+    "examples/program.yml",
+    "examples/local-program.yml",
+    "examples/local-lab-authorization.md",
+    "examples/safe-workflow.md",
+  ]) {
+    checks.push(fileCheck(example, path.join(cwd, example)));
+  }
+  for (const skillFile of REQUIRED_SKILL_FILES) {
+    checks.push(fileCheck(skillFile, path.join(cwd, skillFile)));
+  }
+  checks.push(skillPackageCheck(cwd));
+
+  return {
+    ok: checks.every((check) => check.status !== "fail"),
+    generatedAt: new Date().toISOString(),
+    cwd,
+    packageName: packageJson?.name,
+    version: packageJson?.version,
+    checks,
+  };
+}
+
 function skillPackageCheck(cwd: string): ReleaseCheckItem {
   try {
     const result = validateSkillDefinition(BUG_BOUNTY_PILOT_SKILL_ID, cwd);

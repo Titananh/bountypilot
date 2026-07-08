@@ -105,6 +105,28 @@ export function buildReleaseInstallCheck(input: BuildReleaseInstallCheckInput = 
       message: skillMetadataOk ? "frontmatter and agent metadata are present" : commandFailureMessage(skillShowRun),
     });
 
+    const skillScoreRun = runInstalledCommand({
+      ...resolved,
+      argsPrefix,
+      args: ["skill", "score", "bug-bounty-pilot", "--json"],
+      cwd: installedPackageRoot(resolved.resolvedCommand, cwd),
+      timeoutMs,
+    });
+    const skillScoreJson = parseJsonObject(skillScoreRun.stdout);
+    const skillScoreOk =
+      skillScoreRun.status === 0 &&
+      skillScoreJson?.ok === true &&
+      typeof skillScoreJson?.score === "number" &&
+      skillScoreJson.score >= 90 &&
+      skillScoreJson?.validation?.failures?.length === 0 &&
+      skillScoreJson?.bundle?.ok === true &&
+      skillScoreJson?.release?.ok === true;
+    checks.push({
+      name: "skill:score",
+      status: skillScoreOk ? "pass" : "fail",
+      message: skillScoreOk ? `${skillScoreJson.score}/100 ${skillScoreJson.readiness ?? "ready"}` : commandFailureMessage(skillScoreRun),
+    });
+
     const quickstartRun = runInstalledCommand({ ...resolved, argsPrefix, args: ["quickstart", "--json"], cwd: verificationCwd, timeoutMs });
     const quickstartJson = parseJsonObject(quickstartRun.stdout);
     const nextCommands = Array.isArray(quickstartJson?.nextCommands) ? quickstartJson.nextCommands : [];
@@ -169,6 +191,21 @@ function resolveInstallCommand(command: string, cwd: string): ResolvedInstallCom
     commandForSpawn: candidate,
     commandPrefix: [],
   };
+}
+
+function installedPackageRoot(resolvedCommand: string, cwd: string): string {
+  const candidates = [
+    path.join(cwd, "node_modules", "bountypilot"),
+    npmBinPackageRoot(resolvedCommand),
+    cwd,
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  return candidates.find((candidate) => existsSync(path.join(candidate, "package.json"))) ?? cwd;
+}
+
+function npmBinPackageRoot(resolvedCommand: string): string | undefined {
+  const binDir = path.dirname(resolvedCommand);
+  if (path.basename(binDir).toLowerCase() !== ".bin") return undefined;
+  return path.join(path.dirname(binDir), "bountypilot");
 }
 
 function findOnPath(command: string): string | undefined {

@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { runReleaseCheck } from "../core/release/release-check.js";
+import { runPackageReleaseCheck } from "../core/release/release-check.js";
 import { buildReleaseGithubBootstrap, type ReleaseGithubBootstrapCheck } from "../core/release/release-github-bootstrap.js";
 import {
   BUG_BOUNTY_PILOT_SKILL_ID,
@@ -86,7 +86,7 @@ export function scoreSkillReadiness(
   const validationFailures = issuesFor(validation.checks, "fail");
   const validationWarnings = issuesFor(validation.checks, "warn");
   const bundle = scoreSkillBundle({ id, cwd, generatedAt: input.generatedAt });
-  const release = runReleaseCheck(cwd);
+  const release = runPackageReleaseCheck(cwd);
   const github = input.repo
     ? buildReleaseGithubBootstrap({
         cwd,

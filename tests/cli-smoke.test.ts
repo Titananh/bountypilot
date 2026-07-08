@@ -492,6 +492,7 @@ integrations: {}
           expect.objectContaining({ name: "command:version", status: "pass" }),
           expect.objectContaining({ name: "skill:validate", status: "pass" }),
           expect.objectContaining({ name: "skill:metadata", status: "pass" }),
+          expect.objectContaining({ name: "skill:score", status: "pass" }),
           expect.objectContaining({ name: "quickstart:fresh-user", status: "pass" }),
         ]),
       );
@@ -1588,6 +1589,17 @@ if (args.join(" ") === "skill show bug-bounty-pilot --json") {
         default_prompt: "Use $bug-bounty-pilot to plan a scoped workflow."
       }
     }
+  }));
+  process.exit(0);
+}
+if (args.join(" ") === "skill score bug-bounty-pilot --json") {
+  console.log(JSON.stringify({
+    ok: true,
+    score: 97,
+    readiness: "ready_with_warnings",
+    validation: { failures: [] },
+    bundle: { ok: true },
+    release: { ok: true }
   }));
   process.exit(0);
 }

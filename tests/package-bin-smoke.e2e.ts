@@ -108,6 +108,7 @@ describe("packaged bugbounty bin", () => {
           expect.objectContaining({ name: "command:version", status: "pass" }),
           expect.objectContaining({ name: "skill:validate", status: "pass" }),
           expect.objectContaining({ name: "skill:metadata", status: "pass" }),
+          expect.objectContaining({ name: "skill:score", status: "pass" }),
           expect.objectContaining({ name: "quickstart:fresh-user", status: "pass" }),
         ]),
       });
