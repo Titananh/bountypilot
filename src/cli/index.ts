@@ -1262,6 +1262,26 @@ skill
       ui.kv("bundle", result.bundle.ok ? `${result.bundle.files} files verified` : "failed"),
       ui.kv("release", `${result.release.checks} checks, ${result.release.failures.length} failure(s), ${result.release.warnings.length} warning(s)`),
     ]);
+    ui.blank();
+    ui.table(
+      ["layer", "score", "readiness", "blockers", "warnings"],
+      [
+        [
+          "local",
+          `${result.layers.local.score}/100`,
+          result.layers.local.readiness,
+          result.layers.local.blockers.length,
+          result.layers.local.warnings.length,
+        ],
+        [
+          "publish",
+          `${result.layers.publish.score}/100`,
+          result.layers.publish.readiness,
+          result.layers.publish.blockers.length,
+          result.layers.publish.warnings.length,
+        ],
+      ],
+    );
     if (result.github) {
       ui.blank();
       ui.panel("github", [

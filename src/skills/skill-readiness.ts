@@ -20,6 +20,15 @@ export interface SkillReadinessIssue {
   message: string;
 }
 
+export interface SkillReadinessLayer {
+  ok: boolean;
+  ultimate: boolean;
+  score: number;
+  readiness: SkillReadinessLevel;
+  blockers: SkillReadinessIssue[];
+  warnings: SkillReadinessIssue[];
+}
+
 export interface SkillReadinessResult {
   ok: boolean;
   ultimate: boolean;
@@ -30,6 +39,10 @@ export interface SkillReadinessResult {
   blockers: SkillReadinessIssue[];
   warnings: SkillReadinessIssue[];
   nextSteps: string[];
+  layers: {
+    local: SkillReadinessLayer;
+    publish: SkillReadinessLayer;
+  };
   validation: {
     checks: number;
     failures: SkillReadinessIssue[];
@@ -131,9 +144,31 @@ export function scoreSkillReadiness(
   const releaseFailures = contextualizeReleaseIssues(issuesFor(release.checks, "fail"), github);
   const releaseWarnings = contextualizeReleaseIssues(issuesFor(release.checks, "warn"), github);
   const githubWarnings = github ? githubPreflightIssues(github) : [];
-  const publishWarnings = publish ? publishStatusIssues(publish) : [];
+  const publishWarningsRaw = publish ? publishStatusIssues(publish) : [];
   const blockers = [...validationFailures, ...bundle.failures, ...releaseFailures];
-  const warnings = dedupeIssues([...validationWarnings, ...releaseWarnings, ...githubWarnings, ...publishWarnings]);
+  const warnings = dedupeIssues([...validationWarnings, ...releaseWarnings, ...githubWarnings, ...publishWarningsRaw]);
+  const localBlockers = dedupeIssues([
+    ...validationFailures,
+    ...bundle.failures,
+    ...releaseFailures.filter((issue) => !isPublishReadinessIssue(issue)),
+  ]);
+  const localWarnings = dedupeIssues([...validationWarnings, ...releaseWarnings.filter((issue) => !isPublishReadinessIssue(issue))]);
+  const publishBlockers = dedupeIssues(releaseFailures.filter(isPublishReadinessIssue));
+  const publishWarnings = dedupeIssues([...releaseWarnings.filter(isPublishReadinessIssue), ...githubWarnings, ...publishWarningsRaw]);
+  const localLayer = readinessLayer({
+    blockers: localBlockers,
+    warnings: localWarnings,
+    validationFailures: validationFailures.length,
+    bundleFailures: bundle.failures.length,
+    releaseFailures: releaseFailures.filter((issue) => !isPublishReadinessIssue(issue)).length,
+  });
+  const publishLayer = readinessLayer({
+    blockers: publishBlockers,
+    warnings: publishWarnings,
+    validationFailures: 0,
+    bundleFailures: 0,
+    releaseFailures: publishBlockers.length,
+  });
   const score = readinessScore({
     validationFailures: validationFailures.length,
     bundleFailures: bundle.failures.length,
@@ -159,6 +194,10 @@ export function scoreSkillReadiness(
       githubNextCommands: github?.nextCommands,
       publishNextCommands: publish?.nextCommands,
     }),
+    layers: {
+      local: localLayer,
+      publish: publishLayer,
+    },
     validation: {
       checks: validation.checks.length,
       failures: validationFailures,
@@ -196,6 +235,31 @@ export function scoreSkillReadiness(
           nextCommands: publish.nextCommands,
         }
       : undefined,
+  };
+}
+
+function readinessLayer(input: {
+  blockers: SkillReadinessIssue[];
+  warnings: SkillReadinessIssue[];
+  validationFailures: number;
+  bundleFailures: number;
+  releaseFailures: number;
+}): SkillReadinessLayer {
+  const score = readinessScore({
+    validationFailures: input.validationFailures,
+    bundleFailures: input.bundleFailures,
+    releaseFailures: input.releaseFailures,
+    warnings: input.warnings.length,
+  });
+  const readiness: SkillReadinessLevel =
+    input.blockers.length > 0 ? "blocked" : input.warnings.length > 0 ? "ready_with_warnings" : "ultimate";
+  return {
+    ok: input.blockers.length === 0,
+    ultimate: input.blockers.length === 0 && input.warnings.length === 0 && score === 100,
+    score,
+    readiness,
+    blockers: input.blockers,
+    warnings: input.warnings,
   };
 }
 
@@ -357,6 +421,22 @@ function readinessNextSteps(input: {
     steps.add(`Review warnings, then rerun \`bounty skill score ${input.id}${repoArg} --json\`.`);
   }
   return [...steps];
+}
+
+function isPublishReadinessIssue(issue: SkillReadinessIssue): boolean {
+  return (
+    issue.name === "github:origin" ||
+    issue.name.startsWith("gh:") ||
+    issue.name.startsWith("github:") ||
+    issue.name.startsWith("publish:") ||
+    issue.name === "git:origin" ||
+    issue.name === "git:origin-target" ||
+    issue.name === "git:working-tree" ||
+    issue.name === "git:local-tag" ||
+    issue.name === "git:remote-branch" ||
+    issue.name === "git:remote-tag" ||
+    issue.name === "git:branch"
+  );
 }
 
 function issuesFor<TStatus extends string>(

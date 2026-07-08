@@ -105,6 +105,14 @@ describe("CLI skill commands", () => {
       bundle: { ok: true },
       release: { ok: true },
     });
+    expect(parsed.layers.local).toMatchObject({
+      ok: true,
+      ultimate: true,
+      score: 100,
+      readiness: "ultimate",
+      blockers: [],
+      warnings: [],
+    });
     expect(parsed.score).toBeGreaterThanOrEqual(90);
     expect(["ultimate", "ready_with_warnings"]).toContain(parsed.readiness);
     expect(parsed.nextSteps.length).toBeGreaterThan(0);
@@ -166,6 +174,9 @@ describe("CLI skill commands", () => {
       repo: "octo/bountypilot",
       tag: "v0.1.0",
     });
+    expect(parsedForRepo.layers.local).toMatchObject({ ok: true, ultimate: true, score: 100, readiness: "ultimate" });
+    expect(parsedForRepo.layers.publish).toMatchObject({ ok: true, ultimate: false, readiness: "ready_with_warnings" });
+    expect(parsedForRepo.layers.publish.score).toBeLessThan(100);
     expect(parsedForRepo.score).toBeLessThan(97);
     expect(parsedForRepo.readiness).toBe("ready_with_warnings");
     const strictForRepo = runCli(
@@ -236,6 +247,8 @@ describe("CLI skill commands", () => {
       online: true,
       actions: true,
     });
+    expect(parsedPublished.layers.local).toMatchObject({ ok: true, ultimate: true, score: 100, readiness: "ultimate" });
+    expect(parsedPublished.layers.publish).toMatchObject({ ok: true, ultimate: false, readiness: "ready_with_warnings" });
     expect(parsedPublished.publish.checks).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "git:remote-branch", status: "fail" }),

@@ -159,7 +159,7 @@ Dry-run is the recommended first command for every target because it exercises s
 | Release | `npm run test:vm-lab` | Local loopback only | Installs the packed CLI into a clean consumer project, starts the demo lab, runs live lab E2E, and verifies beta readiness from the installed binary. |
 | Release | `npm run test:vm-real-tools` | Local loopback plus installed real tools | Ubuntu/VM smoke that approves real `httpx` and `katana`, runs live recon against the loopback demo lab, and verifies scoped observations. |
 | Skill | `bounty skill validate bug-bounty-pilot` | No | Validates the bundled skill policy, workflow, tool registry, playbooks, prompts, templates, and examples. |
-| Skill | `bounty skill score bug-bounty-pilot` | No | Scores skill readiness across validation, temporary bundle verification, release gates, warnings, blockers, and next steps. |
+| Skill | `bounty skill score bug-bounty-pilot` | No | Scores skill readiness across validation, temporary bundle verification, release gates, warnings, blockers, next steps, and separate `layers.local`/`layers.publish` results. |
 | Skill | `bounty skill score bug-bounty-pilot --repo OWNER/REPO --json` | No | Scores the skill and embeds concrete GitHub publish/bootstrap readiness for a target repository. |
 | Skill | `bounty skill score bug-bounty-pilot --repo OWNER/REPO --strict --json` | No | Fails unless the package, skill bundle, release checks, and GitHub publish preflight have no blockers or warnings. |
 | Skill | `bounty skill score bug-bounty-pilot --repo OWNER/REPO --online --actions --strict --json` | GitHub git remote and GitHub CLI | Final public-readiness score after pushing branch/tag and required GitHub Actions complete. |

@@ -109,6 +109,11 @@ bounty release publish-status OWNER/REPO --branch main --tag v0.1.0 --online --a
 bounty skill score bug-bounty-pilot --repo OWNER/REPO --branch main --tag v0.1.0 --online --actions --strict --json
 ```
 
+The skill score JSON separates source-package readiness from public publish readiness:
+
+- `layers.local` should be `100/100` and `ultimate` when the bundled skill, release checks, examples, installers, and package metadata are complete.
+- `layers.publish` becomes `100/100` only after the GitHub origin, public branch, release tag, online refs, and required Actions runs are verified.
+
 ## 4. One-Line Install
 
 After `main` is pushed, users can install from GitHub with:
