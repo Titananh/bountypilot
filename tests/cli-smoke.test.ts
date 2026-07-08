@@ -485,11 +485,29 @@ integrations: {}
     );
     expect(readFileSync(parsedGithubBootstrap.outputFiles.shell, "utf8")).toContain("gh repo create 'octo/bountypilot'");
 
-    const publishStatus = runCli(["release", "publish-status", "octo/bountypilot", "--branch", "main", "--tag", "v0.1.0", "--json"], repoRoot);
+    const publishStatusPlanPath = path.join(workspace, "publish-status-public-readiness.md");
+    const publishStatus = runCli(
+      [
+        "release",
+        "publish-status",
+        "octo/bountypilot",
+        "--branch",
+        "main",
+        "--tag",
+        "v0.1.0",
+        "--write-public-plan",
+        publishStatusPlanPath,
+        "--json",
+      ],
+      repoRoot,
+    );
     expectCommand(publishStatus).toExit(1);
     expect(publishStatus.stderr).toBe("");
     const parsedPublishStatus = JSON.parse(publishStatus.stdout);
     expect(parsedPublishStatus.ok).toBe(false);
+    expect(parsedPublishStatus.publicReadinessPlanPath).toBe(publishStatusPlanPath);
+    expect(readFileSync(publishStatusPlanPath, "utf8")).toContain("# BountyPilot Public Readiness Plan");
+    expect(readFileSync(publishStatusPlanPath, "utf8")).toContain("octo/bountypilot");
     expect(parsedPublishStatus.checks).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "release:check", status: "pass" }),

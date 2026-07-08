@@ -6176,6 +6176,7 @@ release
   .option("--remote <kind>", "Preferred remote style: https or ssh", "https")
   .option("--online", "Use git ls-remote to verify the branch/tag on origin")
   .option("--actions", "Use GitHub CLI to verify required Actions workflows completed successfully")
+  .option("--write-public-plan <path>", "Write a Markdown public-readiness checklist alongside the status result")
   .option("--json", "Print machine-readable JSON")
   .description("Check whether the local checkout is ready for GitHub one-line install and release publishing")
   .action((repo: string, ...args: unknown[]) => {
@@ -6186,6 +6187,7 @@ release
       remote: string;
       online?: boolean;
       actions?: boolean;
+      writePublicPlan?: string;
       json?: boolean;
     }>();
     const result = buildReleasePublishStatus({
@@ -6197,8 +6199,26 @@ release
       online: options.online,
       actions: options.actions,
     });
+    const publicReadinessPlanPath = options.writePublicPlan
+      ? writePublicReadinessPlan(
+          options.writePublicPlan,
+          renderSkillReadinessPublicPlan(
+            scoreSkillReadiness({
+              id: BUG_BOUNTY_PILOT_SKILL_ID,
+              cwd: process.cwd(),
+              repo: result.repo.slug,
+              branch: result.branch,
+              tag: result.tag,
+              remote: parseReleaseRemotePreference(options.remote),
+              online: options.online,
+              actions: options.actions,
+            }),
+          ),
+        )
+      : undefined;
+    const payload = publicReadinessPlanPath ? { ...result, publicReadinessPlanPath } : result;
     if (options.json || requestedJsonOutput(process.argv)) {
-      ui.json(result);
+      ui.json(payload);
       process.exitCode = result.ok ? 0 : 1;
       return;
     }
@@ -6211,6 +6231,7 @@ release
       ui.kv("tag", result.tag),
       ui.kv("origin", result.remote.origin ?? "not configured"),
       ui.kv("online", result.online),
+      ui.kv("public plan", publicReadinessPlanPath ?? "not written"),
     ]);
     ui.blank();
     ui.table(
