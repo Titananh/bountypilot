@@ -251,8 +251,14 @@ describe("release checks", () => {
     expect(plan.commands.actionsVerify).toContain(
       "bounty skill score bug-bounty-pilot --repo owner/repo --branch codex/release-candidate --tag v0.0.0 --online --actions --strict --json",
     );
+    expect(plan.commands.actionsVerify).toContain(
+      "bounty release public-gate owner/repo --branch codex/release-candidate --tag v0.0.0 --online --actions --write-public-plan .bounty/release/public-readiness.md --json",
+    );
     expect(plan.markdown).toContain(
       "bounty skill score bug-bounty-pilot --repo owner/repo --branch codex/release-candidate --tag v0.0.0 --online --actions --strict --json",
+    );
+    expect(plan.markdown).toContain(
+      "bounty release public-gate owner/repo --branch codex/release-candidate --tag v0.0.0 --online --actions --write-public-plan .bounty/release/public-readiness.md --json",
     );
     expect(plan.commands.release).toEqual([
       "git tag v0.0.0",
@@ -287,6 +293,9 @@ describe("release checks", () => {
     expect(result.nextCommands).toContain("git push -u origin HEAD:main");
     expect(result.nextCommands).toContain("bounty release publish-plan owner/repo --branch main --tag v0.0.0 --write");
     expect(result.nextCommands).toContain("bounty release publish-status owner/repo --branch main --tag v0.0.0 --online --actions --json");
+    expect(result.nextCommands).toContain(
+      "bounty release public-gate owner/repo --branch codex/release-candidate --tag v0.0.0 --online --actions --write-public-plan .bounty/release/public-readiness.md --json",
+    );
     expect(result.nextCommands).toContain(
       "bounty skill score bug-bounty-pilot --repo owner/repo --write-public-plan .bounty/release/public-readiness.md --json",
     );

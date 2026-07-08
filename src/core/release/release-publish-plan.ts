@@ -139,6 +139,7 @@ export function buildReleasePublishPlan(input: BuildReleasePublishPlanInput): Re
     actionsVerify: [
       `bounty release publish-status ${repo.slug} --branch ${branch} --tag ${tag} --online --actions --json`,
       `bounty skill score bug-bounty-pilot --repo ${repo.slug} --branch ${branch} --tag ${tag} --online --actions --strict --json`,
+      `bounty release public-gate ${repo.slug} --branch ${branch} --tag ${tag} --online --actions --write-public-plan .bounty/release/public-readiness.md --json`,
       `gh run list --repo ${repo.slug} --limit 10`,
     ],
     installVerify: releaseInstallVerifyCommands(install),
@@ -308,6 +309,10 @@ function releaseInstallVerifyCommands(install: ReleasePublishPlanResult["install
 
 function publicReadinessPlanCommand(repo: string): string {
   return `bounty skill score bug-bounty-pilot --repo ${repo} --write-public-plan .bounty/release/public-readiness.md --json`;
+}
+
+function publicGateCommand(repo: string, branch: string, tag: string): string {
+  return `bounty release public-gate ${repo} --branch ${branch} --tag ${tag} --online --actions --write-public-plan .bounty/release/public-readiness.md --json`;
 }
 
 export function parseGitHubRepo(value: string): GitHubRepoRef {
@@ -693,6 +698,7 @@ function publishStatusNextCommands(input: {
   if (!input.actions || input.checks.some((check) => check.name.startsWith("github:actions") && check.status === "fail")) {
     commands.add(publicReadinessPlanCommand(input.repo.slug));
     commands.add(`bounty release publish-status ${input.repo.slug} --branch ${input.branch} --tag ${input.tag} --online --actions --json`);
+    commands.add(publicGateCommand(input.repo.slug, input.branch, input.tag));
     commands.add(`gh run list --repo ${input.repo.slug} --limit 10`);
   }
   if (commands.size > 0) {

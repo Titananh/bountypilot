@@ -390,6 +390,9 @@ integrations: {}
       expect(parsedPublishPlan.commands.actionsVerify).toContain(
         "bounty skill score bug-bounty-pilot --repo octo/bountypilot --branch main --tag v0.1.0 --online --actions --strict --json",
       );
+      expect(parsedPublishPlan.commands.actionsVerify).toContain(
+        "bounty release public-gate octo/bountypilot --branch main --tag v0.1.0 --online --actions --write-public-plan .bounty/release/public-readiness.md --json",
+      );
     expect(parsedPublishPlan.commands.actionsVerify).toContain("gh run list --repo octo/bountypilot --limit 10");
       expect(parsedPublishPlan.commands.localVerify).toContain("bounty skill score bug-bounty-pilot --repo octo/bountypilot --json");
       expect(parsedPublishPlan.commands.localVerify).toContain(
@@ -427,6 +430,9 @@ integrations: {}
       expect(readFileSync(publishPlanPath, "utf8")).toContain("bounty release publish-status octo/bountypilot --branch main --tag v0.1.0 --online --actions --json");
       expect(readFileSync(publishPlanPath, "utf8")).toContain(
         "bounty skill score bug-bounty-pilot --repo octo/bountypilot --branch main --tag v0.1.0 --online --actions --strict --json",
+      );
+      expect(readFileSync(publishPlanPath, "utf8")).toContain(
+        "bounty release public-gate octo/bountypilot --branch main --tag v0.1.0 --online --actions --write-public-plan .bounty/release/public-readiness.md --json",
       );
     expect(readFileSync(publishPlanPath, "utf8")).toContain("Verify installer resolution");
     expect(readFileSync(publishPlanPath, "utf8")).toContain("git push origin v0.1.0");
@@ -525,6 +531,9 @@ integrations: {}
       expect(parsedPublishStatus.nextCommands).toContain(
         "bounty skill score bug-bounty-pilot --repo octo/bountypilot --branch main --tag v0.1.0 --strict --json",
       );
+      expect(parsedPublishStatus.nextCommands).toContain(
+        "bounty release public-gate octo/bountypilot --branch main --tag v0.1.0 --online --actions --write-public-plan .bounty/release/public-readiness.md --json",
+      );
       expect(parsedPublishStatus.nextCommands.indexOf("git tag v0.1.0")).toBeLessThan(
         parsedPublishStatus.nextCommands.indexOf("bounty skill score bug-bounty-pilot --repo octo/bountypilot --branch main --tag v0.1.0 --strict --json"),
       );
@@ -537,6 +546,40 @@ integrations: {}
       });
       expect(parsedPublishStatus.installVerify).toContain("npm install -g github:octo/bountypilot#main");
       expect(parsedPublishStatus.installVerify).toContain("bugbounty release install-check --json");
+
+      const publicGatePlanPath = path.join(workspace, "public-gate-readiness.md");
+      const publicGate = runCli(
+        [
+          "release",
+          "public-gate",
+          "octo/bountypilot",
+          "--branch",
+          "main",
+          "--tag",
+          "v0.1.0",
+          "--write-public-plan",
+          publicGatePlanPath,
+          "--json",
+        ],
+        repoRoot,
+      );
+      expectCommand(publicGate).toExit(1);
+      expect(publicGate.stderr).toBe("");
+      const parsedPublicGate = JSON.parse(publicGate.stdout);
+      expect(parsedPublicGate.ok).toBe(false);
+      expect(parsedPublicGate.ultimate).toBe(false);
+      expect(parsedPublicGate.publicReadinessPlanPath).toBe(publicGatePlanPath);
+      expect(parsedPublicGate.publishStatus.ok).toBe(false);
+      expect(parsedPublicGate.skillScore.layers.local.ultimate).toBe(true);
+      expect(parsedPublicGate.checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: "release:publish-status", status: "fail" }),
+          expect.objectContaining({ name: "skill:local", status: "pass" }),
+          expect.objectContaining({ name: "skill:public-readiness", status: "fail" }),
+        ]),
+      );
+      expect(parsedPublicGate.nextCommands).toContain("bugbounty release install-check --json");
+      expect(readFileSync(publicGatePlanPath, "utf8")).toContain("# BountyPilot Public Readiness Plan");
 
       const fakeInstalledCli = writeFakeInstalledBounty(mkdtempSync(path.join(os.tmpdir(), "bountypilot-cli-install-check-")));
       const installCheck = runCli(

@@ -6247,6 +6247,123 @@ release
     process.exitCode = result.ok ? 0 : 1;
   });
 
+release
+  .command("public-gate")
+  .argument("<repo>", "GitHub repository as OWNER/REPO, https://github.com/OWNER/REPO, or git@github.com:OWNER/REPO.git")
+  .option("--branch <branch>", "Branch expected to be published. Defaults to the current branch or main.")
+  .option("--tag <tag>", "Release tag expected to be published. Defaults to v<package.version>.")
+  .option("--remote <kind>", "Preferred remote style: https or ssh", "https")
+  .option("--online", "Use git ls-remote to verify the branch/tag on origin")
+  .option("--actions", "Use GitHub CLI to verify required Actions workflows completed successfully")
+  .option("--write-public-plan <path>", "Write a Markdown public-readiness checklist alongside the gate result")
+  .option("--json", "Print machine-readable JSON")
+  .description("Run the final public readiness gate for GitHub install, skill score, and publish status")
+  .action((repo: string, ...args: unknown[]) => {
+    const command = commandFromArgs(args);
+    const options = command.opts<{
+      branch?: string;
+      tag?: string;
+      remote: string;
+      online?: boolean;
+      actions?: boolean;
+      writePublicPlan?: string;
+      json?: boolean;
+    }>();
+    const remote = parseReleaseRemotePreference(options.remote);
+    const publishStatus = buildReleasePublishStatus({
+      cwd: process.cwd(),
+      repo,
+      branch: options.branch,
+      tag: options.tag,
+      remote,
+      online: options.online,
+      actions: options.actions,
+    });
+    const skillScore = scoreSkillReadiness({
+      id: BUG_BOUNTY_PILOT_SKILL_ID,
+      cwd: process.cwd(),
+      repo: publishStatus.repo.slug,
+      branch: publishStatus.branch,
+      tag: publishStatus.tag,
+      remote,
+      online: options.online,
+      actions: options.actions,
+    });
+    const publicReadinessPlanPath = options.writePublicPlan
+      ? writePublicReadinessPlan(options.writePublicPlan, renderSkillReadinessPublicPlan(skillScore))
+      : undefined;
+    const checks = [
+      {
+        name: "release:publish-status",
+        status: publishStatus.ok ? "pass" : "fail",
+        message: publishStatus.ok ? "GitHub publish status passed." : "GitHub publish status has blockers.",
+      },
+      {
+        name: "skill:score",
+        status: skillScore.ultimate ? "pass" : skillScore.ok ? "warn" : "fail",
+        message: `${skillScore.score}/100 ${skillScore.readiness}`,
+      },
+      {
+        name: "skill:local",
+        status: skillScore.layers.local.ultimate ? "pass" : skillScore.layers.local.ok ? "warn" : "fail",
+        message: `${skillScore.layers.local.score}/100 ${skillScore.layers.local.readiness}`,
+      },
+      {
+        name: "skill:publish",
+        status: skillScore.layers.publish.ultimate ? "pass" : skillScore.layers.publish.ok ? "warn" : "fail",
+        message: `${skillScore.layers.publish.score}/100 ${skillScore.layers.publish.readiness}`,
+      },
+      {
+        name: "skill:public-readiness",
+        status: skillScore.publicReadiness.ultimate ? "pass" : skillScore.publicReadiness.ok ? "warn" : "fail",
+        message: `${skillScore.publicReadiness.score}/100 ${skillScore.publicReadiness.readiness}`,
+      },
+    ];
+    const payload = {
+      ok: publishStatus.ok && skillScore.ultimate,
+      ultimate: publishStatus.ok && skillScore.ultimate,
+      score: skillScore.score,
+      readiness: skillScore.readiness,
+      repo: publishStatus.repo,
+      branch: publishStatus.branch,
+      publicBranch: publishStatus.publicBranch,
+      tag: publishStatus.tag,
+      online: publishStatus.online,
+      actions: Boolean(options.actions),
+      checks,
+      publishStatus,
+      skillScore,
+      publicReadinessPlanPath,
+      nextCommands: uniqueCommands([...skillScore.nextSteps, ...publishStatus.nextCommands, ...publishStatus.installVerify]),
+      urls: publishStatus.urls,
+    };
+    if (options.json || requestedJsonOutput(process.argv)) {
+      ui.json(payload);
+      process.exitCode = payload.ok ? 0 : 1;
+      return;
+    }
+    ui.header("release public-gate");
+    ui.status(payload.ok ? "ok" : "blocked", payload.ok ? "public release is ultimate" : "public release is not ultimate yet");
+    ui.panel("public gate", [
+      ui.kv("repo", payload.repo.webUrl),
+      ui.kv("branch", payload.branch),
+      ui.kv("tag", payload.tag),
+      ui.kv("score", `${payload.score}/100`),
+      ui.kv("readiness", payload.readiness),
+      ui.kv("public plan", publicReadinessPlanPath ?? "not written"),
+    ]);
+    ui.blank();
+    ui.table(
+      ["status", "check", "message"],
+      payload.checks.map((check) => [check.status, check.name, check.message]),
+    );
+    if (payload.nextCommands.length > 0) {
+      ui.blank();
+      ui.commandList("next commands", payload.nextCommands);
+    }
+    process.exitCode = payload.ok ? 0 : 1;
+  });
+
 const beta = program.command("beta").description("Prepare and inspect beta readiness");
 
 beta
@@ -8507,6 +8624,10 @@ function writePublicReadinessPlan(output: string, markdown: string): string {
   mkdirSync(path.dirname(resolved), { recursive: true });
   writeFileSync(resolved, markdown, "utf8");
   return resolved;
+}
+
+function uniqueCommands(commands: string[]): string[] {
+  return Array.from(new Set(commands.filter((command) => command.trim().length > 0)));
 }
 
 function parseVmBootstrapLevel(value: string): VmBootstrapLevel {

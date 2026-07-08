@@ -822,6 +822,7 @@ function readinessNextSteps(input: {
       steps.add(`bounty release publish-plan ${repo} --branch main --tag ${input.releaseTag} --write`);
       steps.add(`bounty release publish-status ${repo} --branch main --tag ${input.releaseTag} --online --actions --json`);
       steps.add(`bounty skill score ${input.id} --repo ${repo} --branch main --tag ${input.releaseTag} --online --actions --strict --json`);
+      steps.add(publicGateCommand(repo, "main", input.releaseTag));
       steps.add(`bounty release publish-status ${repo} --online --actions --json`);
       steps.add("bugbounty release install-check --json");
     }
@@ -846,6 +847,10 @@ function readinessNextSteps(input: {
 
 function publicReadinessPlanCommand(id: string, repo: string): string {
   return `bounty skill score ${id} --repo ${repo} --write-public-plan .bounty/release/public-readiness.md --json`;
+}
+
+function publicGateCommand(repo: string, branch: string, tag: string): string {
+  return `bounty release public-gate ${repo} --branch ${branch} --tag ${tag} --online --actions --write-public-plan .bounty/release/public-readiness.md --json`;
 }
 
 function isPublishReadinessIssue(issue: SkillReadinessIssue): boolean {
