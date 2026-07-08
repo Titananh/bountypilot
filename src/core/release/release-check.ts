@@ -275,6 +275,13 @@ export function runReleaseCheck(cwd = process.cwd()): ReleaseCheckResult {
       status: nodeEngineOk ? "pass" : "fail",
       message: typeof nodeEngine === "string" ? nodeEngine : "Node engine is not declared; node:sqlite requires >=22.13.0",
     });
+    for (const script of ["build", "test", "test:package-bin", "typecheck", "verify:release"]) {
+      checks.push({
+        name: `script:${script}`,
+        status: typeof packageJson.scripts?.[script] === "string" ? "pass" : "fail",
+        message: typeof packageJson.scripts?.[script] === "string" ? packageJson.scripts[script] : `Missing npm script ${script}`,
+      });
+    }
   }
 
   for (const example of REQUIRED_EXAMPLES) {

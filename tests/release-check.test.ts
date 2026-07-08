@@ -178,6 +178,13 @@ describe("release checks", () => {
               bounty: "dist/cli/index.js",
             },
             engines: { node: ">=22.13.0" },
+            scripts: {
+              build: "tsc -p tsconfig.json",
+              test: "vitest run",
+              "test:package-bin": "vitest run --config vitest.package.config.ts",
+              typecheck: "tsc -p tsconfig.json --noEmit",
+              "verify:release": "node scripts/verify-release.mjs",
+            },
           },
           null,
           2,

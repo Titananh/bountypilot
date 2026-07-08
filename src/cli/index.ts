@@ -10,7 +10,7 @@ import { labAuthorizationFilePath, loadProgramFile, loadWorkspaceProgram } from 
 import type { ProgramConfig } from "../core/config/program-schema.js";
 import { fetchScopedText } from "../core/http/scoped-fetch.js";
 import type { WorkflowEventRecord } from "../core/jobs/workflow-event-store.js";
-import { runReleaseCheck } from "../core/release/release-check.js";
+import { runPackageReleaseCheck, runReleaseCheck } from "../core/release/release-check.js";
 import { ensureWorkspace, programWorkspace, saveProgramConfig, workspacePaths } from "../core/workspace.js";
 import { crawlWithPlaywright } from "../engines/crawler/playwright-crawler.js";
 import { AgentPlanner, type PlannerActionContext } from "../engines/agent-planner/agent-planner.js";
@@ -7911,7 +7911,7 @@ function buildBetaReadiness(cwd: string, packageRoot: string): BetaReadinessResu
   const programs = listProgramSummaries(cwd);
   const invalidPrograms = programs.programs.filter((entry) => entry.status !== "ok");
   const readyPrograms = programs.programs.filter((entry) => entry.status === "ok");
-  const release = runBetaPackageReadiness(packageRoot);
+  const release = runPackageReleaseCheck(packageRoot);
   const checks: BetaReadinessCheck[] = [
     {
       name: "workspace",
@@ -7945,13 +7945,17 @@ function buildBetaReadiness(cwd: string, packageRoot: string): BetaReadinessResu
       "examples/local-lab-authorization.md",
       "examples/safe-workflow.md",
     ]),
-    betaReleaseSubsetCheck(release, "scripts", [
-      "script:build",
-      "script:test",
-      "script:test:package-bin",
-      "script:typecheck",
-      "script:verify:release",
-    ]),
+    ...(release.checks.some((check) => check.name.startsWith("script:"))
+      ? [
+          betaReleaseSubsetCheck(release, "scripts", [
+            "script:build",
+            "script:test",
+            "script:test:package-bin",
+            "script:typecheck",
+            "script:verify:release",
+          ]),
+        ]
+      : []),
   ];
   const blockers = checks.filter((check) => check.status === "fail").map((check) => `${check.name}: ${check.message}`);
   const warnings = checks.filter((check) => check.status === "warn").map((check) => `${check.name}: ${check.message}`);
@@ -8002,126 +8006,6 @@ function betaReleaseSubsetCheck(
     return { name, status: "warn", message: `${warned.length} ${name} check(s) emitted warnings.` };
   }
   return { name, status: "pass", message: `${checkNames.length} ${name} check(s) passed.` };
-}
-
-function runBetaPackageReadiness(packageRoot: string): ReturnType<typeof runReleaseCheck> {
-  if (existsSync(path.join(packageRoot, "tsconfig.json")) && existsSync(path.join(packageRoot, "package-lock.json"))) {
-    return runReleaseCheck(packageRoot);
-  }
-  return runInstalledRuntimePackageCheck(packageRoot);
-}
-
-function runInstalledRuntimePackageCheck(packageRoot: string): ReturnType<typeof runReleaseCheck> {
-  const packagePath = path.join(packageRoot, "package.json");
-  const packageJson = readJsonRecord(packagePath);
-  const checks: ReturnType<typeof runReleaseCheck>["checks"] = [
-    betaFileCheck("package.json", packagePath),
-    betaFileCheck("README.md", path.join(packageRoot, "README.md")),
-  ];
-
-  if (packageJson) {
-    checks.push(betaValueCheck("package:name", typeof packageJson.name === "string" && packageJson.name.length > 0, String(packageJson.name ?? "missing")));
-    checks.push(
-      betaValueCheck("package:version", typeof packageJson.version === "string" && packageJson.version.length > 0, String(packageJson.version ?? "missing")),
-    );
-    checks.push(betaValueCheck("package:type=module", packageJson.type === "module", String(packageJson.type ?? "missing")));
-    checks.push(betaValueCheck("package:license", typeof packageJson.license === "string" && packageJson.license.length > 0, String(packageJson.license ?? "missing")));
-    checks.push({
-      name: "package:files excludes source/tests",
-      status: !existsSync(path.join(packageRoot, "src")) && !existsSync(path.join(packageRoot, "tests")) ? "pass" : "fail",
-      message: "runtime package should not include source or test trees",
-    });
-
-    const binPath = isRecord(packageJson.bin) && typeof packageJson.bin.bugbounty === "string" ? packageJson.bin.bugbounty : undefined;
-    checks.push({
-      name: "bin.bugbounty",
-      status: binPath ? "pass" : "fail",
-      message: binPath ? `bugbounty -> ${binPath}` : "package.json must expose bin.bugbounty",
-    });
-    const legacyBinPath = isRecord(packageJson.bin) && typeof packageJson.bin.bounty === "string" ? packageJson.bin.bounty : undefined;
-    checks.push({
-      name: "bin.bounty",
-      status: legacyBinPath ? "pass" : "warn",
-      message: legacyBinPath ? `bounty -> ${legacyBinPath}` : "optional legacy alias bin.bounty is not configured",
-    });
-    if (binPath) {
-      const compiledBin = path.resolve(packageRoot, binPath);
-      checks.push(betaFileCheck("compiled bin", compiledBin));
-      checks.push(betaShebangCheck("dist cli shebang", compiledBin));
-    }
-
-    for (const script of ["build", "test", "test:package-bin", "typecheck", "verify:release"]) {
-      const scripts = isRecord(packageJson.scripts) ? packageJson.scripts : {};
-      checks.push({
-        name: `script:${script}`,
-        status: typeof scripts[script] === "string" ? "pass" : "fail",
-        message: typeof scripts[script] === "string" ? String(scripts[script]) : `Missing npm script ${script}`,
-      });
-    }
-    const engines = isRecord(packageJson.engines) ? packageJson.engines : {};
-    checks.push({
-      name: "engines.node",
-      status: typeof engines.node === "string" && engines.node.length > 0 ? "pass" : "fail",
-      message: typeof engines.node === "string" ? engines.node : "Node engine is not declared",
-    });
-  }
-
-  for (const example of [
-    "examples/program.yml",
-    "examples/local-program.yml",
-    "examples/local-lab-authorization.md",
-    "examples/safe-workflow.md",
-  ]) {
-    checks.push(betaFileCheck(example, path.join(packageRoot, example)));
-  }
-
-  return {
-    ok: checks.every((check) => check.status !== "fail"),
-    generatedAt: new Date().toISOString(),
-    cwd: packageRoot,
-    packageName: typeof packageJson?.name === "string" ? packageJson.name : undefined,
-    version: typeof packageJson?.version === "string" ? packageJson.version : undefined,
-    checks,
-  };
-}
-
-function betaFileCheck(name: string, filePath: string): ReturnType<typeof runReleaseCheck>["checks"][number] {
-  try {
-    const stats = statSync(filePath);
-    return { name, status: stats.isFile() || stats.isDirectory() ? "pass" : "fail", message: filePath };
-  } catch {
-    return { name, status: "fail", message: `Missing ${filePath}` };
-  }
-}
-
-function betaValueCheck(name: string, ok: boolean, message: string): ReturnType<typeof runReleaseCheck>["checks"][number] {
-  return { name, status: ok ? "pass" : "fail", message };
-}
-
-function betaShebangCheck(name: string, filePath: string): ReturnType<typeof runReleaseCheck>["checks"][number] {
-  try {
-    const firstLine = readFileSync(filePath, "utf8").split(/\r?\n/, 1)[0] ?? "";
-    return {
-      name,
-      status: firstLine.startsWith("#!/usr/bin/env node") ? "pass" : "fail",
-      message: firstLine.startsWith("#!/usr/bin/env node") ? "dist/cli/index.js should be executable by Node" : "compiled bin is missing a node shebang",
-    };
-  } catch (error) {
-    return { name, status: "fail", message: errorReason(error) };
-  }
-}
-
-function readJsonRecord(filePath: string): Record<string, unknown> | undefined {
-  try {
-    const parsed = JSON.parse(readFileSync(filePath, "utf8")) as unknown;
-    return isRecord(parsed) ? parsed : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function betaReadinessScore(checks: BetaReadinessCheck[]): number {
