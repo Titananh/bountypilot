@@ -502,6 +502,9 @@ integrations: {}
       expect(parsedPublishStatus.nextCommands).toContain("gh auth login");
       expect(parsedPublishStatus.nextCommands).toContain("gh repo create octo/bountypilot --public --source . --remote origin --push");
       expect(parsedPublishStatus.nextCommands).toContain(
+        "bounty skill score bug-bounty-pilot --repo octo/bountypilot --write-public-plan .bounty/release/public-readiness.md --json",
+      );
+      expect(parsedPublishStatus.nextCommands).toContain(
         "bounty skill score bug-bounty-pilot --repo octo/bountypilot --branch main --tag v0.1.0 --strict --json",
       );
       expect(parsedPublishStatus.nextCommands.indexOf("git tag v0.1.0")).toBeLessThan(

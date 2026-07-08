@@ -660,6 +660,7 @@ function publishStatusNextCommands(input: {
   if (originMissing) {
     commands.add(`bounty release github-bootstrap ${input.repo.slug} --branch ${input.branch} --tag ${input.tag} --write`);
     commands.add(`bounty release publish-plan ${input.repo.slug} --write`);
+    commands.add(publicReadinessPlanCommand(input.repo.slug));
     if (githubActionsGhFailed) {
       for (const command of GITHUB_CLI_INSTALL_COMMANDS) commands.add(command);
       commands.add("gh --version");
@@ -690,8 +691,12 @@ function publishStatusNextCommands(input: {
     commands.add("gh auth login");
   }
   if (!input.actions || input.checks.some((check) => check.name.startsWith("github:actions") && check.status === "fail")) {
+    commands.add(publicReadinessPlanCommand(input.repo.slug));
     commands.add(`bounty release publish-status ${input.repo.slug} --branch ${input.branch} --tag ${input.tag} --online --actions --json`);
     commands.add(`gh run list --repo ${input.repo.slug} --limit 10`);
+  }
+  if (commands.size > 0) {
+    commands.add(publicReadinessPlanCommand(input.repo.slug));
   }
   return [...commands];
 }

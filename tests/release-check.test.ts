@@ -287,6 +287,9 @@ describe("release checks", () => {
     expect(result.nextCommands).toContain("git push -u origin HEAD:main");
     expect(result.nextCommands).toContain("bounty release publish-plan owner/repo --branch main --tag v0.0.0 --write");
     expect(result.nextCommands).toContain("bounty release publish-status owner/repo --branch main --tag v0.0.0 --online --actions --json");
+    expect(result.nextCommands).toContain(
+      "bounty skill score bug-bounty-pilot --repo owner/repo --write-public-plan .bounty/release/public-readiness.md --json",
+    );
     expect(result.nextCommands.indexOf("git push -u origin HEAD:main")).toBeLessThan(result.nextCommands.indexOf("git push origin v0.0.0"));
     expect(result.nextCommands).toContain(
       "bounty skill score bug-bounty-pilot --repo owner/repo --branch codex/release-candidate --tag v0.0.0 --strict --json",
@@ -361,6 +364,7 @@ describe("release checks", () => {
       "gh --version",
       "gh auth status",
       "gh auth login",
+      "bounty skill score bug-bounty-pilot --repo owner/repo --write-public-plan .bounty/release/public-readiness.md --json",
       "bounty release publish-status owner/repo --branch main --tag v0.0.0 --online --actions --json",
     ]));
   });
