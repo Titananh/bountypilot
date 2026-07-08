@@ -144,7 +144,7 @@ export function buildReleasePublishPlan(input: BuildReleasePublishPlanInput): Re
     ],
     installVerify: releaseInstallVerifyCommands(install),
     release: [
-      `git tag ${tag}`,
+      `git tag -f ${tag} HEAD`,
       `bounty skill score bug-bounty-pilot --repo ${repo.slug} --branch ${branch} --tag ${tag} --strict --json`,
       `git push origin ${tag}`,
     ],
@@ -524,16 +524,33 @@ function localTagStatus(cwd: string, tag: string): ReleasePublishStatusCheck {
     return { name: "git:local-tag", status: "warn", message: "Not a git checkout; local tag check skipped." };
   }
   try {
-    execFileSync("git", ["rev-parse", "-q", "--verify", `refs/tags/${tag}`], {
+    const tagCommit = execFileSync("git", ["rev-parse", "-q", "--verify", `refs/tags/${tag}^{}`], {
       cwd,
       encoding: "utf8",
-      stdio: ["ignore", "ignore", "pipe"],
+      stdio: ["ignore", "pipe", "pipe"],
       timeout: 2_000,
-    });
-    return { name: "git:local-tag", status: "pass", message: tag };
+    }).trim();
+    const headCommit = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 2_000,
+    }).trim();
+    if (tagCommit === headCommit) {
+      return { name: "git:local-tag", status: "pass", message: `${tag} -> HEAD` };
+    }
+    return {
+      name: "git:local-tag",
+      status: "warn",
+      message: `Local tag ${tag} points to ${shortCommit(tagCommit)}, not HEAD ${shortCommit(headCommit)}.`,
+    };
   } catch {
     return { name: "git:local-tag", status: "warn", message: `Local tag ${tag} has not been created yet.` };
   }
+}
+
+function shortCommit(commit: string): string {
+  return commit.slice(0, 12);
 }
 
 function remoteRefStatus(
@@ -683,7 +700,7 @@ function publishStatusNextCommands(input: {
     commands.add(`bounty release publish-plan ${input.repo.slug} --branch ${input.publicBranch} --tag ${input.tag} --write`);
     commands.add(`bounty release publish-status ${input.repo.slug} --branch ${input.publicBranch} --tag ${input.tag} --online --actions --json`);
   }
-  if (byName.get("git:local-tag")?.status === "warn") commands.add(`git tag ${input.tag}`);
+  if (byName.get("git:local-tag")?.status === "warn") commands.add(`git tag -f ${input.tag} HEAD`);
   if (byName.get("git:remote-tag")?.status !== "pass") {
     commands.add(`bounty skill score bug-bounty-pilot --repo ${input.repo.slug} --branch ${input.branch} --tag ${input.tag} --strict --json`);
     commands.add(`git push origin ${input.tag}`);

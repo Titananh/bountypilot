@@ -534,7 +534,7 @@ integrations: {}
       expect(parsedPublishStatus.nextCommands).toContain(
         "bounty release public-gate octo/bountypilot --branch main --tag v0.1.0 --online --actions --install-check --write-public-plan .bounty/release/public-readiness.md --json",
       );
-      expect(parsedPublishStatus.nextCommands.indexOf("git tag v0.1.0")).toBeLessThan(
+      expect(parsedPublishStatus.nextCommands.indexOf("git tag -f v0.1.0 HEAD")).toBeLessThan(
         parsedPublishStatus.nextCommands.indexOf("bounty skill score bug-bounty-pilot --repo octo/bountypilot --branch main --tag v0.1.0 --strict --json"),
       );
       expect(

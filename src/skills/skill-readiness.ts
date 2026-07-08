@@ -594,7 +594,7 @@ function remediationCommandsForRequirement(name: string, context: PublicReadines
     return ["git status --short", "git add .", 'git commit -m "Prepare BountyPilot release"'];
   }
   if (name === "git:local-tag") {
-    return [`git tag ${context.tag}`];
+    return [`git tag -f ${context.tag} HEAD`];
   }
   if (name === "publish:public-branch") {
     return [
@@ -822,7 +822,7 @@ function readinessNextSteps(input: {
       steps.add("gh auth login");
       steps.add(`gh repo create ${repo} --public --source . --remote origin --push`);
       steps.add("git push -u origin HEAD:main");
-      steps.add(`git tag ${input.releaseTag}`);
+      steps.add(`git tag -f ${input.releaseTag} HEAD`);
       steps.add(`bounty skill score ${input.id} --repo ${repo} --branch main --tag ${input.releaseTag} --strict --json`);
       steps.add(`git push origin ${input.releaseTag}`);
       steps.add(`bounty release publish-plan ${repo} --branch main --tag ${input.releaseTag} --write`);

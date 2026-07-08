@@ -155,7 +155,7 @@ bugbounty release install-check --json
 The release workflow runs when a `v*` tag is pushed:
 
 ```bash
-git tag v0.1.0
+git tag -f v0.1.0 HEAD
 bounty skill score bug-bounty-pilot --repo OWNER/REPO --branch main --tag v0.1.0 --strict --json
 git push origin v0.1.0
 ```

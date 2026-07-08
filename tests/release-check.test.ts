@@ -261,7 +261,7 @@ describe("release checks", () => {
       "bounty release public-gate owner/repo --branch codex/release-candidate --tag v0.0.0 --online --actions --install-check --write-public-plan .bounty/release/public-readiness.md --json",
     );
     expect(plan.commands.release).toEqual([
-      "git tag v0.0.0",
+      "git tag -f v0.0.0 HEAD",
       "bounty skill score bug-bounty-pilot --repo owner/repo --branch codex/release-candidate --tag v0.0.0 --strict --json",
       "git push origin v0.0.0",
     ]);
@@ -303,7 +303,7 @@ describe("release checks", () => {
     expect(result.nextCommands).toContain(
       "bounty skill score bug-bounty-pilot --repo owner/repo --branch codex/release-candidate --tag v0.0.0 --strict --json",
     );
-    expect(result.nextCommands.indexOf("git tag v0.0.0")).toBeLessThan(
+    expect(result.nextCommands.indexOf("git tag -f v0.0.0 HEAD")).toBeLessThan(
       result.nextCommands.indexOf("bounty skill score bug-bounty-pilot --repo owner/repo --branch codex/release-candidate --tag v0.0.0 --strict --json"),
     );
     expect(
@@ -702,8 +702,35 @@ bugbounty skill score bug-bounty-pilot --json
       expect.arrayContaining([expect.objectContaining({ name: "examples/workflow-summary.json:json", status: "fail" })]),
     );
     expect(result.ok).toBe(false);
+    });
   });
-});
+
+  it("warns when the local release tag does not point at HEAD", () => {
+    const root = writeReleaseFixture();
+    execFileSync("git", ["init", "-b", "main"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "bountypilot@example.test"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "BountyPilot Test"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["add", "."], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "fixture"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["tag", "v0.0.0"], { cwd: root, stdio: "ignore" });
+    writeText(root, "README.md", "# BountyPilot\n\nrelease candidate\n");
+    execFileSync("git", ["add", "README.md"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "release candidate"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["remote", "add", "origin", "https://github.com/owner/repo.git"], { cwd: root, stdio: "ignore" });
+
+    const result = buildReleasePublishStatus({ cwd: root, repo: "owner/repo", branch: "main", tag: "v0.0.0" });
+
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "git:local-tag",
+          status: "warn",
+          message: expect.stringContaining("not HEAD"),
+        }),
+      ]),
+    );
+    expect(result.nextCommands).toContain("git tag -f v0.0.0 HEAD");
+  });
 
 function writeReleaseFixture(): string {
   const root = mkdtempSync(path.join(os.tmpdir(), "bountypilot-release-check-"));

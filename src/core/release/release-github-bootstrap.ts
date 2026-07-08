@@ -356,9 +356,10 @@ if (-not $origin) {
   git push -u origin ${branch}
 }
 
-git rev-parse -q --verify "refs/tags/${plan.tag}" *> $null
-if ($LASTEXITCODE -ne 0) {
-  git tag ${tag}
+$headCommit = git rev-parse HEAD
+$tagCommit = git rev-parse -q --verify "refs/tags/${plan.tag}^{}" 2>$null
+if ($LASTEXITCODE -ne 0 -or "$tagCommit".Trim() -ne "$headCommit".Trim()) {
+  git tag -f ${tag} HEAD
 }
 node dist/cli/index.js skill score bug-bounty-pilot --repo ${repo} --branch ${branch} --tag ${tag} --strict --json
 git push origin ${tag}
@@ -402,8 +403,10 @@ else
   git push -u origin ${branch}
 fi
 
-if ! git rev-parse -q --verify "refs/tags/${plan.tag}" >/dev/null; then
-  git tag ${tag}
+head_commit="$(git rev-parse HEAD)"
+tag_commit="$(git rev-parse -q --verify "refs/tags/${plan.tag}^{}" 2>/dev/null || true)"
+if [[ "\${tag_commit}" != "\${head_commit}" ]]; then
+  git tag -f ${tag} HEAD
 fi
 node dist/cli/index.js skill score bug-bounty-pilot --repo ${repo} --branch ${branch} --tag ${tag} --strict --json
 git push origin ${tag}

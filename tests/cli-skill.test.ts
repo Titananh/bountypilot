@@ -171,7 +171,7 @@ describe("CLI skill commands", () => {
           "gh auth login",
           "gh repo create OWNER/REPO --public --source . --remote origin --push",
           "git push -u origin HEAD:main",
-          "git tag v0.1.0",
+          "git tag -f v0.1.0 HEAD",
           "bounty skill score bug-bounty-pilot --repo OWNER/REPO --branch main --tag v0.1.0 --strict --json",
           "git push origin v0.1.0",
           "bounty release publish-plan OWNER/REPO --branch main --tag v0.1.0 --write",
@@ -183,7 +183,7 @@ describe("CLI skill commands", () => {
           "bounty skill score bug-bounty-pilot --json",
         ]),
       );
-      expect(parsed.nextSteps.indexOf("git tag v0.1.0")).toBeLessThan(
+      expect(parsed.nextSteps.indexOf("git tag -f v0.1.0 HEAD")).toBeLessThan(
         parsed.nextSteps.indexOf("bounty skill score bug-bounty-pilot --repo OWNER/REPO --branch main --tag v0.1.0 --strict --json"),
       );
       expect(parsed.nextSteps.indexOf("bounty skill score bug-bounty-pilot --repo OWNER/REPO --branch main --tag v0.1.0 --strict --json")).toBeLessThan(
@@ -225,7 +225,7 @@ describe("CLI skill commands", () => {
           status: "fail",
           commands: expect.arrayContaining(["git remote add origin https://github.com/octo/bountypilot.git"]),
         }),
-        expect.objectContaining({ name: "git:local-tag", commands: ["git tag v0.1.0"] }),
+        expect.objectContaining({ name: "git:local-tag", commands: ["git tag -f v0.1.0 HEAD"] }),
         expect.objectContaining({
           name: "publish:public-branch",
           status: "warn",
