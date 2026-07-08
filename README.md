@@ -162,6 +162,7 @@ Dry-run is the recommended first command for every target because it exercises s
 | Skill | `bounty skill score bug-bounty-pilot` | No | Scores skill readiness across validation, temporary bundle verification, release gates, warnings, blockers, and next steps. |
 | Skill | `bounty skill score bug-bounty-pilot --repo OWNER/REPO --json` | No | Scores the skill and embeds concrete GitHub publish/bootstrap readiness for a target repository. |
 | Skill | `bounty skill score bug-bounty-pilot --repo OWNER/REPO --strict --json` | No | Fails unless the package, skill bundle, release checks, and GitHub publish preflight have no blockers or warnings. |
+| Skill | `bounty skill score bug-bounty-pilot --repo OWNER/REPO --online --actions --strict --json` | GitHub git remote and GitHub CLI | Final public-readiness score after pushing branch/tag and required GitHub Actions complete. |
 | Skill | `bounty skill bundle bug-bounty-pilot --output bug-bounty-pilot.skill.zip` | No | Writes a portable ZIP bundle with `MANIFEST.bountypilot.json` and SHA-256 hashes for every skill file. |
 | Skill | `bounty skill verify-bundle bug-bounty-pilot.skill.zip` | No | Verifies a standalone skill ZIP manifest, file sizes, SHA-256 hashes, and unexpected files before use. |
 | Skill | `bounty skill run bug-bounty-pilot <target> --program <program> --mode passive --dry-run` | No | Runs the skill workflow through the existing scoped dry-run safety engine. |

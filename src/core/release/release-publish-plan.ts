@@ -137,6 +137,7 @@ export function buildReleasePublishPlan(input: BuildReleasePublishPlanInput): Re
     postPushVerify: [`bounty release publish-status ${repo.slug} --branch ${branch} --tag ${tag} --online --json`],
     actionsVerify: [
       `bounty release publish-status ${repo.slug} --branch ${branch} --tag ${tag} --online --actions --json`,
+      `bounty skill score bug-bounty-pilot --repo ${repo.slug} --branch ${branch} --tag ${tag} --online --actions --strict --json`,
       `gh run list --repo ${repo.slug} --limit 10`,
     ],
     installVerify: releaseInstallVerifyCommands(install),

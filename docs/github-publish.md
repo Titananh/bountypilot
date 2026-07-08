@@ -106,6 +106,7 @@ After the branch is pushed, verify publish readiness from the CLI:
 ```bash
 bounty release publish-status OWNER/REPO --branch main --tag v0.1.0 --online --json
 bounty release publish-status OWNER/REPO --branch main --tag v0.1.0 --online --actions --json
+bounty skill score bug-bounty-pilot --repo OWNER/REPO --branch main --tag v0.1.0 --online --actions --strict --json
 ```
 
 ## 4. One-Line Install

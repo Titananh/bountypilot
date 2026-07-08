@@ -242,6 +242,12 @@ describe("release checks", () => {
     expect(plan.publicBranch).toBe("main");
     expect(plan.commands.localVerify).toContain("bounty skill score bug-bounty-pilot --repo owner/repo --json");
     expect(plan.markdown).toContain("bounty skill score bug-bounty-pilot --repo owner/repo --json");
+    expect(plan.commands.actionsVerify).toContain(
+      "bounty skill score bug-bounty-pilot --repo owner/repo --branch codex/release-candidate --tag v0.0.0 --online --actions --strict --json",
+    );
+    expect(plan.markdown).toContain(
+      "bounty skill score bug-bounty-pilot --repo owner/repo --branch codex/release-candidate --tag v0.0.0 --online --actions --strict --json",
+    );
     expect(plan.commands.release).toEqual([
       "git tag v0.0.0",
       "bounty skill score bug-bounty-pilot --repo owner/repo --branch codex/release-candidate --tag v0.0.0 --strict --json",

@@ -129,6 +129,7 @@ describe("CLI skill commands", () => {
           "git push origin v0.1.0",
           "bounty release publish-plan OWNER/REPO --branch main --tag v0.1.0 --write",
           "bounty release publish-status OWNER/REPO --branch main --tag v0.1.0 --online --actions --json",
+          "bounty skill score bug-bounty-pilot --repo OWNER/REPO --branch main --tag v0.1.0 --online --actions --strict --json",
           "bounty release publish-status OWNER/REPO --online --actions --json",
           "bugbounty release install-check --json",
           "bounty skill score bug-bounty-pilot --json",
@@ -200,9 +201,74 @@ describe("CLI skill commands", () => {
         "bounty release github-bootstrap octo/bountypilot --write",
         "gh repo create octo/bountypilot --public --source . --remote origin --push",
         "git push -u origin HEAD:main",
+        "bounty skill score bug-bounty-pilot --repo octo/bountypilot --online --actions --strict --json",
         "bounty skill score bug-bounty-pilot --repo octo/bountypilot --json",
       ]),
     );
+    const scoredForPublishedRepo = runCli(
+      [
+        "skill",
+        "score",
+        "bug-bounty-pilot",
+        "--repo",
+        "octo/bountypilot",
+        "--branch",
+        "main",
+        "--tag",
+        "v0.1.0",
+        "--online",
+        "--actions",
+        "--gh-command",
+        process.execPath,
+        "--gh-command-arg",
+        fakeGh,
+        "--json",
+      ],
+      repoRoot,
+    );
+    expectCommand(scoredForPublishedRepo).toExit(0);
+    const parsedPublished = JSON.parse(outputOf(scoredForPublishedRepo));
+    expect(parsedPublished.publish).toMatchObject({
+      ok: false,
+      repo: "octo/bountypilot",
+      branch: "main",
+      tag: "v0.1.0",
+      online: true,
+      actions: true,
+    });
+    expect(parsedPublished.publish.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "git:remote-branch", status: "fail" }),
+        expect.objectContaining({ name: "github:actions:CI", status: "pass" }),
+      ]),
+    );
+    const strictPublished = runCli(
+      [
+        "skill",
+        "score",
+        "bug-bounty-pilot",
+        "--repo",
+        "octo/bountypilot",
+        "--branch",
+        "main",
+        "--tag",
+        "v0.1.0",
+        "--online",
+        "--actions",
+        "--strict",
+        "--gh-command",
+        process.execPath,
+        "--gh-command-arg",
+        fakeGh,
+        "--json",
+      ],
+      repoRoot,
+    );
+    expectCommand(strictPublished).toExit(1);
+    expect(JSON.parse(outputOf(strictPublished))).toMatchObject({
+      ultimate: false,
+      publish: { online: true, actions: true },
+    });
     expect(parsedForRepo.warnings).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -296,6 +362,12 @@ if (args.includes("--version")) {
 }
 if (args[0] === "auth" && args[1] === "status") {
   console.log("Logged in to github.com as bountypilot-test");
+  process.exit(0);
+}
+if (args[0] === "run" && args[1] === "list") {
+  const workflowIndex = args.indexOf("--workflow");
+  const workflow = workflowIndex >= 0 ? args[workflowIndex + 1] : "CI";
+  console.log(JSON.stringify([{ status: "completed", conclusion: "success", workflowName: workflow, url: "https://github.com/octo/bountypilot/actions/runs/1", headBranch: "main", event: "push" }]));
   process.exit(0);
 }
 console.error("unexpected fake gh args " + args.join(" "));

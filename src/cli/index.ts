@@ -1210,6 +1210,8 @@ skill
   .option("--gh-command <command>", "GitHub CLI command to probe when --repo is provided", "gh")
   .option("--gh-command-arg <arg>", "Argument to prepend before gh probe arguments. Repeat for wrappers.", collectOption, [] as string[])
   .option("--timeout-ms <ms>", "Per-command timeout in milliseconds for GitHub probes", "8000")
+  .option("--online", "When --repo is provided, verify pushed branch/tag state through git ls-remote")
+  .option("--actions", "When --repo is provided, verify required GitHub Actions runs through GitHub CLI")
   .option("--strict", "Exit non-zero unless readiness is ultimate with no blockers or warnings")
   .option("--json", "Print machine-readable JSON")
   .description("Score skill readiness across validation, bundle verification, and release gates")
@@ -1223,6 +1225,8 @@ skill
       ghCommand: string;
       ghCommandArg: string[];
       timeoutMs: string;
+      online?: boolean;
+      actions?: boolean;
       strict?: boolean;
       json?: boolean;
     }>();
@@ -1237,6 +1241,8 @@ skill
       ghCommand: options.ghCommand,
       ghArgsPrefix: options.ghCommandArg,
       timeoutMs,
+      online: options.online,
+      actions: options.actions,
     });
     if (!result.ok || (options.strict && !result.ultimate)) {
       process.exitCode = 1;
@@ -1269,6 +1275,22 @@ skill
       ui.table(
         ["status", "check", "message"],
         result.github.checks.map((check) => [check.status, check.name, check.message]),
+      );
+    }
+    if (result.publish) {
+      ui.blank();
+      ui.panel("publish", [
+        ui.kv("repo", result.publish.repo),
+        ui.kv("branch", result.publish.branch),
+        ui.kv("tag", result.publish.tag),
+        ui.kv("online", result.publish.online),
+        ui.kv("actions", result.publish.actions),
+        ui.kv("status", result.publish.ok ? "verified" : "needs verification"),
+      ]);
+      ui.blank();
+      ui.table(
+        ["status", "check", "message"],
+        result.publish.checks.map((check) => [check.status, check.name, check.message]),
       );
     }
     if (result.blockers.length > 0) {

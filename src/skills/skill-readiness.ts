@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { runPackageReleaseCheck } from "../core/release/release-check.js";
 import { buildReleaseGithubBootstrap, type ReleaseGithubBootstrapCheck } from "../core/release/release-github-bootstrap.js";
+import { buildReleasePublishStatus, type ReleasePublishStatusCheck } from "../core/release/release-publish-plan.js";
 import {
   BUG_BOUNTY_PILOT_SKILL_ID,
   bundleSkillDefinition,
@@ -58,6 +59,17 @@ export interface SkillReadinessResult {
     checks: ReleaseGithubBootstrapCheck[];
     nextCommands: string[];
   };
+  publish?: {
+    ok: boolean;
+    repo: string;
+    branch: string;
+    publicBranch: string;
+    tag: string;
+    online: boolean;
+    actions: boolean;
+    checks: ReleasePublishStatusCheck[];
+    nextCommands: string[];
+  };
 }
 
 const GITHUB_CLI_INSTALL_COMMANDS = [
@@ -78,6 +90,8 @@ export function scoreSkillReadiness(
     ghCommand?: string;
     ghArgsPrefix?: string[];
     timeoutMs?: number;
+    online?: boolean;
+    actions?: boolean;
   } = {},
 ): SkillReadinessResult {
   const cwd = input.cwd ?? process.cwd();
@@ -99,11 +113,27 @@ export function scoreSkillReadiness(
         timeoutMs: input.timeoutMs,
       })
     : undefined;
+  const publish =
+    input.repo && (input.online || input.actions)
+      ? buildReleasePublishStatus({
+          cwd,
+          repo: input.repo,
+          branch: input.branch,
+          tag: input.tag,
+          remote: input.remote,
+          online: input.online,
+          actions: input.actions,
+          ghCommand: input.ghCommand,
+          ghArgsPrefix: input.ghArgsPrefix,
+          timeoutMs: input.timeoutMs,
+        })
+      : undefined;
   const releaseFailures = contextualizeReleaseIssues(issuesFor(release.checks, "fail"), github);
   const releaseWarnings = contextualizeReleaseIssues(issuesFor(release.checks, "warn"), github);
   const githubWarnings = github ? githubPreflightIssues(github) : [];
+  const publishWarnings = publish ? publishStatusIssues(publish) : [];
   const blockers = [...validationFailures, ...bundle.failures, ...releaseFailures];
-  const warnings = dedupeIssues([...validationWarnings, ...releaseWarnings, ...githubWarnings]);
+  const warnings = dedupeIssues([...validationWarnings, ...releaseWarnings, ...githubWarnings, ...publishWarnings]);
   const score = readinessScore({
     validationFailures: validationFailures.length,
     bundleFailures: bundle.failures.length,
@@ -127,6 +157,7 @@ export function scoreSkillReadiness(
       releaseTag: release.version ? `v${release.version}` : "v0.1.0",
       repoSlug: github?.repo.slug,
       githubNextCommands: github?.nextCommands,
+      publishNextCommands: publish?.nextCommands,
     }),
     validation: {
       checks: validation.checks.length,
@@ -152,6 +183,19 @@ export function scoreSkillReadiness(
           nextCommands: github.nextCommands,
         }
       : undefined,
+    publish: publish
+      ? {
+          ok: publish.ok,
+          repo: publish.repo.slug,
+          branch: publish.branch,
+          publicBranch: publish.publicBranch,
+          tag: publish.tag,
+          online: publish.online,
+          actions: Boolean(input.actions),
+          checks: publish.checks,
+          nextCommands: publish.nextCommands,
+        }
+      : undefined,
   };
 }
 
@@ -173,6 +217,16 @@ function contextualizeReleaseIssues(
 
 function githubPreflightIssues(github: ReturnType<typeof buildReleaseGithubBootstrap>): SkillReadinessIssue[] {
   return github.checks
+    .filter((check) => check.name !== "release:check")
+    .filter((check) => check.status !== "pass")
+    .map((check) => ({
+      name: check.name,
+      message: check.message,
+    }));
+}
+
+function publishStatusIssues(publish: ReturnType<typeof buildReleasePublishStatus>): SkillReadinessIssue[] {
+  return publish.checks
     .filter((check) => check.name !== "release:check")
     .filter((check) => check.status !== "pass")
     .map((check) => ({
@@ -252,6 +306,7 @@ function readinessNextSteps(input: {
   releaseTag: string;
   repoSlug?: string;
   githubNextCommands?: string[];
+  publishNextCommands?: string[];
 }): string[] {
   if (input.blockers.length === 0 && input.warnings.length === 0) {
     return [`bounty skill bundle ${input.id} --output ${input.id}.skill.zip`, "npm run verify:release"];
@@ -283,13 +338,18 @@ function readinessNextSteps(input: {
       steps.add(`git push origin ${input.releaseTag}`);
       steps.add(`bounty release publish-plan ${repo} --branch main --tag ${input.releaseTag} --write`);
       steps.add(`bounty release publish-status ${repo} --branch main --tag ${input.releaseTag} --online --actions --json`);
+      steps.add(`bounty skill score ${input.id} --repo ${repo} --branch main --tag ${input.releaseTag} --online --actions --strict --json`);
       steps.add(`bounty release publish-status ${repo} --online --actions --json`);
       steps.add("bugbounty release install-check --json");
     }
   }
   input.githubNextCommands?.forEach((command) => steps.add(command));
+  input.publishNextCommands?.forEach((command) => steps.add(command));
   if (steps.size > 0) {
     const repoArg = input.repoSlug ? ` --repo ${input.repoSlug}` : "";
+    if (input.repoSlug) {
+      steps.add(`bounty skill score ${input.id}${repoArg} --online --actions --strict --json`);
+    }
     steps.add(`bounty skill score ${input.id}${repoArg} --json`);
   }
   if (steps.size === 0) {

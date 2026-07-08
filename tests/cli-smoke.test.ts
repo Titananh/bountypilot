@@ -387,6 +387,9 @@ integrations: {}
       expect(parsedPublishPlan.commands.repositoryCreate).toContain("gh repo create octo/bountypilot --public --source . --remote origin --push");
       expect(parsedPublishPlan.commands.postPushVerify).toContain("bounty release publish-status octo/bountypilot --branch main --tag v0.1.0 --online --json");
       expect(parsedPublishPlan.commands.actionsVerify).toContain("bounty release publish-status octo/bountypilot --branch main --tag v0.1.0 --online --actions --json");
+      expect(parsedPublishPlan.commands.actionsVerify).toContain(
+        "bounty skill score bug-bounty-pilot --repo octo/bountypilot --branch main --tag v0.1.0 --online --actions --strict --json",
+      );
     expect(parsedPublishPlan.commands.actionsVerify).toContain("gh run list --repo octo/bountypilot --limit 10");
       expect(parsedPublishPlan.commands.localVerify).toContain("bounty skill score bug-bounty-pilot --repo octo/bountypilot --json");
       expect(parsedPublishPlan.commands.localVerify).toContain("bounty release verify-bundle .release --json");
@@ -416,6 +419,9 @@ integrations: {}
       expect(readFileSync(publishPlanPath, "utf8")).toContain("BOUNTYPILOT_SOURCE=github:octo/bountypilot#main");
       expect(readFileSync(publishPlanPath, "utf8")).toContain("bounty release publish-status octo/bountypilot --branch main --tag v0.1.0 --online --json");
       expect(readFileSync(publishPlanPath, "utf8")).toContain("bounty release publish-status octo/bountypilot --branch main --tag v0.1.0 --online --actions --json");
+      expect(readFileSync(publishPlanPath, "utf8")).toContain(
+        "bounty skill score bug-bounty-pilot --repo octo/bountypilot --branch main --tag v0.1.0 --online --actions --strict --json",
+      );
     expect(readFileSync(publishPlanPath, "utf8")).toContain("Verify installer resolution");
     expect(readFileSync(publishPlanPath, "utf8")).toContain("git push origin v0.1.0");
 
