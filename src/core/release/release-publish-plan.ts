@@ -139,7 +139,7 @@ export function buildReleasePublishPlan(input: BuildReleasePublishPlanInput): Re
     actionsVerify: [
       `bounty release publish-status ${repo.slug} --branch ${branch} --tag ${tag} --online --actions --json`,
       `bounty skill score bug-bounty-pilot --repo ${repo.slug} --branch ${branch} --tag ${tag} --online --actions --strict --json`,
-      `bounty release public-gate ${repo.slug} --branch ${branch} --tag ${tag} --online --actions --write-public-plan .bounty/release/public-readiness.md --json`,
+      publicGateCommand(repo.slug, branch, tag),
       `gh run list --repo ${repo.slug} --limit 10`,
     ],
     installVerify: releaseInstallVerifyCommands(install),
@@ -312,7 +312,7 @@ function publicReadinessPlanCommand(repo: string): string {
 }
 
 function publicGateCommand(repo: string, branch: string, tag: string): string {
-  return `bounty release public-gate ${repo} --branch ${branch} --tag ${tag} --online --actions --write-public-plan .bounty/release/public-readiness.md --json`;
+  return `bounty release public-gate ${repo} --branch ${branch} --tag ${tag} --online --actions --install-check --write-public-plan .bounty/release/public-readiness.md --json`;
 }
 
 export function parseGitHubRepo(value: string): GitHubRepoRef {

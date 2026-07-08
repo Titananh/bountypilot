@@ -519,7 +519,7 @@ function buildPublicReadinessFixPlan(
 function isFinalPublicVerificationCommand(command: string): boolean {
   return (
     /^bounty release publish-status .+ --online --actions --json$/.test(command) ||
-    /^bounty release public-gate .+ --online --actions --write-public-plan \.bounty\/release\/public-readiness\.md --json$/.test(command) ||
+    /^bounty release public-gate .+ --online --actions --install-check --write-public-plan \.bounty\/release\/public-readiness\.md --json$/.test(command) ||
     /^bounty skill score .+ --repo .+ --online --actions --strict --json$/.test(command) ||
     command === "bugbounty release install-check --json"
   );
@@ -855,7 +855,7 @@ function publicReadinessPlanCommand(id: string, repo: string): string {
 }
 
 function publicGateCommand(repo: string, branch: string, tag: string): string {
-  return `bounty release public-gate ${repo} --branch ${branch} --tag ${tag} --online --actions --write-public-plan .bounty/release/public-readiness.md --json`;
+  return `bounty release public-gate ${repo} --branch ${branch} --tag ${tag} --online --actions --install-check --write-public-plan .bounty/release/public-readiness.md --json`;
 }
 
 function isPublishReadinessIssue(issue: SkillReadinessIssue): boolean {

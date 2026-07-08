@@ -391,7 +391,7 @@ integrations: {}
         "bounty skill score bug-bounty-pilot --repo octo/bountypilot --branch main --tag v0.1.0 --online --actions --strict --json",
       );
       expect(parsedPublishPlan.commands.actionsVerify).toContain(
-        "bounty release public-gate octo/bountypilot --branch main --tag v0.1.0 --online --actions --write-public-plan .bounty/release/public-readiness.md --json",
+        "bounty release public-gate octo/bountypilot --branch main --tag v0.1.0 --online --actions --install-check --write-public-plan .bounty/release/public-readiness.md --json",
       );
     expect(parsedPublishPlan.commands.actionsVerify).toContain("gh run list --repo octo/bountypilot --limit 10");
       expect(parsedPublishPlan.commands.localVerify).toContain("bounty skill score bug-bounty-pilot --repo octo/bountypilot --json");
@@ -432,7 +432,7 @@ integrations: {}
         "bounty skill score bug-bounty-pilot --repo octo/bountypilot --branch main --tag v0.1.0 --online --actions --strict --json",
       );
       expect(readFileSync(publishPlanPath, "utf8")).toContain(
-        "bounty release public-gate octo/bountypilot --branch main --tag v0.1.0 --online --actions --write-public-plan .bounty/release/public-readiness.md --json",
+        "bounty release public-gate octo/bountypilot --branch main --tag v0.1.0 --online --actions --install-check --write-public-plan .bounty/release/public-readiness.md --json",
       );
     expect(readFileSync(publishPlanPath, "utf8")).toContain("Verify installer resolution");
     expect(readFileSync(publishPlanPath, "utf8")).toContain("git push origin v0.1.0");
@@ -532,7 +532,7 @@ integrations: {}
         "bounty skill score bug-bounty-pilot --repo octo/bountypilot --branch main --tag v0.1.0 --strict --json",
       );
       expect(parsedPublishStatus.nextCommands).toContain(
-        "bounty release public-gate octo/bountypilot --branch main --tag v0.1.0 --online --actions --write-public-plan .bounty/release/public-readiness.md --json",
+        "bounty release public-gate octo/bountypilot --branch main --tag v0.1.0 --online --actions --install-check --write-public-plan .bounty/release/public-readiness.md --json",
       );
       expect(parsedPublishStatus.nextCommands.indexOf("git tag v0.1.0")).toBeLessThan(
         parsedPublishStatus.nextCommands.indexOf("bounty skill score bug-bounty-pilot --repo octo/bountypilot --branch main --tag v0.1.0 --strict --json"),
