@@ -327,6 +327,7 @@ function renderPowershellScript(plan: ReleasePublishPlanResult): string {
 npm run verify:release
 node dist/cli/index.js release bundle --output .release --force --json
 node dist/cli/index.js release verify-bundle .release --json
+node dist/cli/index.js skill score bug-bounty-pilot --repo ${repo} --branch ${branch} --tag ${tag} --json
 
 if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
   Write-Error "GitHub CLI is not installed. Install it with: ${GH_INSTALL.windows}"
@@ -367,6 +368,7 @@ set -euo pipefail
 npm run verify:release
 node dist/cli/index.js release bundle --output .release --force --json
 node dist/cli/index.js release verify-bundle .release --json
+node dist/cli/index.js skill score bug-bounty-pilot --repo ${repo} --branch ${branch} --tag ${tag} --json
 
 if ! command -v gh >/dev/null 2>&1; then
   echo "GitHub CLI is not installed. Install it first: ${GH_INSTALL.docs}" >&2
