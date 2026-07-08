@@ -1294,6 +1294,11 @@ skill
       ["status", "requirement", "message"],
       result.publicReadiness.requirements.map((requirement) => [requirement.status, requirement.name, requirement.message]),
     );
+    const publicFixCommands = [...new Set(result.publicReadiness.missing.flatMap((requirement) => requirement.commands))];
+    if (publicFixCommands.length > 0) {
+      ui.blank();
+      ui.commandList("public readiness fixes", publicFixCommands);
+    }
     if (result.github) {
       ui.blank();
       ui.panel("github", [

@@ -24,6 +24,7 @@ export type SkillReadinessRequirementStatus = "pass" | "warn" | "fail";
 
 export interface SkillReadinessRequirement extends SkillReadinessIssue {
   status: SkillReadinessRequirementStatus;
+  commands: string[];
 }
 
 export interface SkillReadinessLayer {
@@ -185,10 +186,12 @@ export function scoreSkillReadiness(
     releaseFailures: publishBlockers.length,
   });
   const publicRequirements = buildPublicReadinessRequirements({
+    id,
     repo: github?.repo.slug,
     github,
     publish,
     releaseWarnings,
+    releaseTag: release.version ? `v${release.version}` : "v0.1.0",
   });
   const nextSteps = readinessNextSteps({
     id,
@@ -270,48 +273,161 @@ export function scoreSkillReadiness(
 }
 
 function buildPublicReadinessRequirements(input: {
+  id: string;
   repo?: string;
   github?: ReturnType<typeof buildReleaseGithubBootstrap>;
   publish?: ReturnType<typeof buildReleasePublishStatus>;
   releaseWarnings: SkillReadinessIssue[];
+  releaseTag: string;
 }): SkillReadinessRequirement[] {
+  const context = publicReadinessCommandContext(input);
   const requirements: SkillReadinessRequirement[] = [
     input.repo
-      ? { name: "publish:repo", status: "pass", message: input.repo }
-      : { name: "publish:repo", status: "warn", message: "Pass --repo OWNER/REPO to verify concrete GitHub public-readiness." },
+      ? requirementWithCommands({ name: "publish:repo", status: "pass", message: input.repo }, context)
+      : requirementWithCommands(
+          { name: "publish:repo", status: "warn", message: "Pass --repo OWNER/REPO to verify concrete GitHub public-readiness." },
+          context,
+        ),
   ];
 
   const releaseOriginWarning = input.releaseWarnings.find((issue) => issue.name === "github:origin");
   if (releaseOriginWarning) {
-    requirements.push({ status: "warn", ...releaseOriginWarning });
+    requirements.push(requirementWithCommands({ status: "warn", ...releaseOriginWarning }, context));
   }
 
   if (input.github) {
     for (const check of input.github.checks) {
       if (check.name === "release:check") continue;
-      requirements.push({ name: check.name, status: check.status, message: check.message });
+      requirements.push(requirementWithCommands({ name: check.name, status: check.status, message: check.message }, context));
     }
   }
 
   if (input.publish) {
     for (const check of input.publish.checks) {
       if (check.name === "release:check") continue;
-      requirements.push({ name: check.name, status: check.status, message: check.message });
+      requirements.push(requirementWithCommands({ name: check.name, status: check.status, message: check.message }, context));
     }
   } else if (input.repo) {
-    requirements.push({
-      name: "publish:online",
-      status: "warn",
-      message: "Re-run with --online after pushing the public branch and tag.",
-    });
-    requirements.push({
-      name: "github:actions",
-      status: "warn",
-      message: "Re-run with --actions after GitHub Actions have completed.",
-    });
+    requirements.push(
+      requirementWithCommands(
+        {
+          name: "publish:online",
+          status: "warn",
+          message: "Re-run with --online after pushing the public branch and tag.",
+        },
+        context,
+      ),
+    );
+    requirements.push(
+      requirementWithCommands(
+        {
+          name: "github:actions",
+          status: "warn",
+          message: "Re-run with --actions after GitHub Actions have completed.",
+        },
+        context,
+      ),
+    );
   }
 
   return mergeRequirements(requirements);
+}
+
+interface PublicReadinessCommandContext {
+  id: string;
+  repo: string;
+  branch: string;
+  publicBranch: string;
+  tag: string;
+  addOriginCommand: string;
+  setOriginCommand: string;
+}
+
+function publicReadinessCommandContext(input: {
+  id: string;
+  repo?: string;
+  github?: ReturnType<typeof buildReleaseGithubBootstrap>;
+  publish?: ReturnType<typeof buildReleasePublishStatus>;
+  releaseTag: string;
+}): PublicReadinessCommandContext {
+  const repo = input.repo ?? "OWNER/REPO";
+  const branch = input.publish?.branch ?? input.github?.branch ?? "main";
+  const publicBranch = input.publish?.publicBranch ?? input.github?.publicBranch ?? "main";
+  const tag = input.publish?.tag ?? input.github?.tag ?? input.releaseTag;
+  const addOriginCommand = input.publish?.remote.addCommand ?? input.github?.remote.addCommand ?? `git remote add origin https://github.com/${repo}.git`;
+  const setOriginCommand = input.publish?.remote.setUrlCommand ?? input.github?.remote.setUrlCommand ?? `git remote set-url origin https://github.com/${repo}.git`;
+  return {
+    id: input.id,
+    repo,
+    branch,
+    publicBranch,
+    tag,
+    addOriginCommand,
+    setOriginCommand,
+  };
+}
+
+function requirementWithCommands(
+  requirement: Omit<SkillReadinessRequirement, "commands">,
+  context: PublicReadinessCommandContext,
+): SkillReadinessRequirement {
+  return {
+    ...requirement,
+    commands: remediationCommandsForRequirement(requirement.name, context),
+  };
+}
+
+function remediationCommandsForRequirement(name: string, context: PublicReadinessCommandContext): string[] {
+  if (name === "publish:repo") {
+    return [`bounty skill score ${context.id} --repo ${context.repo} --json`];
+  }
+  if (name === "github:origin" || name === "git:origin") {
+    return [
+      `bounty release github-bootstrap ${context.repo} --branch ${context.branch} --tag ${context.tag} --write`,
+      context.addOriginCommand,
+      `git push -u origin HEAD:${context.branch}`,
+    ];
+  }
+  if (name === "git:origin-target") {
+    return [context.setOriginCommand];
+  }
+  if (name === "gh:version" || name === "github:actions-gh") {
+    return [...GITHUB_CLI_INSTALL_COMMANDS, "gh --version", "gh auth status"];
+  }
+  if (name === "gh:auth") {
+    return ["gh auth status", "gh auth login"];
+  }
+  if (name === "git:working-tree") {
+    return ["git status --short", "git add .", 'git commit -m "Prepare BountyPilot release"'];
+  }
+  if (name === "git:local-tag") {
+    return [`git tag ${context.tag}`];
+  }
+  if (name === "publish:public-branch") {
+    return [
+      `git push -u origin HEAD:${context.publicBranch}`,
+      `bounty release publish-status ${context.repo} --branch ${context.publicBranch} --tag ${context.tag} --online --actions --json`,
+    ];
+  }
+  if (name === "git:remote-branch") {
+    return [`git push -u origin HEAD:${context.branch}`];
+  }
+  if (name === "git:remote-tag") {
+    return [
+      `bounty skill score ${context.id} --repo ${context.repo} --branch ${context.branch} --tag ${context.tag} --strict --json`,
+      `git push origin ${context.tag}`,
+    ];
+  }
+  if (name === "publish:online") {
+    return [`bounty release publish-status ${context.repo} --branch ${context.branch} --tag ${context.tag} --online --json`];
+  }
+  if (name === "github:actions" || name.startsWith("github:actions:")) {
+    return [
+      `bounty release publish-status ${context.repo} --branch ${context.branch} --tag ${context.tag} --online --actions --json`,
+      `gh run list --repo ${context.repo} --limit 10`,
+    ];
+  }
+  return [`bounty skill score ${context.id} --repo ${context.repo} --json`];
 }
 
 function mergeRequirements(requirements: SkillReadinessRequirement[]): SkillReadinessRequirement[] {

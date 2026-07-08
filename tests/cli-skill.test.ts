@@ -121,8 +121,16 @@ describe("CLI skill commands", () => {
     });
     expect(parsed.publicReadiness.requirements).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ name: "publish:repo", status: "warn" }),
-        expect.objectContaining({ name: "github:origin", status: "warn" }),
+        expect.objectContaining({
+          name: "publish:repo",
+          status: "warn",
+          commands: ["bounty skill score bug-bounty-pilot --repo OWNER/REPO --json"],
+        }),
+        expect.objectContaining({
+          name: "github:origin",
+          status: "warn",
+          commands: expect.arrayContaining(["git remote add origin https://github.com/OWNER/REPO.git"]),
+        }),
       ]),
     );
     expect(parsed.publicReadiness.missing).toEqual(expect.arrayContaining([expect.objectContaining({ name: "publish:repo" })]));
@@ -193,10 +201,22 @@ describe("CLI skill commands", () => {
     expect(parsedForRepo.publicReadiness.requirements).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "publish:repo", status: "pass", message: "octo/bountypilot" }),
-        expect.objectContaining({ name: "git:origin", status: "fail" }),
-        expect.objectContaining({ name: "git:local-tag", status: "warn" }),
-        expect.objectContaining({ name: "publish:online", status: "warn" }),
-        expect.objectContaining({ name: "github:actions", status: "warn" }),
+        expect.objectContaining({
+          name: "git:origin",
+          status: "fail",
+          commands: expect.arrayContaining(["git remote add origin https://github.com/octo/bountypilot.git"]),
+        }),
+        expect.objectContaining({ name: "git:local-tag", status: "warn", commands: ["git tag v0.1.0"] }),
+        expect.objectContaining({
+          name: "publish:online",
+          status: "warn",
+          commands: ["bounty release publish-status octo/bountypilot --branch codex/bug-bounty-pilot-candidate-engine --tag v0.1.0 --online --json"],
+        }),
+        expect.objectContaining({
+          name: "github:actions",
+          status: "warn",
+          commands: expect.arrayContaining(["gh run list --repo octo/bountypilot --limit 10"]),
+        }),
       ]),
     );
     expect(parsedForRepo.publicReadiness.missing).toEqual(expect.arrayContaining([expect.objectContaining({ name: "git:origin" })]));
@@ -275,8 +295,12 @@ describe("CLI skill commands", () => {
     expect(parsedPublished.publicReadiness.requirements).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "publish:repo", status: "pass" }),
-        expect.objectContaining({ name: "git:remote-branch", status: "fail" }),
-        expect.objectContaining({ name: "github:actions:CI", status: "pass" }),
+        expect.objectContaining({ name: "git:remote-branch", status: "fail", commands: ["git push -u origin HEAD:main"] }),
+        expect.objectContaining({
+          name: "github:actions:CI",
+          status: "pass",
+          commands: expect.arrayContaining(["bounty release publish-status octo/bountypilot --branch main --tag v0.1.0 --online --actions --json"]),
+        }),
       ]),
     );
     expect(parsedPublished.publicReadiness.missing).toEqual(expect.arrayContaining([expect.objectContaining({ name: "git:remote-branch" })]));
