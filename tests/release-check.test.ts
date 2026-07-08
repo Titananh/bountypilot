@@ -528,6 +528,43 @@ describe("release checks", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("fails when installers do not support pinned GitHub refs", () => {
+    const root = writeReleaseFixture();
+    writeText(
+      root,
+      "scripts/install.sh",
+      `#!/usr/bin/env bash
+MIN_NODE_VERSION="22.13.0"
+validate_source_spec() {
+  local value="$1"
+  if [[ "\${value}" =~ ^bountypilot(@[0-9A-Za-z._+-]+)?$ ]]; then return 0; fi
+  if [[ "\${value}" =~ ^github:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then return 0; fi
+  echo "Invalid BOUNTYPILOT_SOURCE: \${value}" >&2
+  return 1
+}
+BOUNTYPILOT_INSTALL_DRY_RUN=1
+npm install -g bountypilot
+bugbounty skill validate bug-bounty-pilot --json
+bugbounty release install-check --json
+echo "Install verified: readiness score"
+bugbounty skill score bug-bounty-pilot --json
+`,
+    );
+
+    const result = runReleaseCheck(root);
+
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "scripts/install.sh:content:content",
+          status: "fail",
+          message: expect.stringContaining("github:OWNER/REPO#ref"),
+        }),
+      ]),
+    );
+    expect(result.ok).toBe(false);
+  });
+
   it("fails when GitHub CodeQL workflow is missing", () => {
     const root = writeReleaseFixture();
     rmSync(path.join(root, ".github", "workflows", "codeql.yml"));
@@ -672,12 +709,16 @@ validate_source_spec() {
   if [[ "\${value}" =~ ^bountypilot(@[0-9A-Za-z._+-]+)?$ ]]; then
     return 0
   fi
-  if [[ "\${value}" =~ ^github:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+  if [[ "\${value}" =~ ^github:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(#[A-Za-z0-9._/@+-]+)?$ ]]; then
     return 0
   fi
   echo "Invalid BOUNTYPILOT_SOURCE: \${value}" >&2
+  echo "Use bountypilot, bountypilot@<version>, github:OWNER/REPO, or github:OWNER/REPO#ref." >&2
   return 1
 }
+if [[ -n "\${BOUNTYPILOT_REF:-}" ]]; then
+  echo "BOUNTYPILOT_REF=\${BOUNTYPILOT_REF}"
+fi
 if [[ "\${BOUNTYPILOT_INSTALL_DRY_RUN:-}" == "1" ]]; then
   echo "Dry run: npm install -g bountypilot"
   exit 0
@@ -696,8 +737,11 @@ bugbounty skill score bug-bounty-pilot --json
 function Assert-BountyPilotSourceSpec {
   param([string]$Value)
   if ($Value -match '^bountypilot(@[0-9A-Za-z._+-]+)?$') { return }
-  if ($Value -match '^github:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') { return }
-  Write-Error "Invalid BOUNTYPILOT_SOURCE: $Value"
+  if ($Value -match '^github:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(#[A-Za-z0-9._/@+-]+)?$') { return }
+  Write-Error "Invalid BOUNTYPILOT_SOURCE: $Value. Use bountypilot, bountypilot@<version>, github:OWNER/REPO, or github:OWNER/REPO#ref."
+}
+if (-not [string]::IsNullOrWhiteSpace($env:BOUNTYPILOT_REF)) {
+  Write-Host "BOUNTYPILOT_REF=$($env:BOUNTYPILOT_REF)"
 }
 if ($env:BOUNTYPILOT_INSTALL_DRY_RUN -eq "1") {
   Write-Host "Dry run: npm install -g bountypilot"
