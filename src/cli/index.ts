@@ -1282,6 +1282,18 @@ skill
         ],
       ],
     );
+    ui.blank();
+    ui.panel("public readiness", [
+      ui.kv("score", `${result.publicReadiness.score}/100`),
+      ui.kv("readiness", result.publicReadiness.readiness),
+      ui.kv("ultimate", result.publicReadiness.ultimate),
+      ui.kv("missing", result.publicReadiness.missing.length),
+    ]);
+    ui.blank();
+    ui.table(
+      ["status", "requirement", "message"],
+      result.publicReadiness.requirements.map((requirement) => [requirement.status, requirement.name, requirement.message]),
+    );
     if (result.github) {
       ui.blank();
       ui.panel("github", [

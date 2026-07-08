@@ -113,6 +113,19 @@ describe("CLI skill commands", () => {
       blockers: [],
       warnings: [],
     });
+    expect(parsed.publicReadiness).toMatchObject({
+      ok: false,
+      ultimate: false,
+      score: parsed.layers.publish.score,
+      readiness: parsed.layers.publish.readiness,
+    });
+    expect(parsed.publicReadiness.requirements).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "publish:repo", status: "warn" }),
+        expect.objectContaining({ name: "github:origin", status: "warn" }),
+      ]),
+    );
+    expect(parsed.publicReadiness.missing).toEqual(expect.arrayContaining([expect.objectContaining({ name: "publish:repo" })]));
     expect(parsed.score).toBeGreaterThanOrEqual(90);
     expect(["ultimate", "ready_with_warnings"]).toContain(parsed.readiness);
     expect(parsed.nextSteps.length).toBeGreaterThan(0);
@@ -177,6 +190,16 @@ describe("CLI skill commands", () => {
     expect(parsedForRepo.layers.local).toMatchObject({ ok: true, ultimate: true, score: 100, readiness: "ultimate" });
     expect(parsedForRepo.layers.publish).toMatchObject({ ok: true, ultimate: false, readiness: "ready_with_warnings" });
     expect(parsedForRepo.layers.publish.score).toBeLessThan(100);
+    expect(parsedForRepo.publicReadiness.requirements).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "publish:repo", status: "pass", message: "octo/bountypilot" }),
+        expect.objectContaining({ name: "git:origin", status: "fail" }),
+        expect.objectContaining({ name: "git:local-tag", status: "warn" }),
+        expect.objectContaining({ name: "publish:online", status: "warn" }),
+        expect.objectContaining({ name: "github:actions", status: "warn" }),
+      ]),
+    );
+    expect(parsedForRepo.publicReadiness.missing).toEqual(expect.arrayContaining([expect.objectContaining({ name: "git:origin" })]));
     expect(parsedForRepo.score).toBeLessThan(97);
     expect(parsedForRepo.readiness).toBe("ready_with_warnings");
     const strictForRepo = runCli(
@@ -249,6 +272,14 @@ describe("CLI skill commands", () => {
     });
     expect(parsedPublished.layers.local).toMatchObject({ ok: true, ultimate: true, score: 100, readiness: "ultimate" });
     expect(parsedPublished.layers.publish).toMatchObject({ ok: true, ultimate: false, readiness: "ready_with_warnings" });
+    expect(parsedPublished.publicReadiness.requirements).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "publish:repo", status: "pass" }),
+        expect.objectContaining({ name: "git:remote-branch", status: "fail" }),
+        expect.objectContaining({ name: "github:actions:CI", status: "pass" }),
+      ]),
+    );
+    expect(parsedPublished.publicReadiness.missing).toEqual(expect.arrayContaining([expect.objectContaining({ name: "git:remote-branch" })]));
     expect(parsedPublished.publish.checks).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "git:remote-branch", status: "fail" }),

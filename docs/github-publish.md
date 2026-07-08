@@ -113,6 +113,7 @@ The skill score JSON separates source-package readiness from public publish read
 
 - `layers.local` should be `100/100` and `ultimate` when the bundled skill, release checks, examples, installers, and package metadata are complete.
 - `layers.publish` becomes `100/100` only after the GitHub origin, public branch, release tag, online refs, and required Actions runs are verified.
+- `publicReadiness.requirements` is the full publish checklist, and `publicReadiness.missing` is the exact set still blocking public 100/100.
 
 ## 4. One-Line Install
 

@@ -20,6 +20,12 @@ export interface SkillReadinessIssue {
   message: string;
 }
 
+export type SkillReadinessRequirementStatus = "pass" | "warn" | "fail";
+
+export interface SkillReadinessRequirement extends SkillReadinessIssue {
+  status: SkillReadinessRequirementStatus;
+}
+
 export interface SkillReadinessLayer {
   ok: boolean;
   ultimate: boolean;
@@ -42,6 +48,15 @@ export interface SkillReadinessResult {
   layers: {
     local: SkillReadinessLayer;
     publish: SkillReadinessLayer;
+  };
+  publicReadiness: {
+    ok: boolean;
+    ultimate: boolean;
+    score: number;
+    readiness: SkillReadinessLevel;
+    requirements: SkillReadinessRequirement[];
+    missing: SkillReadinessRequirement[];
+    nextCommands: string[];
   };
   validation: {
     checks: number;
@@ -169,6 +184,21 @@ export function scoreSkillReadiness(
     bundleFailures: 0,
     releaseFailures: publishBlockers.length,
   });
+  const publicRequirements = buildPublicReadinessRequirements({
+    repo: github?.repo.slug,
+    github,
+    publish,
+    releaseWarnings,
+  });
+  const nextSteps = readinessNextSteps({
+    id,
+    blockers,
+    warnings,
+    releaseTag: release.version ? `v${release.version}` : "v0.1.0",
+    repoSlug: github?.repo.slug,
+    githubNextCommands: github?.nextCommands,
+    publishNextCommands: publish?.nextCommands,
+  });
   const score = readinessScore({
     validationFailures: validationFailures.length,
     bundleFailures: bundle.failures.length,
@@ -185,18 +215,19 @@ export function scoreSkillReadiness(
     readiness,
     blockers,
     warnings,
-    nextSteps: readinessNextSteps({
-      id,
-      blockers,
-      warnings,
-      releaseTag: release.version ? `v${release.version}` : "v0.1.0",
-      repoSlug: github?.repo.slug,
-      githubNextCommands: github?.nextCommands,
-      publishNextCommands: publish?.nextCommands,
-    }),
+    nextSteps,
     layers: {
       local: localLayer,
       publish: publishLayer,
+    },
+    publicReadiness: {
+      ok: publishLayer.ultimate,
+      ultimate: publishLayer.ultimate,
+      score: publishLayer.score,
+      readiness: publishLayer.readiness,
+      requirements: publicRequirements,
+      missing: publicRequirements.filter((requirement) => requirement.status !== "pass"),
+      nextCommands: nextSteps,
     },
     validation: {
       checks: validation.checks.length,
@@ -236,6 +267,68 @@ export function scoreSkillReadiness(
         }
       : undefined,
   };
+}
+
+function buildPublicReadinessRequirements(input: {
+  repo?: string;
+  github?: ReturnType<typeof buildReleaseGithubBootstrap>;
+  publish?: ReturnType<typeof buildReleasePublishStatus>;
+  releaseWarnings: SkillReadinessIssue[];
+}): SkillReadinessRequirement[] {
+  const requirements: SkillReadinessRequirement[] = [
+    input.repo
+      ? { name: "publish:repo", status: "pass", message: input.repo }
+      : { name: "publish:repo", status: "warn", message: "Pass --repo OWNER/REPO to verify concrete GitHub public-readiness." },
+  ];
+
+  const releaseOriginWarning = input.releaseWarnings.find((issue) => issue.name === "github:origin");
+  if (releaseOriginWarning) {
+    requirements.push({ status: "warn", ...releaseOriginWarning });
+  }
+
+  if (input.github) {
+    for (const check of input.github.checks) {
+      if (check.name === "release:check") continue;
+      requirements.push({ name: check.name, status: check.status, message: check.message });
+    }
+  }
+
+  if (input.publish) {
+    for (const check of input.publish.checks) {
+      if (check.name === "release:check") continue;
+      requirements.push({ name: check.name, status: check.status, message: check.message });
+    }
+  } else if (input.repo) {
+    requirements.push({
+      name: "publish:online",
+      status: "warn",
+      message: "Re-run with --online after pushing the public branch and tag.",
+    });
+    requirements.push({
+      name: "github:actions",
+      status: "warn",
+      message: "Re-run with --actions after GitHub Actions have completed.",
+    });
+  }
+
+  return mergeRequirements(requirements);
+}
+
+function mergeRequirements(requirements: SkillReadinessRequirement[]): SkillReadinessRequirement[] {
+  const merged = new Map<string, SkillReadinessRequirement>();
+  for (const requirement of requirements) {
+    const existing = merged.get(requirement.name);
+    if (!existing || requirementStatusRank(requirement.status) > requirementStatusRank(existing.status)) {
+      merged.set(requirement.name, requirement);
+    }
+  }
+  return [...merged.values()];
+}
+
+function requirementStatusRank(status: SkillReadinessRequirementStatus): number {
+  if (status === "fail") return 2;
+  if (status === "warn") return 1;
+  return 0;
 }
 
 function readinessLayer(input: {
