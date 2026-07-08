@@ -12,6 +12,7 @@ describe("installer scripts", () => {
     const result = spawnSync("bash", [path.join(repoRoot, "scripts", "install.sh")], {
       cwd: repoRoot,
       encoding: "utf8",
+      timeout: 15_000,
       env: {
         ...process.env,
         BOUNTYPILOT_INSTALL_DRY_RUN: "1",

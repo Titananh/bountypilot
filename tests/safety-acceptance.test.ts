@@ -175,6 +175,7 @@ function runCli(args: string[], cwd: string): SpawnSyncReturns<string> {
     env: {
       ...process.env,
       NO_COLOR: "1",
+      NODE_NO_WARNINGS: "1",
     },
   });
 }

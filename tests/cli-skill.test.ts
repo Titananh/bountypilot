@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -192,21 +193,35 @@ describe("CLI skill commands", () => {
     }
 
     const fakeGh = writeFakeGh(mkdtempSync(path.join(os.tmpdir(), "bountypilot-skill-fake-gh-")));
-    const scoredForRepo = runCli(
-      [
-        "skill",
-        "score",
-        "bug-bounty-pilot",
-        "--repo",
-        "octo/bountypilot",
-        "--gh-command",
-        process.execPath,
-        "--gh-command-arg",
-        fakeGh,
-        "--json",
-      ],
-      repoRoot,
-    );
+    // Run the score against the real repo (needs package.json + skills/ + examples/),
+    // but temporarily strip the real origin so the test sees `git:origin: fail` as expected.
+    let realOrigin = "";
+    try {
+      realOrigin = execFileSync("git", ["remote", "get-url", "origin"], { cwd: repoRoot, encoding: "utf8" }).trim();
+      if (realOrigin) execFileSync("git", ["remote", "remove", "origin"], { cwd: repoRoot });
+    } catch {
+      realOrigin = "";
+    }
+    let scoredForRepo;
+    try {
+      scoredForRepo = runCli(
+        [
+          "skill",
+          "score",
+          "bug-bounty-pilot",
+          "--repo",
+          "octo/bountypilot",
+          "--gh-command",
+          process.execPath,
+          "--gh-command-arg",
+          fakeGh,
+          "--json",
+        ],
+        repoRoot,
+      );
+    } finally {
+      if (realOrigin) execFileSync("git", ["remote", "add", "origin", realOrigin], { cwd: repoRoot });
+    }
     expectCommand(scoredForRepo).toExit(0);
     const parsedForRepo = JSON.parse(outputOf(scoredForRepo));
     expect(parsedForRepo.github).toMatchObject({
@@ -351,27 +366,41 @@ describe("CLI skill commands", () => {
         "bounty skill score bug-bounty-pilot --repo octo/bountypilot --json",
       ]),
     );
-    const scoredForPublishedRepo = runCli(
-      [
-        "skill",
-        "score",
-        "bug-bounty-pilot",
-        "--repo",
-        "octo/bountypilot",
-        "--branch",
-        "main",
-        "--tag",
-        "v0.1.0",
-        "--online",
-        "--actions",
-        "--gh-command",
-        process.execPath,
-        "--gh-command-arg",
-        fakeGh,
-        "--json",
-      ],
-      repoRoot,
-    );
+    // Strip real origin for the published-repo score so it does not skew
+    // `git:origin` / `git:origin-target` expectations inside this case.
+    let realOriginForPublished = "";
+    try {
+      realOriginForPublished = execFileSync("git", ["remote", "get-url", "origin"], { cwd: repoRoot, encoding: "utf8" }).trim();
+      if (realOriginForPublished) execFileSync("git", ["remote", "remove", "origin"], { cwd: repoRoot });
+    } catch {
+      realOriginForPublished = "";
+    }
+    let scoredForPublishedRepo;
+    try {
+      scoredForPublishedRepo = runCli(
+        [
+          "skill",
+          "score",
+          "bug-bounty-pilot",
+          "--repo",
+          "octo/bountypilot",
+          "--branch",
+          "main",
+          "--tag",
+          "v0.1.0",
+          "--online",
+          "--actions",
+          "--gh-command",
+          process.execPath,
+          "--gh-command-arg",
+          fakeGh,
+          "--json",
+        ],
+        repoRoot,
+      );
+    } finally {
+      if (realOriginForPublished) execFileSync("git", ["remote", "add", "origin", realOriginForPublished], { cwd: repoRoot });
+    }
     expectCommand(scoredForPublishedRepo).toExit(0);
     const parsedPublished = JSON.parse(outputOf(scoredForPublishedRepo));
     expect(parsedPublished.publish).toMatchObject({
