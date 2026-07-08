@@ -8,11 +8,11 @@ validate_source_spec() {
   if [[ "${value}" =~ ^bountypilot(@[0-9A-Za-z._+-]+)?$ ]]; then
     return 0
   fi
-  if [[ "${value}" =~ ^github:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+  if [[ "${value}" =~ ^github:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(#[A-Za-z0-9._/@+-]+)?$ ]]; then
     return 0
   fi
   echo "Invalid BOUNTYPILOT_SOURCE: ${value}" >&2
-  echo "Use bountypilot, bountypilot@<version>, or github:OWNER/REPO." >&2
+  echo "Use bountypilot, bountypilot@<version>, github:OWNER/REPO, or github:OWNER/REPO#ref." >&2
   return 1
 }
 
@@ -50,6 +50,10 @@ fi
 
 if [[ -n "${BOUNTYPILOT_VERSION:-}" && "${source_spec}" == "bountypilot" ]]; then
   source_spec="bountypilot@${BOUNTYPILOT_VERSION}"
+fi
+
+if [[ -n "${BOUNTYPILOT_REF:-}" && "${source_spec}" =~ ^github:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+  source_spec="${source_spec}#${BOUNTYPILOT_REF}"
 fi
 
 validate_source_spec "${source_spec}"

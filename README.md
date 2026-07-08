@@ -31,13 +31,13 @@ Replace `OWNER/REPO` with the GitHub repository, for example `your-name/bountypi
 Linux/macOS installer:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/OWNER/REPO/main/scripts/install.sh | BOUNTYPILOT_SOURCE=github:OWNER/REPO bash
+curl -fsSL https://raw.githubusercontent.com/OWNER/REPO/main/scripts/install.sh | BOUNTYPILOT_SOURCE=github:OWNER/REPO#main bash
 ```
 
 Windows PowerShell installer:
 
 ```powershell
-$env:BOUNTYPILOT_SOURCE="github:OWNER/REPO"; irm https://raw.githubusercontent.com/OWNER/REPO/main/scripts/install.ps1 | iex
+$env:BOUNTYPILOT_SOURCE="github:OWNER/REPO#main"; irm https://raw.githubusercontent.com/OWNER/REPO/main/scripts/install.ps1 | iex
 ```
 
 Set `BOUNTYPILOT_INSTALL_DRY_RUN=1` to make either installer verify Node/npm and print the resolved `npm install -g ...` command without installing globally.

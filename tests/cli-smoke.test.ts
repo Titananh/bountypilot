@@ -397,8 +397,12 @@ integrations: {}
       expect(parsedPublishPlan.commands.installVerify).toContain("npm install -g github:octo/bountypilot#main");
       expect(parsedPublishPlan.install.npm).toBe("npm install -g github:octo/bountypilot");
       expect(parsedPublishPlan.install.npmPinned).toBe("npm install -g github:octo/bountypilot#main");
+      expect(parsedPublishPlan.install.shell).toContain("BOUNTYPILOT_SOURCE=github:octo/bountypilot#main");
+      expect(parsedPublishPlan.install.powershell).toContain('BOUNTYPILOT_SOURCE="github:octo/bountypilot#main"');
       expect(parsedPublishPlan.install.shellDryRun).toContain("BOUNTYPILOT_INSTALL_DRY_RUN=1");
+      expect(parsedPublishPlan.install.shellDryRun).toContain("BOUNTYPILOT_SOURCE=github:octo/bountypilot#main");
       expect(parsedPublishPlan.install.powershellDryRun).toContain('BOUNTYPILOT_INSTALL_DRY_RUN="1"');
+      expect(parsedPublishPlan.install.powershellDryRun).toContain('BOUNTYPILOT_SOURCE="github:octo/bountypilot#main"');
       expect(existsSync(publishPlanPath)).toBe(true);
       expect(readFileSync(publishPlanPath, "utf8")).toContain("bounty skill score bug-bounty-pilot --repo octo/bountypilot --json");
       expect(readFileSync(publishPlanPath, "utf8")).toContain(
@@ -409,6 +413,7 @@ integrations: {}
       expect(readFileSync(publishPlanPath, "utf8")).toContain("gh auth login");
       expect(readFileSync(publishPlanPath, "utf8")).toContain("gh repo create octo/bountypilot");
       expect(readFileSync(publishPlanPath, "utf8")).toContain("npm install -g github:octo/bountypilot#main");
+      expect(readFileSync(publishPlanPath, "utf8")).toContain("BOUNTYPILOT_SOURCE=github:octo/bountypilot#main");
       expect(readFileSync(publishPlanPath, "utf8")).toContain("bounty release publish-status octo/bountypilot --branch main --tag v0.1.0 --online --json");
       expect(readFileSync(publishPlanPath, "utf8")).toContain("bounty release publish-status octo/bountypilot --branch main --tag v0.1.0 --online --actions --json");
     expect(readFileSync(publishPlanPath, "utf8")).toContain("Verify installer resolution");

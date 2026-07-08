@@ -119,13 +119,13 @@ npm install -g github:OWNER/REPO
 Linux/macOS:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/OWNER/REPO/main/scripts/install.sh | BOUNTYPILOT_SOURCE=github:OWNER/REPO bash
+curl -fsSL https://raw.githubusercontent.com/OWNER/REPO/main/scripts/install.sh | BOUNTYPILOT_SOURCE=github:OWNER/REPO#main bash
 ```
 
 Windows PowerShell:
 
 ```powershell
-$env:BOUNTYPILOT_SOURCE="github:OWNER/REPO"; irm https://raw.githubusercontent.com/OWNER/REPO/main/scripts/install.ps1 | iex
+$env:BOUNTYPILOT_SOURCE="github:OWNER/REPO#main"; irm https://raw.githubusercontent.com/OWNER/REPO/main/scripts/install.ps1 | iex
 ```
 
 Set `BOUNTYPILOT_INSTALL_DRY_RUN=1` when testing either installer to verify Node/npm and print the resolved install command without changing the global npm prefix.

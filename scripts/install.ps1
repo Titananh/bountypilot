@@ -8,11 +8,11 @@ function Assert-BountyPilotSourceSpec {
   if ($Value -match '^bountypilot(@[0-9A-Za-z._+-]+)?$') {
     return
   }
-  if ($Value -match '^github:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') {
+  if ($Value -match '^github:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(#[A-Za-z0-9._/@+-]+)?$') {
     return
   }
 
-  Write-Error "Invalid BOUNTYPILOT_SOURCE: $Value. Use bountypilot, bountypilot@<version>, or github:OWNER/REPO."
+  Write-Error "Invalid BOUNTYPILOT_SOURCE: $Value. Use bountypilot, bountypilot@<version>, github:OWNER/REPO, or github:OWNER/REPO#ref."
 }
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
@@ -42,6 +42,10 @@ if ([string]::IsNullOrWhiteSpace($SourceSpec)) {
 
 if (-not [string]::IsNullOrWhiteSpace($env:BOUNTYPILOT_VERSION) -and $SourceSpec -eq "bountypilot") {
   $SourceSpec = "bountypilot@$($env:BOUNTYPILOT_VERSION)"
+}
+
+if (-not [string]::IsNullOrWhiteSpace($env:BOUNTYPILOT_REF) -and $SourceSpec -match '^github:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') {
+  $SourceSpec = "$SourceSpec#$($env:BOUNTYPILOT_REF)"
 }
 
 Assert-BountyPilotSourceSpec -Value $SourceSpec

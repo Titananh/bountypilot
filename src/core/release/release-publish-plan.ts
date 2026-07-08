@@ -289,13 +289,14 @@ export function buildReleasePublishStatus(input: BuildReleasePublishStatusInput)
 }
 
 function releaseInstallCommands(repo: GitHubRepoRef, branch: string): ReleasePublishPlanResult["install"] {
+  const pinnedSource = `github:${repo.slug}#${branch}`;
   return {
     npm: `npm install -g github:${repo.slug}`,
     npmPinned: `npm install -g github:${repo.slug}#${branch}`,
-    shell: `curl -fsSL https://raw.githubusercontent.com/${repo.slug}/${branch}/scripts/install.sh | BOUNTYPILOT_SOURCE=github:${repo.slug} bash`,
-    powershell: `$env:BOUNTYPILOT_SOURCE="github:${repo.slug}"; irm https://raw.githubusercontent.com/${repo.slug}/${branch}/scripts/install.ps1 | iex`,
-    shellDryRun: `curl -fsSL https://raw.githubusercontent.com/${repo.slug}/${branch}/scripts/install.sh | BOUNTYPILOT_SOURCE=github:${repo.slug} BOUNTYPILOT_INSTALL_DRY_RUN=1 bash`,
-    powershellDryRun: `$env:BOUNTYPILOT_SOURCE="github:${repo.slug}"; $env:BOUNTYPILOT_INSTALL_DRY_RUN="1"; irm https://raw.githubusercontent.com/${repo.slug}/${branch}/scripts/install.ps1 | iex`,
+    shell: `curl -fsSL https://raw.githubusercontent.com/${repo.slug}/${branch}/scripts/install.sh | BOUNTYPILOT_SOURCE=${pinnedSource} bash`,
+    powershell: `$env:BOUNTYPILOT_SOURCE="${pinnedSource}"; irm https://raw.githubusercontent.com/${repo.slug}/${branch}/scripts/install.ps1 | iex`,
+    shellDryRun: `curl -fsSL https://raw.githubusercontent.com/${repo.slug}/${branch}/scripts/install.sh | BOUNTYPILOT_SOURCE=${pinnedSource} BOUNTYPILOT_INSTALL_DRY_RUN=1 bash`,
+    powershellDryRun: `$env:BOUNTYPILOT_SOURCE="${pinnedSource}"; $env:BOUNTYPILOT_INSTALL_DRY_RUN="1"; irm https://raw.githubusercontent.com/${repo.slug}/${branch}/scripts/install.ps1 | iex`,
   };
 }
 

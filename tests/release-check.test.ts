@@ -128,13 +128,15 @@ describe("release checks", () => {
     expect(result.install).toMatchObject({
       npm: "npm install -g github:owner/repo",
       npmPinned: "npm install -g github:owner/repo#main",
+      shell: expect.stringContaining("BOUNTYPILOT_SOURCE=github:owner/repo#main"),
+      powershell: expect.stringContaining('BOUNTYPILOT_SOURCE="github:owner/repo#main"'),
     });
     expect(result.installVerify).toEqual(
       expect.arrayContaining([
         "npm install -g github:owner/repo",
         "npm install -g github:owner/repo#main",
         "bugbounty release install-check --json",
-        expect.stringContaining("BOUNTYPILOT_INSTALL_DRY_RUN=1"),
+        expect.stringContaining("BOUNTYPILOT_SOURCE=github:owner/repo#main"),
       ]),
     );
   }, 15_000);
