@@ -240,6 +240,14 @@ describe("release checks", () => {
     expect(plan.publicBranch).toBe("main");
     expect(plan.commands.localVerify).toContain("bounty skill score bug-bounty-pilot --repo owner/repo --json");
     expect(plan.markdown).toContain("bounty skill score bug-bounty-pilot --repo owner/repo --json");
+    expect(plan.commands.release).toEqual([
+      "git tag v0.0.0",
+      "bounty skill score bug-bounty-pilot --repo owner/repo --branch codex/release-candidate --tag v0.0.0 --strict --json",
+      "git push origin v0.0.0",
+    ]);
+    expect(plan.markdown).toContain(
+      "bounty skill score bug-bounty-pilot --repo owner/repo --branch codex/release-candidate --tag v0.0.0 --strict --json",
+    );
     expect(plan.commands.publicBranchVerify).toEqual([
       "git push -u origin HEAD:main",
       "bounty release publish-plan owner/repo --branch main --tag v0.0.0 --write",
@@ -427,11 +435,17 @@ describe("release checks", () => {
     expect(readFileSync(result.outputFiles!.powershell, "utf8")).toContain(
       "node dist/cli/index.js skill score bug-bounty-pilot --repo 'owner/repo' --branch 'main' --tag 'v0.0.0' --json",
     );
+    expect(readFileSync(result.outputFiles!.powershell, "utf8")).toContain(
+      "node dist/cli/index.js skill score bug-bounty-pilot --repo 'owner/repo' --branch 'main' --tag 'v0.0.0' --strict --json",
+    );
     expect(readFileSync(result.outputFiles!.powershell, "utf8")).toContain("bounty release publish-status 'owner/repo'");
     expect(readFileSync(result.outputFiles!.shell, "utf8")).toContain("npm run verify:release");
     expect(readFileSync(result.outputFiles!.shell, "utf8")).toContain("node dist/cli/index.js release verify-bundle .release --json");
     expect(readFileSync(result.outputFiles!.shell, "utf8")).toContain(
       "node dist/cli/index.js skill score bug-bounty-pilot --repo 'owner/repo' --branch 'main' --tag 'v0.0.0' --json",
+    );
+    expect(readFileSync(result.outputFiles!.shell, "utf8")).toContain(
+      "node dist/cli/index.js skill score bug-bounty-pilot --repo 'owner/repo' --branch 'main' --tag 'v0.0.0' --strict --json",
     );
     expect(readFileSync(result.outputFiles!.shell, "utf8")).toContain("bugbounty release install-check --json");
   });

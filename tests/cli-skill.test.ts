@@ -108,6 +108,9 @@ describe("CLI skill commands", () => {
     expect(parsed.score).toBeGreaterThanOrEqual(90);
     expect(["ultimate", "ready_with_warnings"]).toContain(parsed.readiness);
     expect(parsed.nextSteps.length).toBeGreaterThan(0);
+    const strictResult = runCli(["skill", "score", "bug-bounty-pilot", "--strict", "--json"], repoRoot);
+    expectCommand(strictResult).toExit(parsed.ultimate ? 0 : 1);
+    expect(JSON.parse(outputOf(strictResult)).ultimate).toBe(parsed.ultimate);
     if (parsed.warnings.some((warning: any) => warning.name === "github:origin")) {
       expect(parsed.nextSteps).toEqual(
         expect.arrayContaining([
@@ -157,6 +160,27 @@ describe("CLI skill commands", () => {
     });
     expect(parsedForRepo.score).toBeLessThan(97);
     expect(parsedForRepo.readiness).toBe("ready_with_warnings");
+    const strictForRepo = runCli(
+      [
+        "skill",
+        "score",
+        "bug-bounty-pilot",
+        "--repo",
+        "octo/bountypilot",
+        "--gh-command",
+        process.execPath,
+        "--gh-command-arg",
+        fakeGh,
+        "--strict",
+        "--json",
+      ],
+      repoRoot,
+    );
+    expectCommand(strictForRepo).toExit(1);
+    expect(JSON.parse(outputOf(strictForRepo))).toMatchObject({
+      ultimate: false,
+      readiness: "ready_with_warnings",
+    });
     expect(parsedForRepo.github.checks).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "gh:version", status: "pass" }),

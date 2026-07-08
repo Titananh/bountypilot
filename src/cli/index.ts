@@ -1210,6 +1210,7 @@ skill
   .option("--gh-command <command>", "GitHub CLI command to probe when --repo is provided", "gh")
   .option("--gh-command-arg <arg>", "Argument to prepend before gh probe arguments. Repeat for wrappers.", collectOption, [] as string[])
   .option("--timeout-ms <ms>", "Per-command timeout in milliseconds for GitHub probes", "8000")
+  .option("--strict", "Exit non-zero unless readiness is ultimate with no blockers or warnings")
   .option("--json", "Print machine-readable JSON")
   .description("Score skill readiness across validation, bundle verification, and release gates")
   .action((id: string, ...args: unknown[]) => {
@@ -1222,6 +1223,7 @@ skill
       ghCommand: string;
       ghCommandArg: string[];
       timeoutMs: string;
+      strict?: boolean;
       json?: boolean;
     }>();
     const timeoutMs = parsePositiveIntegerOption(options.timeoutMs, "timeout-ms", 8_000);
@@ -1236,7 +1238,7 @@ skill
       ghArgsPrefix: options.ghCommandArg,
       timeoutMs,
     });
-    if (!result.ok) {
+    if (!result.ok || (options.strict && !result.ultimate)) {
       process.exitCode = 1;
     }
     if (options.json || requestedJsonOutput(process.argv)) {

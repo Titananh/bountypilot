@@ -390,6 +390,9 @@ integrations: {}
     expect(parsedPublishPlan.commands.actionsVerify).toContain("gh run list --repo octo/bountypilot --limit 10");
       expect(parsedPublishPlan.commands.localVerify).toContain("bounty skill score bug-bounty-pilot --repo octo/bountypilot --json");
       expect(parsedPublishPlan.commands.localVerify).toContain("bounty release verify-bundle .release --json");
+      expect(parsedPublishPlan.commands.release).toContain(
+        "bounty skill score bug-bounty-pilot --repo octo/bountypilot --branch main --tag v0.1.0 --strict --json",
+      );
       expect(parsedPublishPlan.commands.installVerify.join("\n")).toContain("BOUNTYPILOT_INSTALL_DRY_RUN=1");
       expect(parsedPublishPlan.commands.installVerify).toContain("npm install -g github:octo/bountypilot#main");
       expect(parsedPublishPlan.install.npm).toBe("npm install -g github:octo/bountypilot");
@@ -398,6 +401,9 @@ integrations: {}
       expect(parsedPublishPlan.install.powershellDryRun).toContain('BOUNTYPILOT_INSTALL_DRY_RUN="1"');
       expect(existsSync(publishPlanPath)).toBe(true);
       expect(readFileSync(publishPlanPath, "utf8")).toContain("bounty skill score bug-bounty-pilot --repo octo/bountypilot --json");
+      expect(readFileSync(publishPlanPath, "utf8")).toContain(
+        "bounty skill score bug-bounty-pilot --repo octo/bountypilot --branch main --tag v0.1.0 --strict --json",
+      );
       expect(readFileSync(publishPlanPath, "utf8")).toContain("bounty release verify-bundle .release --json");
       expect(readFileSync(publishPlanPath, "utf8")).toContain("gh auth status");
       expect(readFileSync(publishPlanPath, "utf8")).toContain("gh auth login");
@@ -449,10 +455,16 @@ integrations: {}
     expect(readFileSync(parsedGithubBootstrap.outputFiles.powershell, "utf8")).toContain(
       "node dist/cli/index.js skill score bug-bounty-pilot --repo 'octo/bountypilot' --branch 'main' --tag 'v0.1.0' --json",
     );
+    expect(readFileSync(parsedGithubBootstrap.outputFiles.powershell, "utf8")).toContain(
+      "node dist/cli/index.js skill score bug-bounty-pilot --repo 'octo/bountypilot' --branch 'main' --tag 'v0.1.0' --strict --json",
+    );
     expect(readFileSync(parsedGithubBootstrap.outputFiles.shell, "utf8")).toContain("npm run verify:release");
     expect(readFileSync(parsedGithubBootstrap.outputFiles.shell, "utf8")).toContain("node dist/cli/index.js release verify-bundle .release --json");
     expect(readFileSync(parsedGithubBootstrap.outputFiles.shell, "utf8")).toContain(
       "node dist/cli/index.js skill score bug-bounty-pilot --repo 'octo/bountypilot' --branch 'main' --tag 'v0.1.0' --json",
+    );
+    expect(readFileSync(parsedGithubBootstrap.outputFiles.shell, "utf8")).toContain(
+      "node dist/cli/index.js skill score bug-bounty-pilot --repo 'octo/bountypilot' --branch 'main' --tag 'v0.1.0' --strict --json",
     );
     expect(readFileSync(parsedGithubBootstrap.outputFiles.shell, "utf8")).toContain("gh repo create 'octo/bountypilot'");
 

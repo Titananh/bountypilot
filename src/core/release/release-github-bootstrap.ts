@@ -350,6 +350,7 @@ git rev-parse -q --verify "refs/tags/${plan.tag}" *> $null
 if ($LASTEXITCODE -ne 0) {
   git tag ${tag}
 }
+node dist/cli/index.js skill score bug-bounty-pilot --repo ${repo} --branch ${branch} --tag ${tag} --strict --json
 git push origin ${tag}
 
 bounty release publish-status ${repo} --branch ${branch} --tag ${tag} --online --actions --json
@@ -387,6 +388,7 @@ fi
 if ! git rev-parse -q --verify "refs/tags/${plan.tag}" >/dev/null; then
   git tag ${tag}
 fi
+node dist/cli/index.js skill score bug-bounty-pilot --repo ${repo} --branch ${branch} --tag ${tag} --strict --json
 git push origin ${tag}
 
 bounty release publish-status ${repo} --branch ${branch} --tag ${tag} --online --actions --json

@@ -140,7 +140,11 @@ export function buildReleasePublishPlan(input: BuildReleasePublishPlanInput): Re
       `gh run list --repo ${repo.slug} --limit 10`,
     ],
     installVerify: releaseInstallVerifyCommands(install),
-    release: [`git tag ${tag}`, `git push origin ${tag}`],
+    release: [
+      `git tag ${tag}`,
+      `bounty skill score bug-bounty-pilot --repo ${repo.slug} --branch ${branch} --tag ${tag} --strict --json`,
+      `git push origin ${tag}`,
+    ],
     publicBranchVerify:
       branch === publicBranch
         ? []
