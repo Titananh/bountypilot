@@ -484,6 +484,15 @@ integrations: {}
       expect(parsedPublishStatus.nextCommands).toContain("bounty release github-bootstrap octo/bountypilot --branch main --tag v0.1.0 --write");
       expect(parsedPublishStatus.nextCommands).toContain("gh auth login");
       expect(parsedPublishStatus.nextCommands).toContain("gh repo create octo/bountypilot --public --source . --remote origin --push");
+      expect(parsedPublishStatus.nextCommands).toContain(
+        "bounty skill score bug-bounty-pilot --repo octo/bountypilot --branch main --tag v0.1.0 --strict --json",
+      );
+      expect(parsedPublishStatus.nextCommands.indexOf("git tag v0.1.0")).toBeLessThan(
+        parsedPublishStatus.nextCommands.indexOf("bounty skill score bug-bounty-pilot --repo octo/bountypilot --branch main --tag v0.1.0 --strict --json"),
+      );
+      expect(
+        parsedPublishStatus.nextCommands.indexOf("bounty skill score bug-bounty-pilot --repo octo/bountypilot --branch main --tag v0.1.0 --strict --json"),
+      ).toBeLessThan(parsedPublishStatus.nextCommands.indexOf("git push origin v0.1.0"));
       expect(parsedPublishStatus.install).toMatchObject({
         npm: "npm install -g github:octo/bountypilot",
         npmPinned: "npm install -g github:octo/bountypilot#main",

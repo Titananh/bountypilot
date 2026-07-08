@@ -671,7 +671,10 @@ function publishStatusNextCommands(input: {
     commands.add(`bounty release publish-status ${input.repo.slug} --branch ${input.publicBranch} --tag ${input.tag} --online --actions --json`);
   }
   if (byName.get("git:local-tag")?.status === "warn") commands.add(`git tag ${input.tag}`);
-  if (byName.get("git:remote-tag")?.status !== "pass") commands.add(`git push origin ${input.tag}`);
+  if (byName.get("git:remote-tag")?.status !== "pass") {
+    commands.add(`bounty skill score bug-bounty-pilot --repo ${input.repo.slug} --branch ${input.branch} --tag ${input.tag} --strict --json`);
+    commands.add(`git push origin ${input.tag}`);
+  }
   if (!input.online) commands.add(`bounty release publish-status ${input.repo.slug} --branch ${input.branch} --tag ${input.tag} --online --json`);
   if (githubActionsGhFailed) {
     for (const command of GITHUB_CLI_INSTALL_COMMANDS) commands.add(command);

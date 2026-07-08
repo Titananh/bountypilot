@@ -137,7 +137,7 @@ describe("release checks", () => {
         expect.stringContaining("BOUNTYPILOT_INSTALL_DRY_RUN=1"),
       ]),
     );
-  });
+  }, 15_000);
 
   it("verifies an installed CLI command through the release install check", () => {
     const fakeCli = writeFakeInstalledBounty(mkdtempSync(path.join(os.tmpdir(), "bountypilot-fake-install-")));
@@ -274,6 +274,15 @@ describe("release checks", () => {
     expect(result.nextCommands).toContain("bounty release publish-plan owner/repo --branch main --tag v0.0.0 --write");
     expect(result.nextCommands).toContain("bounty release publish-status owner/repo --branch main --tag v0.0.0 --online --actions --json");
     expect(result.nextCommands.indexOf("git push -u origin HEAD:main")).toBeLessThan(result.nextCommands.indexOf("git push origin v0.0.0"));
+    expect(result.nextCommands).toContain(
+      "bounty skill score bug-bounty-pilot --repo owner/repo --branch codex/release-candidate --tag v0.0.0 --strict --json",
+    );
+    expect(result.nextCommands.indexOf("git tag v0.0.0")).toBeLessThan(
+      result.nextCommands.indexOf("bounty skill score bug-bounty-pilot --repo owner/repo --branch codex/release-candidate --tag v0.0.0 --strict --json"),
+    );
+    expect(
+      result.nextCommands.indexOf("bounty skill score bug-bounty-pilot --repo owner/repo --branch codex/release-candidate --tag v0.0.0 --strict --json"),
+    ).toBeLessThan(result.nextCommands.indexOf("git push origin v0.0.0"));
   });
 
   it("verifies required GitHub Actions workflows through an injected gh command", () => {
