@@ -354,8 +354,7 @@ if ($LASTEXITCODE -ne 0) {
 node dist/cli/index.js skill score bug-bounty-pilot --repo ${repo} --branch ${branch} --tag ${tag} --strict --json
 git push origin ${tag}
 
-bounty release publish-status ${repo} --branch ${branch} --tag ${tag} --online --actions --json
-bugbounty release install-check --json
+bounty release public-gate ${repo} --branch ${branch} --tag ${tag} --online --actions --install-check --write-public-plan ${quotePowerShell(".bounty/release/public-readiness.md")} --json
 `;
 }
 
@@ -393,8 +392,7 @@ fi
 node dist/cli/index.js skill score bug-bounty-pilot --repo ${repo} --branch ${branch} --tag ${tag} --strict --json
 git push origin ${tag}
 
-bounty release publish-status ${repo} --branch ${branch} --tag ${tag} --online --actions --json
-bugbounty release install-check --json
+bounty release public-gate ${repo} --branch ${branch} --tag ${tag} --online --actions --install-check --write-public-plan ${quoteShell(".bounty/release/public-readiness.md")} --json
 `;
 }
 

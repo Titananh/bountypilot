@@ -477,7 +477,9 @@ describe("release checks", () => {
     expect(readFileSync(result.outputFiles!.powershell, "utf8")).toContain(
       "node dist/cli/index.js skill score bug-bounty-pilot --repo 'owner/repo' --branch 'main' --tag 'v0.0.0' --strict --json",
     );
-    expect(readFileSync(result.outputFiles!.powershell, "utf8")).toContain("bounty release publish-status 'owner/repo'");
+    expect(readFileSync(result.outputFiles!.powershell, "utf8")).toContain(
+      "bounty release public-gate 'owner/repo' --branch 'main' --tag 'v0.0.0' --online --actions --install-check --write-public-plan '.bounty/release/public-readiness.md' --json",
+    );
     expect(readFileSync(result.outputFiles!.shell, "utf8")).toContain("npm run verify:release");
     expect(readFileSync(result.outputFiles!.shell, "utf8")).toContain("node dist/cli/index.js release verify-bundle .release --json");
     expect(readFileSync(result.outputFiles!.shell, "utf8")).toContain(
@@ -489,7 +491,9 @@ describe("release checks", () => {
     expect(readFileSync(result.outputFiles!.shell, "utf8")).toContain(
       "node dist/cli/index.js skill score bug-bounty-pilot --repo 'owner/repo' --branch 'main' --tag 'v0.0.0' --strict --json",
     );
-    expect(readFileSync(result.outputFiles!.shell, "utf8")).toContain("bugbounty release install-check --json");
+    expect(readFileSync(result.outputFiles!.shell, "utf8")).toContain(
+      "bounty release public-gate 'owner/repo' --branch 'main' --tag 'v0.0.0' --online --actions --install-check --write-public-plan '.bounty/release/public-readiness.md' --json",
+    );
   });
 
   it("orders GitHub CLI verification before bootstrap repo creation when gh is missing", () => {
