@@ -27,6 +27,16 @@ export interface SkillReadinessRequirement extends SkillReadinessIssue {
   commands: string[];
 }
 
+export type SkillReadinessFixPlanStepStatus = "pass" | "pending";
+
+export interface SkillReadinessFixPlanStep {
+  id: string;
+  title: string;
+  status: SkillReadinessFixPlanStepStatus;
+  requirements: string[];
+  commands: string[];
+}
+
 export interface SkillReadinessLayer {
   ok: boolean;
   ultimate: boolean;
@@ -57,6 +67,7 @@ export interface SkillReadinessResult {
     readiness: SkillReadinessLevel;
     requirements: SkillReadinessRequirement[];
     missing: SkillReadinessRequirement[];
+    fixPlan: SkillReadinessFixPlanStep[];
     nextCommands: string[];
   };
   validation: {
@@ -202,6 +213,7 @@ export function scoreSkillReadiness(
     githubNextCommands: github?.nextCommands,
     publishNextCommands: publish?.nextCommands,
   });
+  const publicFixPlan = buildPublicReadinessFixPlan(publicRequirements, nextSteps);
   const score = readinessScore({
     validationFailures: validationFailures.length,
     bundleFailures: bundle.failures.length,
@@ -230,6 +242,7 @@ export function scoreSkillReadiness(
       readiness: publishLayer.readiness,
       requirements: publicRequirements,
       missing: publicRequirements.filter((requirement) => requirement.status !== "pass"),
+      fixPlan: publicFixPlan,
       nextCommands: nextSteps,
     },
     validation: {
@@ -333,6 +346,99 @@ function buildPublicReadinessRequirements(input: {
   return mergeRequirements(requirements);
 }
 
+function buildPublicReadinessFixPlan(
+  requirements: SkillReadinessRequirement[],
+  finalCommands: string[],
+): SkillReadinessFixPlanStep[] {
+  const phaseSpecs: Array<{
+    id: string;
+    title: string;
+    matches: (requirement: SkillReadinessRequirement) => boolean;
+  }> = [
+    {
+      id: "repo",
+      title: "Choose target GitHub repository",
+      matches: (requirement) => requirement.name === "publish:repo",
+    },
+    {
+      id: "github-cli",
+      title: "Install and authenticate GitHub CLI",
+      matches: (requirement) => requirement.name === "gh:version" || requirement.name === "gh:auth" || requirement.name === "github:actions-gh",
+    },
+    {
+      id: "working-tree",
+      title: "Commit local release changes",
+      matches: (requirement) => requirement.name === "git:working-tree",
+    },
+    {
+      id: "origin",
+      title: "Configure GitHub origin",
+      matches: (requirement) => requirement.name === "github:origin" || requirement.name === "git:origin" || requirement.name === "git:origin-target",
+    },
+    {
+      id: "branch",
+      title: "Push release branch",
+      matches: (requirement) => requirement.name === "git:remote-branch",
+    },
+    {
+      id: "public-branch",
+      title: "Publish public install branch",
+      matches: (requirement) => requirement.name === "publish:public-branch",
+    },
+    {
+      id: "tag",
+      title: "Create and push release tag",
+      matches: (requirement) => requirement.name === "git:local-tag" || requirement.name === "git:remote-tag",
+    },
+    {
+      id: "online",
+      title: "Verify online refs",
+      matches: (requirement) => requirement.name === "publish:online",
+    },
+    {
+      id: "actions",
+      title: "Verify required GitHub Actions",
+      matches: (requirement) => requirement.name === "github:actions" || requirement.name.startsWith("github:actions:"),
+    },
+  ];
+
+  const steps = phaseSpecs
+    .map((phase): SkillReadinessFixPlanStep => {
+      const matched = requirements.filter(phase.matches);
+      const missing = matched.filter((requirement) => requirement.status !== "pass");
+      return {
+        id: phase.id,
+        title: phase.title,
+        status: missing.length > 0 ? "pending" : "pass",
+        requirements: matched.map((requirement) => requirement.name),
+        commands: missing.length > 0 ? uniqueCommands(missing.flatMap((requirement) => requirement.commands)) : [],
+      };
+    })
+    .filter((step) => step.requirements.length > 0);
+
+  const missingRequirements = requirements.filter((requirement) => requirement.status !== "pass");
+  steps.push({
+    id: "final-verify",
+    title: "Verify public 100/100 readiness",
+    status: missingRequirements.length > 0 ? "pending" : "pass",
+    requirements: missingRequirements.map((requirement) => requirement.name),
+    commands:
+      missingRequirements.length > 0
+        ? uniqueCommands(finalCommands.filter((command) => isFinalPublicVerificationCommand(command)))
+        : [],
+  });
+
+  return steps;
+}
+
+function isFinalPublicVerificationCommand(command: string): boolean {
+  return (
+    /^bounty release publish-status .+ --online --actions --json$/.test(command) ||
+    /^bounty skill score .+ --repo .+ --online --actions --strict --json$/.test(command) ||
+    command === "bugbounty release install-check --json"
+  );
+}
+
 interface PublicReadinessCommandContext {
   id: string;
   repo: string;
@@ -428,6 +534,10 @@ function remediationCommandsForRequirement(name: string, context: PublicReadines
     ];
   }
   return [`bounty skill score ${context.id} --repo ${context.repo} --json`];
+}
+
+function uniqueCommands(commands: string[]): string[] {
+  return [...new Set(commands.filter(Boolean))];
 }
 
 function mergeRequirements(requirements: SkillReadinessRequirement[]): SkillReadinessRequirement[] {

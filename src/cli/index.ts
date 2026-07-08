@@ -1294,6 +1294,16 @@ skill
       ["status", "requirement", "message"],
       result.publicReadiness.requirements.map((requirement) => [requirement.status, requirement.name, requirement.message]),
     );
+    ui.blank();
+    ui.table(
+      ["status", "phase", "requirements", "commands"],
+      result.publicReadiness.fixPlan.map((step) => [
+        step.status,
+        step.id,
+        step.requirements.join(", ") || "-",
+        step.commands.length,
+      ]),
+    );
     const publicFixCommands = [...new Set(result.publicReadiness.missing.flatMap((requirement) => requirement.commands))];
     if (publicFixCommands.length > 0) {
       ui.blank();

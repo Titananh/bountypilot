@@ -115,6 +115,7 @@ The skill score JSON separates source-package readiness from public publish read
 - `layers.publish` becomes `100/100` only after the GitHub origin, public branch, release tag, online refs, and required Actions runs are verified.
 - `publicReadiness.requirements` is the full publish checklist, and `publicReadiness.missing` is the exact set still blocking public 100/100.
 - Each missing requirement includes `commands`, a targeted remediation list for that specific check.
+- `publicReadiness.fixPlan` groups those remediation commands into ordered phases such as repository selection, GitHub CLI setup, origin, branch, tag, Actions, and final verification.
 
 ## 4. One-Line Install
 

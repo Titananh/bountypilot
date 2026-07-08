@@ -134,6 +134,23 @@ describe("CLI skill commands", () => {
       ]),
     );
     expect(parsed.publicReadiness.missing).toEqual(expect.arrayContaining([expect.objectContaining({ name: "publish:repo" })]));
+    expect(parsed.publicReadiness.fixPlan).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "repo",
+          status: "pending",
+          requirements: ["publish:repo"],
+          commands: ["bounty skill score bug-bounty-pilot --repo OWNER/REPO --json"],
+        }),
+        expect.objectContaining({
+          id: "origin",
+          status: "pending",
+          requirements: ["github:origin"],
+          commands: expect.arrayContaining(["git push -u origin HEAD:main"]),
+        }),
+        expect.objectContaining({ id: "final-verify", status: "pending" }),
+      ]),
+    );
     expect(parsed.score).toBeGreaterThanOrEqual(90);
     expect(["ultimate", "ready_with_warnings"]).toContain(parsed.readiness);
     expect(parsed.nextSteps.length).toBeGreaterThan(0);
@@ -220,6 +237,26 @@ describe("CLI skill commands", () => {
       ]),
     );
     expect(parsedForRepo.publicReadiness.missing).toEqual(expect.arrayContaining([expect.objectContaining({ name: "git:origin" })]));
+    expect(parsedForRepo.publicReadiness.fixPlan).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "github-cli", status: "pass", commands: [] }),
+        expect.objectContaining({
+          id: "origin",
+          status: "pending",
+          commands: expect.arrayContaining(["git push -u origin HEAD:codex/bug-bounty-pilot-candidate-engine"]),
+        }),
+        expect.objectContaining({
+          id: "tag",
+          status: "pending",
+          commands: expect.arrayContaining(["git tag v0.1.0"]),
+        }),
+        expect.objectContaining({
+          id: "final-verify",
+          status: "pending",
+          commands: expect.arrayContaining(["bounty skill score bug-bounty-pilot --repo octo/bountypilot --online --actions --strict --json"]),
+        }),
+      ]),
+    );
     expect(parsedForRepo.score).toBeLessThan(97);
     expect(parsedForRepo.readiness).toBe("ready_with_warnings");
     const strictForRepo = runCli(
@@ -304,6 +341,16 @@ describe("CLI skill commands", () => {
       ]),
     );
     expect(parsedPublished.publicReadiness.missing).toEqual(expect.arrayContaining([expect.objectContaining({ name: "git:remote-branch" })]));
+    expect(parsedPublished.publicReadiness.fixPlan).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "branch", status: "pending", commands: ["git push -u origin HEAD:main"] }),
+        expect.objectContaining({
+          id: "final-verify",
+          status: "pending",
+          commands: expect.arrayContaining(["bounty skill score bug-bounty-pilot --repo octo/bountypilot --branch main --tag v0.1.0 --online --actions --strict --json"]),
+        }),
+      ]),
+    );
     expect(parsedPublished.publish.checks).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "git:remote-branch", status: "fail" }),
