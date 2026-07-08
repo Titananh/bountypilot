@@ -125,6 +125,7 @@ describe("CLI skill commands", () => {
           "gh repo create OWNER/REPO --public --source . --remote origin --push",
           "git push -u origin HEAD:main",
           "git tag v0.1.0",
+          "bounty skill score bug-bounty-pilot --repo OWNER/REPO --branch main --tag v0.1.0 --strict --json",
           "git push origin v0.1.0",
           "bounty release publish-plan OWNER/REPO --branch main --tag v0.1.0 --write",
           "bounty release publish-status OWNER/REPO --branch main --tag v0.1.0 --online --actions --json",
@@ -132,6 +133,12 @@ describe("CLI skill commands", () => {
           "bugbounty release install-check --json",
           "bounty skill score bug-bounty-pilot --json",
         ]),
+      );
+      expect(parsed.nextSteps.indexOf("git tag v0.1.0")).toBeLessThan(
+        parsed.nextSteps.indexOf("bounty skill score bug-bounty-pilot --repo OWNER/REPO --branch main --tag v0.1.0 --strict --json"),
+      );
+      expect(parsed.nextSteps.indexOf("bounty skill score bug-bounty-pilot --repo OWNER/REPO --branch main --tag v0.1.0 --strict --json")).toBeLessThan(
+        parsed.nextSteps.indexOf("git push origin v0.1.0"),
       );
     }
 

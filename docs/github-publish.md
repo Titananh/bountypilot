@@ -29,6 +29,7 @@ bounty release publish-plan OWNER/REPO --write
 npm ci
 npm run verify:release
 bounty skill score bug-bounty-pilot --repo OWNER/REPO --json
+bounty skill score bug-bounty-pilot --repo OWNER/REPO --branch main --tag v0.1.0 --strict --json
 bounty release bundle --output .release --force --json
 bounty release verify-bundle .release --json
 bounty release github-bootstrap OWNER/REPO --write
@@ -141,6 +142,7 @@ The release workflow runs when a `v*` tag is pushed:
 
 ```bash
 git tag v0.1.0
+bounty skill score bug-bounty-pilot --repo OWNER/REPO --branch main --tag v0.1.0 --strict --json
 git push origin v0.1.0
 ```
 

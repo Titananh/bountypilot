@@ -279,6 +279,7 @@ function readinessNextSteps(input: {
       steps.add(`gh repo create ${repo} --public --source . --remote origin --push`);
       steps.add("git push -u origin HEAD:main");
       steps.add(`git tag ${input.releaseTag}`);
+      steps.add(`bounty skill score ${input.id} --repo ${repo} --branch main --tag ${input.releaseTag} --strict --json`);
       steps.add(`git push origin ${input.releaseTag}`);
       steps.add(`bounty release publish-plan ${repo} --branch main --tag ${input.releaseTag} --write`);
       steps.add(`bounty release publish-status ${repo} --branch main --tag ${input.releaseTag} --online --actions --json`);
