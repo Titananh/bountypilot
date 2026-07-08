@@ -29,6 +29,7 @@ bounty release publish-plan OWNER/REPO --write
 npm ci
 npm run verify:release
 bounty skill score bug-bounty-pilot --repo OWNER/REPO --json
+bounty skill score bug-bounty-pilot --repo OWNER/REPO --write-public-plan .bounty/release/public-readiness.md --json
 bounty skill score bug-bounty-pilot --repo OWNER/REPO --branch main --tag v0.1.0 --strict --json
 bounty release bundle --output .release --force --json
 bounty release verify-bundle .release --json
@@ -116,6 +117,7 @@ The skill score JSON separates source-package readiness from public publish read
 - `publicReadiness.requirements` is the full publish checklist, and `publicReadiness.missing` is the exact set still blocking public 100/100.
 - Each missing requirement includes `commands`, a targeted remediation list for that specific check.
 - `publicReadiness.fixPlan` groups those remediation commands into ordered phases such as repository selection, GitHub CLI setup, origin, branch, tag, Actions, and final verification.
+- `--write-public-plan .bounty/release/public-readiness.md` writes the same missing requirements, ordered phases, command blocks, and safety notes as a local Markdown handoff checklist.
 
 ## 4. One-Line Install
 

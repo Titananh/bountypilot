@@ -118,6 +118,90 @@ const GITHUB_CLI_INSTALL_COMMANDS = [
   "sudo apt-get update && sudo apt-get install -y gh",
 ];
 
+export function renderSkillReadinessPublicPlan(result: SkillReadinessResult): string {
+  const missing = result.publicReadiness.missing;
+  const lines = [
+    "# BountyPilot Public Readiness Plan",
+    "",
+    `Skill: ${result.id}`,
+    `Root: ${result.root}`,
+    `Overall: ${result.score}/100 ${result.readiness}`,
+    "",
+    "## Layer Scores",
+    "",
+    markdownTable(
+      ["Layer", "Score", "Readiness", "Ultimate", "Blockers", "Warnings"],
+      [
+        [
+          "local",
+          `${result.layers.local.score}/100`,
+          result.layers.local.readiness,
+          String(result.layers.local.ultimate),
+          String(result.layers.local.blockers.length),
+          String(result.layers.local.warnings.length),
+        ],
+        [
+          "publish",
+          `${result.layers.publish.score}/100`,
+          result.layers.publish.readiness,
+          String(result.layers.publish.ultimate),
+          String(result.layers.publish.blockers.length),
+          String(result.layers.publish.warnings.length),
+        ],
+      ],
+    ),
+    "",
+    "## Public Readiness",
+    "",
+    markdownTable(
+      ["Score", "Readiness", "Ultimate", "Missing"],
+      [[`${result.publicReadiness.score}/100`, result.publicReadiness.readiness, String(result.publicReadiness.ultimate), String(missing.length)]],
+    ),
+    "",
+    "## Missing Requirements",
+    "",
+    missing.length > 0
+      ? markdownTable(
+          ["Status", "Requirement", "Message"],
+          missing.map((requirement) => [requirement.status, requirement.name, requirement.message]),
+        )
+      : "No missing public readiness requirements.",
+    "",
+    "## Ordered Fix Plan",
+    "",
+  ];
+
+  for (const step of result.publicReadiness.fixPlan) {
+    lines.push(`### ${step.title}`, "");
+    lines.push(`- Status: ${step.status}`);
+    lines.push(`- Requirements: ${step.requirements.length > 0 ? step.requirements.join(", ") : "none"}`);
+    if (step.commands.length > 0) {
+      lines.push("", commandBlock(step.commands));
+    } else {
+      lines.push("- Commands: none");
+    }
+    lines.push("");
+  }
+
+  lines.push("## Final Verification", "");
+  if (result.publicReadiness.nextCommands.length > 0) {
+    lines.push(commandBlock(result.publicReadiness.nextCommands), "");
+  } else {
+    lines.push("No final commands are required.", "");
+  }
+
+  lines.push(
+    "## Safety Notes",
+    "",
+    "- This plan is local documentation only; BountyPilot does not push, publish, or submit anything automatically.",
+    "- Do not include real target data, secrets, API keys, tokens, cookies, or private evidence in public GitHub artifacts.",
+    "- Keep public testing claims tied to `bounty skill score ... --online --actions --strict --json` output from the target repository.",
+    "",
+  );
+
+  return lines.join("\n");
+}
+
 export function scoreSkillReadiness(
   input: {
     id?: string;
@@ -538,6 +622,21 @@ function remediationCommandsForRequirement(name: string, context: PublicReadines
 
 function uniqueCommands(commands: string[]): string[] {
   return [...new Set(commands.filter(Boolean))];
+}
+
+function markdownTable(headers: string[], rows: string[][]): string {
+  const header = `| ${headers.map(markdownCell).join(" | ")} |`;
+  const separator = `| ${headers.map(() => "---").join(" | ")} |`;
+  const body = rows.map((row) => `| ${row.map(markdownCell).join(" | ")} |`);
+  return [header, separator, ...body].join("\n");
+}
+
+function markdownCell(value: string): string {
+  return value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ").trim();
+}
+
+function commandBlock(commands: string[]): string {
+  return ["```bash", ...commands, "```"].join("\n");
 }
 
 function mergeRequirements(requirements: SkillReadinessRequirement[]): SkillReadinessRequirement[] {

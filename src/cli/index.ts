@@ -57,7 +57,7 @@ import {
   verifySkillBundle,
   type SkillRunMode,
 } from "../skills/skill-definition.js";
-import { scoreSkillReadiness } from "../skills/skill-readiness.js";
+import { renderSkillReadinessPublicPlan, scoreSkillReadiness } from "../skills/skill-readiness.js";
 import { runSkill, type SkillRunResult } from "../skills/skill-runner.js";
 import { ActionExecutor } from "../workflows/action-executor.js";
 import { writeHandoffBundle } from "../workflows/handoff-bundle.js";
@@ -1212,6 +1212,7 @@ skill
   .option("--timeout-ms <ms>", "Per-command timeout in milliseconds for GitHub probes", "8000")
   .option("--online", "When --repo is provided, verify pushed branch/tag state through git ls-remote")
   .option("--actions", "When --repo is provided, verify required GitHub Actions runs through GitHub CLI")
+  .option("--write-public-plan <path>", "Write a Markdown checklist for the remaining public-readiness work")
   .option("--strict", "Exit non-zero unless readiness is ultimate with no blockers or warnings")
   .option("--json", "Print machine-readable JSON")
   .description("Score skill readiness across validation, bundle verification, and release gates")
@@ -1227,6 +1228,7 @@ skill
       timeoutMs: string;
       online?: boolean;
       actions?: boolean;
+      writePublicPlan?: string;
       strict?: boolean;
       json?: boolean;
     }>();
@@ -1244,11 +1246,14 @@ skill
       online: options.online,
       actions: options.actions,
     });
+    const publicReadinessPlanPath = options.writePublicPlan
+      ? writePublicReadinessPlan(options.writePublicPlan, renderSkillReadinessPublicPlan(result))
+      : undefined;
     if (!result.ok || (options.strict && !result.ultimate)) {
       process.exitCode = 1;
     }
     if (options.json || requestedJsonOutput(process.argv)) {
-      ui.json(result);
+      ui.json(publicReadinessPlanPath ? { ...result, publicReadinessPlanPath } : result);
       return;
     }
     ui.header("skill score");
@@ -1288,6 +1293,7 @@ skill
       ui.kv("readiness", result.publicReadiness.readiness),
       ui.kv("ultimate", result.publicReadiness.ultimate),
       ui.kv("missing", result.publicReadiness.missing.length),
+      ui.kv("plan", publicReadinessPlanPath ?? "not written"),
     ]);
     ui.blank();
     ui.table(
@@ -8473,6 +8479,13 @@ function resolveHuntPlanPath(runtime: Runtime, profile: HuntProfile, output?: st
   }
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   return path.join(runtime.paths.researchDir, `hunt-plan-${profile.id}-${stamp}.md`);
+}
+
+function writePublicReadinessPlan(output: string, markdown: string): string {
+  const resolved = path.resolve(process.cwd(), output);
+  mkdirSync(path.dirname(resolved), { recursive: true });
+  writeFileSync(resolved, markdown, "utf8");
+  return resolved;
 }
 
 function parseVmBootstrapLevel(value: string): VmBootstrapLevel {

@@ -257,6 +257,36 @@ describe("CLI skill commands", () => {
         }),
       ]),
     );
+    const planWorkspace = createWorkspace();
+    const publicPlanPath = path.join(planWorkspace, "public-readiness.md");
+    const scoredWithPublicPlan = runCli(
+      [
+        "skill",
+        "score",
+        "bug-bounty-pilot",
+        "--repo",
+        "octo/bountypilot",
+        "--gh-command",
+        process.execPath,
+        "--gh-command-arg",
+        fakeGh,
+        "--write-public-plan",
+        publicPlanPath,
+        "--json",
+      ],
+      repoRoot,
+    );
+    expectCommand(scoredWithPublicPlan).toExit(0);
+    expect(JSON.parse(outputOf(scoredWithPublicPlan))).toMatchObject({
+      publicReadinessPlanPath: publicPlanPath,
+    });
+    const publicPlan = readFileSync(publicPlanPath, "utf8");
+    expect(publicPlan).toContain("# BountyPilot Public Readiness Plan");
+    expect(publicPlan).toContain("## Ordered Fix Plan");
+    expect(publicPlan).toContain("### Configure GitHub origin");
+    expect(publicPlan).toContain("git remote add origin https://github.com/octo/bountypilot.git");
+    expect(publicPlan).toContain("bounty skill score bug-bounty-pilot --repo octo/bountypilot --online --actions --strict --json");
+    expect(publicPlan).toContain("BountyPilot does not push, publish, or submit anything automatically.");
     expect(parsedForRepo.score).toBeLessThan(97);
     expect(parsedForRepo.readiness).toBe("ready_with_warnings");
     const strictForRepo = runCli(
