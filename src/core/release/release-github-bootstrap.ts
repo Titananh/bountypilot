@@ -131,6 +131,8 @@ export function buildReleaseGithubBootstrap(input: BuildReleaseGithubBootstrapIn
     releaseStatusCheck(status.checks, "git:origin"),
     releaseStatusCheck(status.checks, "git:origin-target"),
     releaseStatusCheck(status.checks, "git:working-tree"),
+    releaseStatusCheck(status.checks, "git:branch"),
+    releaseStatusCheck(status.checks, "publish:public-branch"),
     releaseStatusCheck(status.checks, "git:local-tag"),
   ];
   const nextCommands = nextCommandsForBootstrap({ checks, commands });
@@ -321,7 +323,14 @@ ${input.scripts.shell}
 function renderPowershellScript(plan: ReleasePublishPlanResult): string {
   const repo = quotePowerShell(plan.repo.slug);
   const branch = quotePowerShell(plan.branch);
+  const publicBranch = quotePowerShell(plan.publicBranch);
   const tag = quotePowerShell(plan.tag);
+  const publicBranchCommands =
+    plan.branch === plan.publicBranch
+      ? ""
+      : `git push -u origin ${quotePowerShell(`HEAD:${plan.publicBranch}`)}
+bounty release publish-plan ${repo} --branch ${publicBranch} --tag ${tag} --write
+`;
   return `$ErrorActionPreference = "Stop"
 
 npm run verify:release
@@ -354,15 +363,22 @@ if ($LASTEXITCODE -ne 0) {
 node dist/cli/index.js skill score bug-bounty-pilot --repo ${repo} --branch ${branch} --tag ${tag} --strict --json
 git push origin ${tag}
 
-bounty release public-gate ${repo} --branch ${branch} --tag ${tag} --online --actions --install-check --write-public-plan ${quotePowerShell(".bounty/release/public-readiness.md")} --json
+${publicBranchCommands}bounty release public-gate ${repo} --branch ${publicBranch} --tag ${tag} --online --actions --install-check --write-public-plan ${quotePowerShell(".bounty/release/public-readiness.md")} --json
 `;
 }
 
 function renderShellScript(plan: ReleasePublishPlanResult): string {
   const repo = quoteShell(plan.repo.slug);
   const branch = quoteShell(plan.branch);
+  const publicBranch = quoteShell(plan.publicBranch);
   const tag = quoteShell(plan.tag);
   const targetRemote = quoteShell(plan.remote.preferred === "ssh" ? plan.repo.sshRemote : plan.repo.httpsRemote);
+  const publicBranchCommands =
+    plan.branch === plan.publicBranch
+      ? ""
+      : `git push -u origin ${quoteShell(`HEAD:${plan.publicBranch}`)}
+bounty release publish-plan ${repo} --branch ${publicBranch} --tag ${tag} --write
+`;
   return `#!/usr/bin/env bash
 set -euo pipefail
 
@@ -392,7 +408,7 @@ fi
 node dist/cli/index.js skill score bug-bounty-pilot --repo ${repo} --branch ${branch} --tag ${tag} --strict --json
 git push origin ${tag}
 
-bounty release public-gate ${repo} --branch ${branch} --tag ${tag} --online --actions --install-check --write-public-plan ${quoteShell(".bounty/release/public-readiness.md")} --json
+${publicBranchCommands}bounty release public-gate ${repo} --branch ${publicBranch} --tag ${tag} --online --actions --install-check --write-public-plan ${quoteShell(".bounty/release/public-readiness.md")} --json
 `;
 }
 

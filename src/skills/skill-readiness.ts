@@ -294,6 +294,7 @@ export function scoreSkillReadiness(
     warnings,
     releaseTag: release.version ? `v${release.version}` : "v0.1.0",
     releaseBranch: publish?.branch ?? github?.branch ?? "main",
+    publicBranch: publish?.publicBranch ?? github?.publicBranch ?? "main",
     repoSlug: github?.repo.slug,
     githubNextCommands: github?.nextCommands,
     publishNextCommands: publish?.nextCommands,
@@ -790,6 +791,7 @@ function readinessNextSteps(input: {
   warnings: SkillReadinessIssue[];
   releaseTag: string;
   releaseBranch: string;
+  publicBranch: string;
   repoSlug?: string;
   githubNextCommands?: string[];
   publishNextCommands?: string[];
@@ -840,6 +842,10 @@ function readinessNextSteps(input: {
     if (input.repoSlug) {
       steps.add(`bounty skill score ${input.id}${repoArg} --online --actions --strict --json`);
       steps.add(publicGateCommand(repo, input.releaseBranch, input.releaseTag));
+      if (input.publicBranch !== input.releaseBranch) {
+        steps.add(`bounty release publish-status ${repo} --branch ${input.publicBranch} --tag ${input.releaseTag} --online --actions --json`);
+        steps.add(publicGateCommand(repo, input.publicBranch, input.releaseTag));
+      }
     }
     steps.add(`bounty skill score ${input.id}${repoArg} --json`);
   }

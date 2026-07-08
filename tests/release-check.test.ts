@@ -547,6 +547,19 @@ describe("release checks", () => {
         "bounty release publish-status owner/repo --branch main --tag v0.0.0 --online --actions --json",
       ]),
     );
+    expect(result.checks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "publish:public-branch", status: "warn" })]),
+    );
+    expect(result.scripts.powershell).toContain("git push -u origin 'HEAD:main'");
+    expect(result.scripts.powershell).toContain("bounty release publish-plan 'owner/repo' --branch 'main' --tag 'v0.0.0' --write");
+    expect(result.scripts.powershell).toContain(
+      "bounty release public-gate 'owner/repo' --branch 'main' --tag 'v0.0.0' --online --actions --install-check --write-public-plan '.bounty/release/public-readiness.md' --json",
+    );
+    expect(result.scripts.shell).toContain("git push -u origin 'HEAD:main'");
+    expect(result.scripts.shell).toContain("bounty release publish-plan 'owner/repo' --branch 'main' --tag 'v0.0.0' --write");
+    expect(result.scripts.shell).toContain(
+      "bounty release public-gate 'owner/repo' --branch 'main' --tag 'v0.0.0' --online --actions --install-check --write-public-plan '.bounty/release/public-readiness.md' --json",
+    );
   });
 
   it("fails when generated release artifacts are tracked in source control", () => {

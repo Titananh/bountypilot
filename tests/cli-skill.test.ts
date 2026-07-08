@@ -225,7 +225,15 @@ describe("CLI skill commands", () => {
           status: "fail",
           commands: expect.arrayContaining(["git remote add origin https://github.com/octo/bountypilot.git"]),
         }),
-        expect.objectContaining({ name: "git:local-tag", status: "warn", commands: ["git tag v0.1.0"] }),
+        expect.objectContaining({ name: "git:local-tag", commands: ["git tag v0.1.0"] }),
+        expect.objectContaining({
+          name: "publish:public-branch",
+          status: "warn",
+          commands: expect.arrayContaining([
+            "git push -u origin HEAD:main",
+            "bounty release publish-status octo/bountypilot --branch main --tag v0.1.0 --online --actions --json",
+          ]),
+        }),
         expect.objectContaining({
           name: "publish:online",
           status: "warn",
@@ -247,10 +255,11 @@ describe("CLI skill commands", () => {
           status: "pending",
           commands: expect.arrayContaining(["git push -u origin HEAD:codex/bug-bounty-pilot-candidate-engine"]),
         }),
+        expect.objectContaining({ id: "tag" }),
         expect.objectContaining({
-          id: "tag",
+          id: "public-branch",
           status: "pending",
-          commands: expect.arrayContaining(["git tag v0.1.0"]),
+          commands: expect.arrayContaining(["git push -u origin HEAD:main"]),
         }),
         expect.objectContaining({
           id: "final-verify",
@@ -258,6 +267,7 @@ describe("CLI skill commands", () => {
           commands: expect.arrayContaining([
             "bounty skill score bug-bounty-pilot --repo octo/bountypilot --online --actions --strict --json",
             "bounty release public-gate octo/bountypilot --branch codex/bug-bounty-pilot-candidate-engine --tag v0.1.0 --online --actions --install-check --write-public-plan .bounty/release/public-readiness.md --json",
+            "bounty release public-gate octo/bountypilot --branch main --tag v0.1.0 --online --actions --install-check --write-public-plan .bounty/release/public-readiness.md --json",
           ]),
         }),
       ]),
@@ -294,6 +304,9 @@ describe("CLI skill commands", () => {
     expect(publicPlan).toContain("bounty skill score bug-bounty-pilot --repo octo/bountypilot --online --actions --strict --json");
     expect(publicPlan).toContain(
       "bounty release public-gate octo/bountypilot --branch codex/bug-bounty-pilot-candidate-engine --tag v0.1.0 --online --actions --install-check --write-public-plan .bounty/release/public-readiness.md --json",
+    );
+    expect(publicPlan).toContain(
+      "bounty release public-gate octo/bountypilot --branch main --tag v0.1.0 --online --actions --install-check --write-public-plan .bounty/release/public-readiness.md --json",
     );
     expect(publicPlan).toContain("BountyPilot does not push, publish, or submit anything automatically.");
     expect(parsedForRepo.score).toBeLessThan(97);
@@ -334,6 +347,7 @@ describe("CLI skill commands", () => {
         "git push -u origin HEAD:main",
         "bounty skill score bug-bounty-pilot --repo octo/bountypilot --online --actions --strict --json",
         "bounty release public-gate octo/bountypilot --branch codex/bug-bounty-pilot-candidate-engine --tag v0.1.0 --online --actions --install-check --write-public-plan .bounty/release/public-readiness.md --json",
+        "bounty release public-gate octo/bountypilot --branch main --tag v0.1.0 --online --actions --install-check --write-public-plan .bounty/release/public-readiness.md --json",
         "bounty skill score bug-bounty-pilot --repo octo/bountypilot --json",
       ]),
     );
@@ -436,7 +450,7 @@ describe("CLI skill commands", () => {
         }),
         expect.objectContaining({ name: "git:origin" }),
         expect.objectContaining({ name: "git:origin-target" }),
-        expect.objectContaining({ name: "git:local-tag" }),
+        expect.objectContaining({ name: "publish:public-branch" }),
       ]),
     );
     expect(parsedForRepo.release.warnings).toEqual(
