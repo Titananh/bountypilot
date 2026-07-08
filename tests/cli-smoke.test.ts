@@ -392,6 +392,9 @@ integrations: {}
       );
     expect(parsedPublishPlan.commands.actionsVerify).toContain("gh run list --repo octo/bountypilot --limit 10");
       expect(parsedPublishPlan.commands.localVerify).toContain("bounty skill score bug-bounty-pilot --repo octo/bountypilot --json");
+      expect(parsedPublishPlan.commands.localVerify).toContain(
+        "bounty skill score bug-bounty-pilot --repo octo/bountypilot --write-public-plan .bounty/release/public-readiness.md --json",
+      );
       expect(parsedPublishPlan.commands.localVerify).toContain("bounty release verify-bundle .release --json");
       expect(parsedPublishPlan.commands.release).toContain(
         "bounty skill score bug-bounty-pilot --repo octo/bountypilot --branch main --tag v0.1.0 --strict --json",
@@ -408,6 +411,9 @@ integrations: {}
       expect(parsedPublishPlan.install.powershellDryRun).toContain('BOUNTYPILOT_SOURCE="github:octo/bountypilot#main"');
       expect(existsSync(publishPlanPath)).toBe(true);
       expect(readFileSync(publishPlanPath, "utf8")).toContain("bounty skill score bug-bounty-pilot --repo octo/bountypilot --json");
+      expect(readFileSync(publishPlanPath, "utf8")).toContain(
+        "bounty skill score bug-bounty-pilot --repo octo/bountypilot --write-public-plan .bounty/release/public-readiness.md --json",
+      );
       expect(readFileSync(publishPlanPath, "utf8")).toContain(
         "bounty skill score bug-bounty-pilot --repo octo/bountypilot --branch main --tag v0.1.0 --strict --json",
       );

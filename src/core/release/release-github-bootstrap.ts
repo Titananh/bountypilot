@@ -328,6 +328,7 @@ npm run verify:release
 node dist/cli/index.js release bundle --output .release --force --json
 node dist/cli/index.js release verify-bundle .release --json
 node dist/cli/index.js skill score bug-bounty-pilot --repo ${repo} --branch ${branch} --tag ${tag} --json
+node dist/cli/index.js skill score bug-bounty-pilot --repo ${repo} --write-public-plan ${quotePowerShell(".bounty/release/public-readiness.md")} --json
 
 if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
   Write-Error "GitHub CLI is not installed. Install it with: ${GH_INSTALL.windows}"
@@ -370,6 +371,7 @@ npm run verify:release
 node dist/cli/index.js release bundle --output .release --force --json
 node dist/cli/index.js release verify-bundle .release --json
 node dist/cli/index.js skill score bug-bounty-pilot --repo ${repo} --branch ${branch} --tag ${tag} --json
+node dist/cli/index.js skill score bug-bounty-pilot --repo ${repo} --write-public-plan ${quoteShell(".bounty/release/public-readiness.md")} --json
 
 if ! command -v gh >/dev/null 2>&1; then
   echo "GitHub CLI is not installed. Install it first: ${GH_INSTALL.docs}" >&2

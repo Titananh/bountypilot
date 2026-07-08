@@ -125,6 +125,7 @@ export function buildReleasePublishPlan(input: BuildReleasePublishPlanInput): Re
       "npm ci",
       "npm run verify:release",
       `bounty skill score bug-bounty-pilot --repo ${repo.slug} --json`,
+      publicReadinessPlanCommand(repo.slug),
       "bounty release bundle --output .release --force --json",
       "bounty release verify-bundle .release --json",
     ],
@@ -303,6 +304,10 @@ function releaseInstallCommands(repo: GitHubRepoRef, branch: string): ReleasePub
 
 function releaseInstallVerifyCommands(install: ReleasePublishPlanResult["install"]): string[] {
   return [install.npm, install.npmPinned, "bugbounty release install-check --json", install.shellDryRun, install.powershellDryRun];
+}
+
+function publicReadinessPlanCommand(repo: string): string {
+  return `bounty skill score bug-bounty-pilot --repo ${repo} --write-public-plan .bounty/release/public-readiness.md --json`;
 }
 
 export function parseGitHubRepo(value: string): GitHubRepoRef {

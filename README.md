@@ -151,7 +151,7 @@ Dry-run is the recommended first command for every target because it exercises s
 | Release | `bounty release bundle --output .release` | No | Creates local release artifacts: npm tarball, standalone skill ZIP, SBOM, release manifest, and `SHA256SUMS.txt`. |
 | Release | `bounty release verify-bundle .release` | No | Verifies release manifest, SHA256SUMS, artifact hashes/sizes, and the standalone skill ZIP before upload. |
 | Release | `bounty release github-bootstrap OWNER/REPO --write` | No | Checks GitHub CLI/auth/remote readiness and writes idempotent GitHub publish scripts. |
-| Release | `bounty release publish-plan OWNER/REPO --write` | No | Writes a GitHub publish plan with remote, push, tag, install, Actions, and release artifact commands. |
+| Release | `bounty release publish-plan OWNER/REPO --write` | No | Writes a GitHub publish plan with remote, push, tag, install, Actions, release artifact, and public-readiness checklist commands. |
 | Release | `bounty release publish-status OWNER/REPO --online --actions --json` | GitHub git remote and GitHub CLI when requested | Checks release gate, origin target, clean tree, branch/tag state, remote branch/tag publication, and required Actions workflow success after push. |
 | Release | `bounty release install-check --json` | No | Verifies an installed `bugbounty` command can boot, validate the bundled skill, score readiness, expose skill metadata, and render fresh-user quickstart JSON. |
 | Release | `npm run verify:release` | No | Runs build, docs command-snippet verification, tests, fresh-install package-bin smoke, release checks, and dry-run pack as one gate. |
