@@ -21,6 +21,7 @@ Generate the exact local plan for that repository:
 ```bash
 bounty release github-bootstrap OWNER/REPO --write
 bounty release publish-plan OWNER/REPO --write
+bounty skill score bug-bounty-pilot --repo OWNER/REPO --write-public-plan .bounty/release/public-readiness.md --json
 ```
 
 ## 2. Verify Locally

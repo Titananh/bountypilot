@@ -162,6 +162,7 @@ describe("CLI skill commands", () => {
         expect.arrayContaining([
           "bounty release publish-plan OWNER/REPO --write",
           "bounty release github-bootstrap OWNER/REPO --write",
+          "bounty skill score bug-bounty-pilot --repo OWNER/REPO --write-public-plan .bounty/release/public-readiness.md --json",
           "winget install --id GitHub.cli -e",
           "brew install gh",
           "sudo apt-get update && sudo apt-get install -y gh",
@@ -283,6 +284,7 @@ describe("CLI skill commands", () => {
     const publicPlan = readFileSync(publicPlanPath, "utf8");
     expect(publicPlan).toContain("# BountyPilot Public Readiness Plan");
     expect(publicPlan).toContain("## Ordered Fix Plan");
+    expect(publicPlan).toContain("## Next Commands");
     expect(publicPlan).toContain("### Configure GitHub origin");
     expect(publicPlan).toContain("git remote add origin https://github.com/octo/bountypilot.git");
     expect(publicPlan).toContain("bounty skill score bug-bounty-pilot --repo octo/bountypilot --online --actions --strict --json");
@@ -320,6 +322,7 @@ describe("CLI skill commands", () => {
     expect(parsedForRepo.nextSteps).toEqual(
       expect.arrayContaining([
         "bounty release github-bootstrap octo/bountypilot --write",
+        "bounty skill score bug-bounty-pilot --repo octo/bountypilot --write-public-plan .bounty/release/public-readiness.md --json",
         "gh repo create octo/bountypilot --public --source . --remote origin --push",
         "git push -u origin HEAD:main",
         "bounty skill score bug-bounty-pilot --repo octo/bountypilot --online --actions --strict --json",

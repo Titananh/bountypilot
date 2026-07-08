@@ -183,7 +183,7 @@ export function renderSkillReadinessPublicPlan(result: SkillReadinessResult): st
     lines.push("");
   }
 
-  lines.push("## Final Verification", "");
+  lines.push("## Next Commands", "");
   if (result.publicReadiness.nextCommands.length > 0) {
     lines.push(commandBlock(result.publicReadiness.nextCommands), "");
   } else {
@@ -808,6 +808,7 @@ function readinessNextSteps(input: {
     const repo = input.repoSlug ?? "OWNER/REPO";
     steps.add(`bounty release github-bootstrap ${repo} --write`);
     steps.add(`bounty release publish-plan ${repo} --write`);
+    steps.add(publicReadinessPlanCommand(input.id, repo));
     if (!input.githubNextCommands) {
       GITHUB_CLI_INSTALL_COMMANDS.forEach((command) => steps.add(command));
       steps.add("gh --version");
@@ -829,6 +830,8 @@ function readinessNextSteps(input: {
   input.publishNextCommands?.forEach((command) => steps.add(command));
   if (steps.size > 0) {
     const repoArg = input.repoSlug ? ` --repo ${input.repoSlug}` : "";
+    const repo = input.repoSlug ?? "OWNER/REPO";
+    steps.add(publicReadinessPlanCommand(input.id, repo));
     if (input.repoSlug) {
       steps.add(`bounty skill score ${input.id}${repoArg} --online --actions --strict --json`);
     }
@@ -839,6 +842,10 @@ function readinessNextSteps(input: {
     steps.add(`Review warnings, then rerun \`bounty skill score ${input.id}${repoArg} --json\`.`);
   }
   return [...steps];
+}
+
+function publicReadinessPlanCommand(id: string, repo: string): string {
+  return `bounty skill score ${id} --repo ${repo} --write-public-plan .bounty/release/public-readiness.md --json`;
 }
 
 function isPublishReadinessIssue(issue: SkillReadinessIssue): boolean {
