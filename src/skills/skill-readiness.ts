@@ -293,6 +293,7 @@ export function scoreSkillReadiness(
     blockers,
     warnings,
     releaseTag: release.version ? `v${release.version}` : "v0.1.0",
+    releaseBranch: publish?.branch ?? github?.branch ?? "main",
     repoSlug: github?.repo.slug,
     githubNextCommands: github?.nextCommands,
     publishNextCommands: publish?.nextCommands,
@@ -518,6 +519,7 @@ function buildPublicReadinessFixPlan(
 function isFinalPublicVerificationCommand(command: string): boolean {
   return (
     /^bounty release publish-status .+ --online --actions --json$/.test(command) ||
+    /^bounty release public-gate .+ --online --actions --write-public-plan \.bounty\/release\/public-readiness\.md --json$/.test(command) ||
     /^bounty skill score .+ --repo .+ --online --actions --strict --json$/.test(command) ||
     command === "bugbounty release install-check --json"
   );
@@ -614,6 +616,7 @@ function remediationCommandsForRequirement(name: string, context: PublicReadines
   if (name === "github:actions" || name.startsWith("github:actions:")) {
     return [
       `bounty release publish-status ${context.repo} --branch ${context.branch} --tag ${context.tag} --online --actions --json`,
+      publicGateCommand(context.repo, context.branch, context.tag),
       `gh run list --repo ${context.repo} --limit 10`,
     ];
   }
@@ -786,6 +789,7 @@ function readinessNextSteps(input: {
   blockers: SkillReadinessIssue[];
   warnings: SkillReadinessIssue[];
   releaseTag: string;
+  releaseBranch: string;
   repoSlug?: string;
   githubNextCommands?: string[];
   publishNextCommands?: string[];
@@ -835,6 +839,7 @@ function readinessNextSteps(input: {
     steps.add(publicReadinessPlanCommand(input.id, repo));
     if (input.repoSlug) {
       steps.add(`bounty skill score ${input.id}${repoArg} --online --actions --strict --json`);
+      steps.add(publicGateCommand(repo, input.releaseBranch, input.releaseTag));
     }
     steps.add(`bounty skill score ${input.id}${repoArg} --json`);
   }
