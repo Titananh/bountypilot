@@ -548,6 +548,7 @@ integrations: {}
       expect(parsedPublishStatus.installVerify).toContain("bugbounty release install-check --json");
 
       const publicGatePlanPath = path.join(workspace, "public-gate-readiness.md");
+      const fakeInstalledCli = writeFakeInstalledBounty(mkdtempSync(path.join(os.tmpdir(), "bountypilot-cli-install-check-")));
       const publicGate = runCli(
         [
           "release",
@@ -564,6 +565,11 @@ integrations: {}
           process.execPath,
           "--gh-command-arg",
           fakeGh,
+          "--install-check",
+          "--install-command",
+          process.execPath,
+          "--install-command-arg",
+          fakeInstalledCli,
           "--json",
         ],
         repoRoot,
@@ -576,6 +582,7 @@ integrations: {}
       expect(parsedPublicGate.publicReadinessPlanPath).toBe(publicGatePlanPath);
       expect(parsedPublicGate.publishStatus.ok).toBe(false);
       expect(parsedPublicGate.skillScore.layers.local.ultimate).toBe(true);
+      expect(parsedPublicGate.installCheck).toMatchObject({ ok: true, version: "0.1.0" });
       expect(parsedPublicGate.publishStatus.checks).toEqual(
         expect.arrayContaining([expect.objectContaining({ name: "github:actions:CI", status: "pass" })]),
       );
@@ -585,6 +592,7 @@ integrations: {}
       expect(parsedPublicGate.checks).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ name: "release:publish-status", status: "fail" }),
+          expect.objectContaining({ name: "release:install-check", status: "pass" }),
           expect.objectContaining({ name: "skill:local", status: "pass" }),
           expect.objectContaining({ name: "skill:public-readiness", status: "fail" }),
         ]),
@@ -592,7 +600,6 @@ integrations: {}
       expect(parsedPublicGate.nextCommands).toContain("bugbounty release install-check --json");
       expect(readFileSync(publicGatePlanPath, "utf8")).toContain("# BountyPilot Public Readiness Plan");
 
-      const fakeInstalledCli = writeFakeInstalledBounty(mkdtempSync(path.join(os.tmpdir(), "bountypilot-cli-install-check-")));
       const installCheck = runCli(
         ["release", "install-check", "--command", process.execPath, "--command-arg", fakeInstalledCli, "--json"],
         repoRoot,

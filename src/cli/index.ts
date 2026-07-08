@@ -6258,6 +6258,9 @@ release
   .option("--gh-command <command>", "GitHub CLI command to probe when --actions is used", "gh")
   .option("--gh-command-arg <arg>", "Argument to prepend before gh probe arguments. Repeat for wrappers.", collectOption, [] as string[])
   .option("--timeout-ms <ms>", "Per-command timeout in milliseconds for GitHub probes", "8000")
+  .option("--install-check", "Run installed CLI verification as part of the final gate")
+  .option("--install-command <command>", "Installed bugbounty command to execute when --install-check is used", "bugbounty")
+  .option("--install-command-arg <arg>", "Argument to prepend before install-check arguments. Repeat for wrappers.", collectOption, [] as string[])
   .option("--write-public-plan <path>", "Write a Markdown public-readiness checklist alongside the gate result")
   .option("--json", "Print machine-readable JSON")
   .description("Run the final public readiness gate for GitHub install, skill score, and publish status")
@@ -6272,6 +6275,9 @@ release
       ghCommand: string;
       ghCommandArg: string[];
       timeoutMs: string;
+      installCheck?: boolean;
+      installCommand: string;
+      installCommandArg: string[];
       writePublicPlan?: string;
       json?: boolean;
     }>();
@@ -6305,6 +6311,14 @@ release
     const publicReadinessPlanPath = options.writePublicPlan
       ? writePublicReadinessPlan(options.writePublicPlan, renderSkillReadinessPublicPlan(skillScore))
       : undefined;
+    const installCheck = options.installCheck
+      ? buildReleaseInstallCheck({
+          cwd: process.cwd(),
+          command: options.installCommand,
+          argsPrefix: options.installCommandArg,
+          timeoutMs,
+        })
+      : undefined;
     const checks = [
       {
         name: "release:publish-status",
@@ -6331,10 +6345,15 @@ release
         status: skillScore.publicReadiness.ultimate ? "pass" : skillScore.publicReadiness.ok ? "warn" : "fail",
         message: `${skillScore.publicReadiness.score}/100 ${skillScore.publicReadiness.readiness}`,
       },
+      {
+        name: "release:install-check",
+        status: installCheck ? (installCheck.ok ? "pass" : "fail") : "warn",
+        message: installCheck ? (installCheck.ok ? "Installed CLI verification passed." : "Installed CLI verification failed.") : "Skipped. Re-run with --install-check.",
+      },
     ];
     const payload = {
-      ok: publishStatus.ok && skillScore.ultimate,
-      ultimate: publishStatus.ok && skillScore.ultimate,
+      ok: publishStatus.ok && skillScore.ultimate && (!installCheck || installCheck.ok),
+      ultimate: publishStatus.ok && skillScore.ultimate && (!installCheck || installCheck.ok),
       score: skillScore.score,
       readiness: skillScore.readiness,
       repo: publishStatus.repo,
@@ -6346,6 +6365,7 @@ release
       checks,
       publishStatus,
       skillScore,
+      installCheck,
       publicReadinessPlanPath,
       nextCommands: uniqueCommands([...skillScore.nextSteps, ...publishStatus.nextCommands, ...publishStatus.installVerify]),
       urls: publishStatus.urls,
@@ -6363,6 +6383,7 @@ release
       ui.kv("tag", payload.tag),
       ui.kv("score", `${payload.score}/100`),
       ui.kv("readiness", payload.readiness),
+      ui.kv("install check", installCheck ? (installCheck.ok ? "passed" : "failed") : "skipped"),
       ui.kv("public plan", publicReadinessPlanPath ?? "not written"),
     ]);
     ui.blank();

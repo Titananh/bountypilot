@@ -110,7 +110,7 @@ bounty release publish-status OWNER/REPO --branch main --tag v0.1.0 --online --j
 bounty release publish-status OWNER/REPO --branch main --tag v0.1.0 --online --actions --json
 bounty release publish-status OWNER/REPO --branch main --tag v0.1.0 --online --actions --write-public-plan .bounty/release/public-readiness.md --json
 bounty skill score bug-bounty-pilot --repo OWNER/REPO --branch main --tag v0.1.0 --online --actions --strict --json
-bounty release public-gate OWNER/REPO --branch main --tag v0.1.0 --online --actions --write-public-plan .bounty/release/public-readiness.md --json
+bounty release public-gate OWNER/REPO --branch main --tag v0.1.0 --online --actions --install-check --write-public-plan .bounty/release/public-readiness.md --json
 ```
 
 The skill score JSON separates source-package readiness from public publish readiness:
