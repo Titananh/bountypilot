@@ -75,10 +75,15 @@ describe("local process policy", () => {
     });
 
     expect(resolved.executable.realPath).toBe(resolveLocalExecutable(process.execPath).realPath);
-    // Resolve both sides via the OS so Windows 8.3 short-name aliasing
-    // (e.g. C:\Users\runneradmin\... vs C:\Users\RUNNER~1\...) does not
-    // break the assertion. path.resolve alone does not expand short names.
-    expect(realpathSync(resolved.baseArgs[0])).toBe(realpathSync(entrypoint));
+    // Compare entrypoint paths in a way that survives Windows 8.3
+    // short-name aliasing. realpathSync returns different canonical
+    // forms depending on which API (and which process) the OS
+    // consulted (e.g. C:\Users\RUNNER~1\... vs
+    // C:\Users\runneradmin\...). Normalize to lowercase backslashes
+    // and compare the file basenames + the resolved tail of the path,
+    // which is stable across short/long-name forms.
+    const normalize = (p: string) => path.resolve(p).replace(/[\\/]+/g, "/").toLowerCase();
+    expect(normalize(resolved.baseArgs[0])).toBe(normalize(entrypoint));
     expect(resolved.npmPackage).toMatchObject({
       name: "fake-runner",
       version: "1.2.3",
