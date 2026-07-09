@@ -14,9 +14,20 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const bountyCli = path.join(repoRoot, "dist", "cli", "index.js");
 const workspaces: string[] = [];
 
-afterEach(() => {
+afterEach(async () => {
   for (const workspace of workspaces.splice(0)) {
-    rmSync(workspace, { recursive: true, force: true });
+    // Best-effort cleanup; on Windows the temp dir may briefly hold an
+    // open handle (e.g. the CLI child process that just exited). Retry
+    // a few times with a short delay so we do not surface a cleanup
+    // error as a test failure.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        rmSync(workspace, { recursive: true, force: true });
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
   }
 });
 

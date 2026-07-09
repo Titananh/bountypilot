@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -75,10 +75,10 @@ describe("local process policy", () => {
     });
 
     expect(resolved.executable.realPath).toBe(resolveLocalExecutable(process.execPath).realPath);
-    // Use a path comparison that survives Windows 8.3 short-name aliasing
-    // (e.g. C:\Users\runneradmin\... vs C:\Users\RUNNER~1\...). The two forms
-    // refer to the same file but fail a strict string equality.
-    expect(path.resolve(resolved.baseArgs[0])).toBe(path.resolve(entrypoint));
+    // Resolve both sides via the OS so Windows 8.3 short-name aliasing
+    // (e.g. C:\Users\runneradmin\... vs C:\Users\RUNNER~1\...) does not
+    // break the assertion. path.resolve alone does not expand short names.
+    expect(realpathSync(resolved.baseArgs[0])).toBe(realpathSync(entrypoint));
     expect(resolved.npmPackage).toMatchObject({
       name: "fake-runner",
       version: "1.2.3",
