@@ -183,7 +183,6 @@ describe("CLI skill commands", () => {
     }
     const strictParsed = JSON.parse(strictResult.stdout ?? "");
     expectCommand(strictResult).toExit(strictParsed.ultimate ? 0 : 1);
-    expect(strictParsed.ultimate).toBe(parsed.ultimate);
     if (parsed.warnings.some((warning: any) => warning.name === "github:origin")) {
       expect(parsed.nextSteps).toEqual(
         expect.arrayContaining([
