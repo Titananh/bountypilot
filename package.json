@@ -18,7 +18,7 @@
     "clean": "node scripts/clean-dist.mjs",
     "prebuild": "npm run clean",
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run --maxWorkers=2",
+    "test": "vitest run --maxWorkers=1",
     "test:smoke": "vitest run tests/cli-smoke.test.ts tests/safety-acceptance.test.ts",
     "test:external-tools": "vitest run tests/recon-engine.test.ts tests/tool-manager.test.ts",
     "pretest:package-bin": "npm run build",
