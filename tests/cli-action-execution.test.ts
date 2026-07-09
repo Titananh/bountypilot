@@ -1089,6 +1089,7 @@ function runCli(args: string[], cwd: string, input?: string): Promise<CliResult>
       env: {
         ...process.env,
         NO_COLOR: "1",
+        NODE_NO_WARNINGS: "1",
       },
       windowsHide: true,
     });
@@ -1144,6 +1145,7 @@ function startDemoLabCli(cwd: string): Promise<DemoLabCliHandle> {
     env: {
       ...process.env,
       NO_COLOR: "1",
+      NODE_NO_WARNINGS: "1",
     },
     windowsHide: true,
   });
@@ -1283,6 +1285,7 @@ function outputOfSync(args: string[], cwd: string): string {
     env: {
       ...process.env,
       NO_COLOR: "1",
+      NODE_NO_WARNINGS: "1",
     },
   });
   expect(result.status, `${result.stdout ?? ""}${result.stderr ?? ""}`).toBe(0);

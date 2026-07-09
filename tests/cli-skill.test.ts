@@ -22,11 +22,11 @@ describe("CLI skill commands", () => {
 
     const list = runCli(["skill", "list", "--json"], workspace);
     expectCommand(list).toExit(0);
-    expect(JSON.parse(outputOf(list)).skills).toEqual(expect.arrayContaining([expect.objectContaining({ id: "bug-bounty-pilot" })]));
+    expect(JSON.parse(list.stdout ?? "").skills).toEqual(expect.arrayContaining([expect.objectContaining({ id: "bug-bounty-pilot" })]));
 
     const show = runCli(["skill", "show", "bug-bounty-pilot", "--json"], workspace);
     expectCommand(show).toExit(0);
-    expect(JSON.parse(outputOf(show))).toMatchObject({
+    expect(JSON.parse(show.stdout ?? "")).toMatchObject({
       ok: true,
       id: "bug-bounty-pilot",
       frontmatter: {
@@ -44,19 +44,19 @@ describe("CLI skill commands", () => {
 
     const validate = runCli(["skill", "validate", "bug-bounty-pilot", "--json"], workspace);
     expectCommand(validate).toExit(0);
-    expect(JSON.parse(outputOf(validate))).toMatchObject({ ok: true, id: "bug-bounty-pilot" });
+    expect(JSON.parse(validate.stdout ?? "")).toMatchObject({ ok: true, id: "bug-bounty-pilot" });
 
     const output = path.join(workspace, ".bounty", "skills", "bug-bounty-pilot");
     const exported = runCli(["skill", "export", "bug-bounty-pilot", "--output", output, "--json"], workspace);
     expectCommand(exported).toExit(0);
-    expect(JSON.parse(outputOf(exported))).toMatchObject({ ok: true, id: "bug-bounty-pilot", output });
+    expect(JSON.parse(exported.stdout ?? "")).toMatchObject({ ok: true, id: "bug-bounty-pilot", output });
     expect(existsSync(path.join(output, "SKILL.md"))).toBe(true);
     expect(existsSync(path.join(output, "agents", "openai.yaml"))).toBe(true);
 
     const bundlePath = path.join(workspace, "bug-bounty-pilot.skill.zip");
     const bundled = runCli(["skill", "bundle", "bug-bounty-pilot", "--output", bundlePath, "--json"], workspace);
     expectCommand(bundled).toExit(0);
-    const parsedBundle = JSON.parse(outputOf(bundled));
+    const parsedBundle = JSON.parse(bundled.stdout ?? "");
     expect(parsedBundle).toMatchObject({
       ok: true,
       id: "bug-bounty-pilot",
@@ -78,7 +78,7 @@ describe("CLI skill commands", () => {
 
     const verified = runCli(["skill", "verify-bundle", bundlePath, "--json"], workspace);
     expectCommand(verified).toExit(0);
-    expect(JSON.parse(outputOf(verified))).toMatchObject({
+    expect(JSON.parse(verified.stdout ?? "")).toMatchObject({
       ok: true,
       manifest: { id: "bug-bounty-pilot" },
       files: { expected: parsedBundle.files, verified: parsedBundle.files },
@@ -92,13 +92,13 @@ describe("CLI skill commands", () => {
     writeFileSync(tamperedPath, tamperedBytes);
     const tampered = runCli(["skill", "verify-bundle", tamperedPath, "--json"], workspace);
     expectCommand(tampered).toExit(1);
-    expect(JSON.parse(outputOf(tampered))).toMatchObject({ ok: false });
+    expect(JSON.parse(tampered.stdout ?? "")).toMatchObject({ ok: false });
   });
 
   it("scores bundled skill readiness across validation, bundle verification, and release gates", () => {
     const result = runCli(["skill", "score", "bug-bounty-pilot", "--json"], repoRoot);
     expectCommand(result).toExit(0);
-    const parsed = JSON.parse(outputOf(result));
+    const parsed = JSON.parse(result.stdout ?? "");
     expect(parsed).toMatchObject({
       ok: true,
       id: "bug-bounty-pilot",
@@ -157,7 +157,7 @@ describe("CLI skill commands", () => {
     expect(parsed.nextSteps.length).toBeGreaterThan(0);
     const strictResult = runCli(["skill", "score", "bug-bounty-pilot", "--strict", "--json"], repoRoot);
     expectCommand(strictResult).toExit(parsed.ultimate ? 0 : 1);
-    expect(JSON.parse(outputOf(strictResult)).ultimate).toBe(parsed.ultimate);
+    expect(JSON.parse(strictResult.stdout ?? "").ultimate).toBe(parsed.ultimate);
     if (parsed.warnings.some((warning: any) => warning.name === "github:origin")) {
       expect(parsed.nextSteps).toEqual(
         expect.arrayContaining([
@@ -223,7 +223,7 @@ describe("CLI skill commands", () => {
       if (realOrigin) execFileSync("git", ["remote", "add", "origin", realOrigin], { cwd: repoRoot });
     }
     expectCommand(scoredForRepo).toExit(0);
-    const parsedForRepo = JSON.parse(outputOf(scoredForRepo));
+    const parsedForRepo = JSON.parse(scoredForRepo.stdout ?? "");
     expect(parsedForRepo.github).toMatchObject({
       ok: false,
       repo: "octo/bountypilot",
@@ -307,7 +307,7 @@ describe("CLI skill commands", () => {
       repoRoot,
     );
     expectCommand(scoredWithPublicPlan).toExit(0);
-    expect(JSON.parse(outputOf(scoredWithPublicPlan))).toMatchObject({
+    expect(JSON.parse(scoredWithPublicPlan.stdout ?? "")).toMatchObject({
       publicReadinessPlanPath: publicPlanPath,
     });
     const publicPlan = readFileSync(publicPlanPath, "utf8");
@@ -343,7 +343,7 @@ describe("CLI skill commands", () => {
       repoRoot,
     );
     expectCommand(strictForRepo).toExit(1);
-    expect(JSON.parse(outputOf(strictForRepo))).toMatchObject({
+    expect(JSON.parse(strictForRepo.stdout ?? "")).toMatchObject({
       ultimate: false,
       readiness: "ready_with_warnings",
     });
@@ -402,7 +402,7 @@ describe("CLI skill commands", () => {
       if (realOriginForPublished) execFileSync("git", ["remote", "add", "origin", realOriginForPublished], { cwd: repoRoot });
     }
     expectCommand(scoredForPublishedRepo).toExit(0);
-    const parsedPublished = JSON.parse(outputOf(scoredForPublishedRepo));
+    const parsedPublished = JSON.parse(scoredForPublishedRepo.stdout ?? "");
     expect(parsedPublished.publish).toMatchObject({
       ok: false,
       repo: "octo/bountypilot",
@@ -467,7 +467,7 @@ describe("CLI skill commands", () => {
       repoRoot,
     );
     expectCommand(strictPublished).toExit(1);
-    expect(JSON.parse(outputOf(strictPublished))).toMatchObject({
+    expect(JSON.parse(strictPublished.stdout ?? "")).toMatchObject({
       ultimate: false,
       publish: { online: true, actions: true },
     });
@@ -507,7 +507,7 @@ describe("CLI skill commands", () => {
     );
 
     expectCommand(result).toExit(0);
-    const parsed = JSON.parse(outputOf(result));
+    const parsed = JSON.parse(result.stdout ?? "");
     expect(parsed).toMatchObject({
       ok: true,
       skill: { id: "bug-bounty-pilot" },

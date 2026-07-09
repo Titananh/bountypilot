@@ -13,6 +13,10 @@ const NPM_ENV = {
   npm_config_cache: NPM_CACHE,
   NPM_CONFIG_CACHE: NPM_CACHE,
   npm_config_update_notifier: "false",
+  // Suppress Node 22 ExperimentalWarning for SQLite and other built-in modules
+  // that pollute stderr during test runs. Tests assert clean stderr/JSON.parse,
+  // so we silence warnings at the process level rather than fixing every test.
+  NODE_NO_WARNINGS: "1",
 };
 const BASE_DOCS_WITH_COMMANDS = ["README.md", "examples/safe-workflow.md"];
 const GLOBAL_OPTIONS_WITH_VALUE = new Set(["-p", "--program", "--tool-registry"]);

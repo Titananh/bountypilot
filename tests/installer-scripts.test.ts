@@ -74,6 +74,7 @@ describe("installer scripts", () => {
     const result = spawnSync(shell, args, {
       cwd: repoRoot,
       encoding: "utf8",
+      timeout: 30_000,
       env: {
         ...process.env,
         BOUNTYPILOT_INSTALL_DRY_RUN: "true",
