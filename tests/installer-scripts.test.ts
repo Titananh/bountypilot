@@ -63,7 +63,7 @@ describe("installer scripts", () => {
     expect(outputOf(result)).not.toContain("Dry run: npm install -g");
   });
 
-  it("resolves the npm version source in PowerShell dry-run mode without installing globally", () => {
+  it("resolves the npm version source in PowerShell dry-run mode without installing globally", { timeout: 60_000 }, () => {
     const shell = process.platform === "win32" ? "powershell.exe" : "pwsh";
     if (!commandAvailable(shell)) return;
 

@@ -96,7 +96,21 @@ describe("CLI skill commands", () => {
   });
 
   it("scores bundled skill readiness across validation, bundle verification, and release gates", () => {
-    const result = runCli(["skill", "score", "bug-bounty-pilot", "--json"], repoRoot);
+    // Strip the real origin for this test so it does not skew `git:origin`
+    // expectations inside the publicReadiness / publish layers.
+    let realOriginForLocalScore = "";
+    try {
+      realOriginForLocalScore = execFileSync("git", ["remote", "get-url", "origin"], { cwd: repoRoot, encoding: "utf8" }).trim();
+      if (realOriginForLocalScore) execFileSync("git", ["remote", "remove", "origin"], { cwd: repoRoot });
+    } catch {
+      realOriginForLocalScore = "";
+    }
+    let result;
+    try {
+      result = runCli(["skill", "score", "bug-bounty-pilot", "--json"], repoRoot);
+    } finally {
+      if (realOriginForLocalScore) execFileSync("git", ["remote", "add", "origin", realOriginForLocalScore], { cwd: repoRoot });
+    }
     expectCommand(result).toExit(0);
     const parsed = JSON.parse(result.stdout ?? "");
     expect(parsed).toMatchObject({

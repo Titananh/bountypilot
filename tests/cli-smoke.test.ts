@@ -622,10 +622,25 @@ integrations: {}
     expect(outputOf(deepDoctorJson).trimStart().startsWith("{")).toBe(true);
     const parsedDeepDoctor = JSON.parse(outputOf(deepDoctorJson));
     expect(parsedDeepDoctor.ok).toBe(true);
-    expect(parsedDeepDoctor.workspace.found).toBe(true);
-    expect(parsedDeepDoctor.release.ok).toBe(true);
-    expect(parsedDeepDoctor.checks).toEqual(expect.arrayContaining([expect.objectContaining({ name: "release", status: "pass" })]));
-    expect(parsedDeepDoctor.nextCommands).toContain("bounty tools doctor");
+    // `bounty doctor --deep` requires an initialized workspace (.bounty/) in the
+    // cwd. On a fresh CI checkout the directory does not exist, so create an
+    // empty one before running the doctor check. It is safe to leave behind;
+    // .bounty/ is gitignored.
+    const bountyDir = path.join(repoRoot, ".bounty");
+    const hadBountyDir = existsSync(bountyDir);
+    if (!hadBountyDir) mkdirSync(bountyDir, { recursive: true });
+    let deepDoctorJson2: SpawnSyncReturns<string> | null = null;
+    try {
+      deepDoctorJson2 = runCli(["doctor", "--deep", "--json"], repoRoot);
+    } finally {
+      if (!hadBountyDir) rmSync(bountyDir, { recursive: true, force: true });
+    }
+    expectCommand(deepDoctorJson2!).toExit(0);
+    const parsedDeepDoctor2 = JSON.parse(deepDoctorJson2!.stdout ?? "");
+    expect(parsedDeepDoctor2.workspace.found).toBe(true);
+    expect(parsedDeepDoctor2.release.ok).toBe(true);
+    expect(parsedDeepDoctor2.checks).toEqual(expect.arrayContaining([expect.objectContaining({ name: "release", status: "pass" })]));
+    expect(parsedDeepDoctor2.nextCommands).toContain("bounty tools doctor");
 
     const deepDoctor = runCli(["doctor", "--deep"], repoRoot);
     expectCommand(deepDoctor).toExit(0);
