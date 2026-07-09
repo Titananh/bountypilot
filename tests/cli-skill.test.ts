@@ -169,7 +169,12 @@ describe("CLI skill commands", () => {
     expect(parsed.score).toBeGreaterThanOrEqual(90);
     expect(["ultimate", "ready_with_warnings"]).toContain(parsed.readiness);
     expect(parsed.nextSteps.length).toBeGreaterThan(0);
-    const strictResult = runCli(["skill", "score", "bug-bounty-pilot", "--strict", "--json"], repoRoot);
+    let strictResult: ReturnType<typeof runCli>;
+    try {
+      strictResult = runCli(["skill", "score", "bug-bounty-pilot", "--strict", "--json"], repoRoot);
+    } finally {
+      if (realOriginForLocalScore) execFileSync("git", ["remote", "add", "origin", realOriginForLocalScore], { cwd: repoRoot });
+    }
     expectCommand(strictResult).toExit(parsed.ultimate ? 0 : 1);
     expect(JSON.parse(strictResult.stdout ?? "").ultimate).toBe(parsed.ultimate);
     if (parsed.warnings.some((warning: any) => warning.name === "github:origin")) {
