@@ -76,14 +76,20 @@ describe("local process policy", () => {
 
     expect(resolved.executable.realPath).toBe(resolveLocalExecutable(process.execPath).realPath);
     // Compare entrypoint paths in a way that survives Windows 8.3
-    // short-name aliasing. realpathSync returns different canonical
-    // forms depending on which API (and which process) the OS
-    // consulted (e.g. C:\Users\RUNNER~1\... vs
-    // C:\Users\runneradmin\...). Normalize to lowercase backslashes
-    // and compare the file basenames + the resolved tail of the path,
-    // which is stable across short/long-name forms.
-    const normalize = (p: string) => path.resolve(p).replace(/[\\/]+/g, "/").toLowerCase();
-    expect(normalize(resolved.baseArgs[0])).toBe(normalize(entrypoint));
+    // short-name aliasing. The user-profile segment of %TEMP% can be
+    // returned as either 'C:\Users\runneradmin\...' or its 8.3 alias
+    // 'C:\Users\RUNNER~1\...' depending on which Win32 API the
+    // process consulted. Compare only the stable tail of the path
+    // (everything from the temp dir root onward) so user-profile
+    // aliasing does not affect the assertion.
+    const stableTail = (p: string) => {
+      const normalised = path.resolve(p).replace(/[\\/]+/g, "/");
+      // Match the segment immediately after the Windows temp root
+      // ('.../Temp/') so we ignore the user-profile alias entirely.
+      const m = normalised.match(/\/temp\/[^/]+(\/.+)$/i);
+      return m ? m[1].toLowerCase() : normalised.toLowerCase();
+    };
+    expect(stableTail(resolved.baseArgs[0])).toBe(stableTail(entrypoint));
     expect(resolved.npmPackage).toMatchObject({
       name: "fake-runner",
       version: "1.2.3",
