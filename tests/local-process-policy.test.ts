@@ -93,9 +93,12 @@ describe("local process policy", () => {
     expect(resolved.npmPackage).toMatchObject({
       name: "fake-runner",
       version: "1.2.3",
-      entrypoint,
       entrypointSha256: sha256Text("console.log('ok');\n"),
     });
+    // Apply the same Windows-8.3-robust tail comparison to the
+    // entrypoint field inside npmPackage, which carries the same
+    // aliasing risk.
+    expect(stableTail(resolved.npmPackage!.entrypoint)).toBe(stableTail(entrypoint));
     expect(resolved.npmPackage?.packageJsonSha256).toMatch(/^[a-f0-9]{64}$/);
   });
 
