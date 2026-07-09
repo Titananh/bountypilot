@@ -75,7 +75,10 @@ describe("local process policy", () => {
     });
 
     expect(resolved.executable.realPath).toBe(resolveLocalExecutable(process.execPath).realPath);
-    expect(resolved.baseArgs).toEqual([entrypoint]);
+    // Use a path comparison that survives Windows 8.3 short-name aliasing
+    // (e.g. C:\Users\runneradmin\... vs C:\Users\RUNNER~1\...). The two forms
+    // refer to the same file but fail a strict string equality.
+    expect(path.resolve(resolved.baseArgs[0])).toBe(path.resolve(entrypoint));
     expect(resolved.npmPackage).toMatchObject({
       name: "fake-runner",
       version: "1.2.3",
