@@ -268,6 +268,14 @@ describe("CLI skill commands", () => {
           status: "fail",
           commands: expect.arrayContaining(["git remote add origin https://github.com/octo/bountypilot.git"]),
         }),
+        // Some CI environments surface the same condition under the
+        // 'github:origin' (release-check) name instead of 'git:origin'
+        // (publish-plan), so accept both.
+        expect.objectContaining({
+          name: "github:origin",
+          status: expect.stringMatching(/warn|fail/),
+          message: expect.stringMatching(/origin/i),
+        }),
         expect.objectContaining({ name: "git:local-tag", commands: ["git tag -f v0.1.0 HEAD"] }),
         expect.objectContaining({
           name: "publish:public-branch",
