@@ -181,8 +181,9 @@ describe("CLI skill commands", () => {
         execFileSync("git", ["remote", "add", "origin", realOriginForLocalScore], { cwd: repoRoot });
       }
     }
-    expectCommand(strictResult).toExit(parsed.ultimate ? 0 : 1);
-    expect(JSON.parse(strictResult.stdout ?? "").ultimate).toBe(parsed.ultimate);
+    const strictParsed = JSON.parse(strictResult.stdout ?? "");
+    expectCommand(strictResult).toExit(strictParsed.ultimate ? 0 : 1);
+    expect(strictParsed.ultimate).toBe(parsed.ultimate);
     if (parsed.warnings.some((warning: any) => warning.name === "github:origin")) {
       expect(parsed.nextSteps).toEqual(
         expect.arrayContaining([
