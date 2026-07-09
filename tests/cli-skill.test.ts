@@ -109,7 +109,7 @@ describe("CLI skill commands", () => {
     try {
       result = runCli(["skill", "score", "bug-bounty-pilot", "--json"], repoRoot);
     } finally {
-      if (realOriginForLocalScore) execFileSync("git", ["remote", "add", "origin", realOriginForLocalScore], { cwd: repoRoot });
+      if (realOriginForLocalScore) execFileSync("git", ["remote", "set-url", "origin", realOriginForLocalScore], { cwd: repoRoot });
     }
     expectCommand(result).toExit(0);
     const parsed = JSON.parse(result.stdout ?? "");
@@ -173,7 +173,7 @@ describe("CLI skill commands", () => {
     try {
       strictResult = runCli(["skill", "score", "bug-bounty-pilot", "--strict", "--json"], repoRoot);
     } finally {
-      if (realOriginForLocalScore) execFileSync("git", ["remote", "add", "origin", realOriginForLocalScore], { cwd: repoRoot });
+      if (realOriginForLocalScore) execFileSync("git", ["remote", "set-url", "origin", realOriginForLocalScore], { cwd: repoRoot });
     }
     expectCommand(strictResult).toExit(parsed.ultimate ? 0 : 1);
     expect(JSON.parse(strictResult.stdout ?? "").ultimate).toBe(parsed.ultimate);
@@ -239,7 +239,7 @@ describe("CLI skill commands", () => {
         repoRoot,
       );
     } finally {
-      if (realOrigin) execFileSync("git", ["remote", "add", "origin", realOrigin], { cwd: repoRoot });
+      if (realOrigin) execFileSync("git", ["remote", "set-url", "origin", realOrigin], { cwd: repoRoot });
     }
     expectCommand(scoredForRepo).toExit(0);
     const parsedForRepo = JSON.parse(scoredForRepo.stdout ?? "");
@@ -418,7 +418,7 @@ describe("CLI skill commands", () => {
         repoRoot,
       );
     } finally {
-      if (realOriginForPublished) execFileSync("git", ["remote", "add", "origin", realOriginForPublished], { cwd: repoRoot });
+      if (realOriginForPublished) execFileSync("git", ["remote", "set-url", "origin", realOriginForPublished], { cwd: repoRoot });
     }
     expectCommand(scoredForPublishedRepo).toExit(0);
     const parsedPublished = JSON.parse(scoredForPublishedRepo.stdout ?? "");
