@@ -110,7 +110,8 @@ describe("CLI skill commands", () => {
       result = runCli(["skill", "score", "bug-bounty-pilot", "--json"], repoRoot);
     } finally {
       if (realOriginForLocalScore) {
-        execFileSync("git", ["config", "remote.origin.url", realOriginForLocalScore], { cwd: repoRoot });
+        try { execFileSync("git", ["remote", "remove", "origin"], { cwd: repoRoot }); } catch {}
+        execFileSync("git", ["remote", "add", "origin", realOriginForLocalScore], { cwd: repoRoot });
       }
     }
     expectCommand(result).toExit(0);
@@ -176,7 +177,8 @@ describe("CLI skill commands", () => {
       strictResult = runCli(["skill", "score", "bug-bounty-pilot", "--strict", "--json"], repoRoot);
     } finally {
       if (realOriginForLocalScore) {
-        execFileSync("git", ["config", "remote.origin.url", realOriginForLocalScore], { cwd: repoRoot });
+        try { execFileSync("git", ["remote", "remove", "origin"], { cwd: repoRoot }); } catch {}
+        execFileSync("git", ["remote", "add", "origin", realOriginForLocalScore], { cwd: repoRoot });
       }
     }
     expectCommand(strictResult).toExit(parsed.ultimate ? 0 : 1);
@@ -244,7 +246,8 @@ describe("CLI skill commands", () => {
       );
     } finally {
       if (realOrigin) {
-        execFileSync("git", ["config", "remote.origin.url", realOrigin], { cwd: repoRoot });
+        try { execFileSync("git", ["remote", "remove", "origin"], { cwd: repoRoot }); } catch {}
+        execFileSync("git", ["remote", "add", "origin", realOrigin], { cwd: repoRoot });
       }
     }
     expectCommand(scoredForRepo).toExit(0);
@@ -425,7 +428,8 @@ describe("CLI skill commands", () => {
       );
     } finally {
       if (realOriginForPublished) {
-        execFileSync("git", ["config", "remote.origin.url", realOriginForPublished], { cwd: repoRoot });
+        try { execFileSync("git", ["remote", "remove", "origin"], { cwd: repoRoot }); } catch {}
+        execFileSync("git", ["remote", "add", "origin", realOriginForPublished], { cwd: repoRoot });
       }
     }
     expectCommand(scoredForPublishedRepo).toExit(0);
