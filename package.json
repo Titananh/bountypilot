@@ -44,11 +44,11 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "commander": "^14.0.0",
+    "commander": "^15.0.0",
     "ink": "^7.1.0",
     "playwright": "^1.55.0",
     "react": "^19.2.7",
-    "react-devtools-core": "^6.1.2",
+    "react-devtools-core": "^7.0.1",
     "yaml": "^2.8.0",
     "zod": "^4.0.0"
   },
