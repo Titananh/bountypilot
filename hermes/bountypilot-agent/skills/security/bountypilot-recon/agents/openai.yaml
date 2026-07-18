@@ -1,0 +1,4 @@
+interface:
+  display_name: "BountyPilot Recon"
+  short_description: "Run scoped passive and safe recon"
+  default_prompt: "Use $bountypilot-recon to plan scoped passive or safe reconnaissance for this authorized target."

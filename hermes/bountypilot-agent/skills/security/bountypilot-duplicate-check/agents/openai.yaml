@@ -1,0 +1,4 @@
+interface:
+  display_name: "BountyPilot Duplicate Check"
+  short_description: "Estimate duplicate risk with evidence"
+  default_prompt: "Use $bountypilot-duplicate-check to estimate duplicate risk for this candidate."

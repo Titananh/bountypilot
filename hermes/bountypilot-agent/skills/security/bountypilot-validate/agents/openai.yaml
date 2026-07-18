@@ -1,0 +1,4 @@
+interface:
+  display_name: "BountyPilot Validation"
+  short_description: "Validate findings without unsafe effects"
+  default_prompt: "Use $bountypilot-validate to safely validate this evidence-backed finding."

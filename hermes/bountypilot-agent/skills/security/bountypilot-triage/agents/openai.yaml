@@ -1,0 +1,4 @@
+interface:
+  display_name: "BountyPilot Triage"
+  short_description: "Triage confidence impact and severity"
+  default_prompt: "Use $bountypilot-triage to assess confidence, impact, and severity for this candidate."

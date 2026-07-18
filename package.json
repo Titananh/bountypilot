@@ -10,6 +10,7 @@
   "files": [
     "dist",
     "examples",
+    "hermes",
     "skills",
     "scripts",
     "README.md"
@@ -32,7 +33,10 @@
     "verify:release": "node scripts/verify-release.mjs",
     "prepare": "npm run build",
     "prepack": "npm run build",
-    "dev": "tsx src/cli/index.ts"
+    "dev": "tsx src/cli/index.ts",
+    "hermes:plan": "node scripts/install-hermes-bountypilot.mjs --dry-run",
+    "hermes:install": "node scripts/install-hermes-bountypilot.mjs --apply",
+    "hermes:verify": "node scripts/install-hermes-bountypilot.mjs --verify"
   },
   "keywords": [
     "bug-bounty",

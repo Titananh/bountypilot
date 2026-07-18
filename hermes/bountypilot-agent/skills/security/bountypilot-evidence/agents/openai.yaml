@@ -1,0 +1,4 @@
+interface:
+  display_name: "BountyPilot Evidence"
+  short_description: "Capture redacted reproducible evidence"
+  default_prompt: "Use $bountypilot-evidence to capture and validate redacted local evidence for this finding."

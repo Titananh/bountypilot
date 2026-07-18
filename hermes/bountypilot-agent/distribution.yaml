@@ -1,0 +1,19 @@
+name: bountypilot-agent
+version: 0.1.0
+description: Safe, scope-bound bug bounty research with BountyPilot.
+hermes_requires: ">=0.17.0"
+author: BountyPilot
+license: MIT
+distribution_owned:
+  - SOUL.md
+  - distribution.yaml
+  - skills/security/bountypilot-duplicate-check
+  - skills/security/bountypilot-evidence
+  - skills/security/bountypilot-orchestrate
+  - skills/security/bountypilot-program-intake
+  - skills/security/bountypilot-recon
+  - skills/security/bountypilot-report
+  - skills/security/bountypilot-safety
+  - skills/security/bountypilot-triage
+  - skills/security/bountypilot-validate
+  - skill-bundles/bountypilot.yaml

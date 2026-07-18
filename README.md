@@ -113,6 +113,32 @@ If source-mode execution fails to resolve TypeScript ESM imports in your Node or
 
 BountyPilot requires Node.js 22.13.0 or newer because the local SQLite store uses the built-in `node:sqlite` runtime.
 
+## Hermes Agent Distribution
+
+The repository includes a scope-first Hermes Agent suite with nine installed skills for program intake, safety, public-passive recon planning, local evidence, safe validation notes, duplicate-risk review, triage, orchestration, and HackerOne-style report drafting. The `bountypilot` bundle loads the safety and orchestration skills; the orchestrator loads the narrower stage skill only when needed.
+
+Install into an existing named Hermes profile without replacing its credentials, SOUL, config, memories, unrelated skills, or unrelated bundles:
+
+```bash
+npm run hermes:plan
+npm run hermes:install
+npm run hermes:verify
+hermes profile use bugbounty
+hermes chat
+```
+
+The default profile name is `bugbounty`. The first command is read-only and prints the ten managed entries that would change. Install uses staged atomic renames with rollback and backs up only conflicting BountyPilot-managed entries under the profile's `local/bountypilot-agent/backups/` directory.
+
+Inside the interactive Hermes session, invoke the bundle with one natural-language request:
+
+```text
+/bountypilot Continue the exact imported program ACME. Recheck policy and scope, perform public-passive research and BountyPilot dry-runs, organize verified local evidence, assess duplicate risk, triage the finding, and produce a local HackerOne report draft for my review.
+```
+
+This v0.1 integration is deliberately plan/public-passive/dry-run-only. It never issues live target actions, trusts approval-bypass modes, or submits a report. Any target-facing action is handed back for a separate human-controlled BountyPilot workflow, and the researcher must independently validate, preview, and submit the final report.
+
+For a fresh standalone profile, first clone or check out the exact repository revision, then run `hermes profile install ./hermes/bountypilot-agent --name bugbounty`. Do not use Hermes `--force` to overlay this distribution onto an existing profile; use the safe merge installer above.
+
 ## Safe Workflow Guide
 
 Use the workflow as a gated loop, not a fire-and-forget scan:

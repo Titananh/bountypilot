@@ -1,0 +1,4 @@
+interface:
+  display_name: "BountyPilot Safety"
+  short_description: "Enforce scope and approval boundaries"
+  default_prompt: "Use $bountypilot-safety to enforce scope, policy, and approval gates for this security workflow."

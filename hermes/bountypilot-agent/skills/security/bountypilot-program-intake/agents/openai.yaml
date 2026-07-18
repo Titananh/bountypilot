@@ -1,0 +1,4 @@
+interface:
+  display_name: "BountyPilot Program Intake"
+  short_description: "Import program rules and exact scope"
+  default_prompt: "Use $bountypilot-program-intake to import and verify the target program rules and scope."
