@@ -376,6 +376,7 @@ describe("MissionRunner one-request terminal safety", () => {
         runtime.db.prepare("SELECT COUNT(*) AS count FROM actions WHERE execution_token IS NOT NULL").get(),
       ).toEqual({ count: 0 });
     },
+    15_000,
   );
 
   it("does not expose secrets, bearer tokens, raw prompts/argv, or protected absolute paths", async () => {

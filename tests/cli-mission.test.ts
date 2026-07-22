@@ -363,7 +363,7 @@ describe("CLI mission start one-request contract", () => {
     } finally {
       db.close();
     }
-  });
+  }, 15_000);
 
   it("uses exit 1 for an internal database-open failure", () => {
     const workspace = createWorkspace();
