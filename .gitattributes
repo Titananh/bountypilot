@@ -1,0 +1,8 @@
+* text=auto
+
+# Node/Vite treats the shebang in imported ESM scripts as syntax. Keep it LF
+# on Windows checkouts so the CR byte cannot leak into the transformed module.
+*.mjs text eol=lf
+
+# Shell entrypoints must remain directly executable after a Windows checkout.
+*.sh text eol=lf

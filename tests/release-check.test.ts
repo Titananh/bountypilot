@@ -76,6 +76,76 @@ describe("release checks", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("requires current GitHub Actions and Playwright Chromium provisioning", () => {
+    const root = writeReleaseFixture();
+    const ciPath = path.join(root, ".github", "workflows", "ci.yml");
+    const releasePath = path.join(root, ".github", "workflows", "release.yml");
+    const codeqlPath = path.join(root, ".github", "workflows", "codeql.yml");
+    const realToolsPath = path.join(root, ".github", "workflows", "real-tools.yml");
+    writeFileSync(
+      ciPath,
+      readFileSync(ciPath, "utf8")
+        .replace("actions/checkout@v7", "actions/checkout@v5")
+        .replace("actions/setup-node@v7", "actions/setup-node@v6")
+        .replace("npx playwright install --with-deps chromium", "npx playwright --version"),
+      "utf8",
+    );
+    writeFileSync(
+      releasePath,
+      readFileSync(releasePath, "utf8")
+        .replace("npx playwright install --with-deps chromium", "npx playwright --version")
+        .replace("actions/upload-artifact@v7", "actions/upload-artifact@v4"),
+      "utf8",
+    );
+    writeFileSync(
+      codeqlPath,
+      readFileSync(codeqlPath, "utf8")
+        .replace("github/codeql-action/init@v4", "github/codeql-action/init@v3")
+        .replace("github/codeql-action/analyze@v4", "github/codeql-action/analyze@v3"),
+      "utf8",
+    );
+    writeFileSync(
+      realToolsPath,
+      readFileSync(realToolsPath, "utf8").replace("actions/setup-go@v6", "actions/setup-go@v5"),
+      "utf8",
+    );
+
+    const result = runReleaseCheck(root);
+
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: ".github/workflows/ci.yml:content",
+          status: "fail",
+          message: expect.stringContaining("npx playwright install --with-deps chromium"),
+        }),
+        expect.objectContaining({
+          name: ".github/workflows/release.yml:content",
+          status: "fail",
+          message: expect.stringContaining("npx playwright install --with-deps chromium"),
+        }),
+        expect.objectContaining({
+          name: ".github/workflows/codeql.yml:content",
+          status: "fail",
+          message: expect.stringContaining("github/codeql-action/init@v4"),
+        }),
+        expect.objectContaining({
+          name: ".github/workflows/real-tools.yml:content",
+          status: "fail",
+          message: expect.stringContaining("actions/setup-go@v6"),
+        }),
+      ]),
+    );
+    const ciContent = result.checks.find((check) => check.name === ".github/workflows/ci.yml:content");
+    expect(ciContent?.message).toContain("actions/checkout@v7");
+    expect(ciContent?.message).toContain("actions/setup-node@v7");
+    const releaseContent = result.checks.find((check) => check.name === ".github/workflows/release.yml:content");
+    expect(releaseContent?.message).toContain("actions/upload-artifact@v7");
+    const codeqlContent = result.checks.find((check) => check.name === ".github/workflows/codeql.yml:content");
+    expect(codeqlContent?.message).toContain("github/codeql-action/analyze@v4");
+    expect(result.ok).toBe(false);
+  });
+
   it("warns when the source checkout has no GitHub origin remote", () => {
     const root = writeReleaseFixture();
 
@@ -926,7 +996,10 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: \${{ matrix.os }}
     steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
       - run: npm ci
+      - run: npx playwright install --with-deps chromium
       - run: npm run verify:release
 `,
   );
@@ -945,11 +1018,15 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
       - run: npm ci
+      - run: npx playwright install --with-deps chromium
       - run: npm run verify:release
       - run: node dist/cli/index.js release bundle --output .release --force --json
       - run: node dist/cli/index.js release verify-bundle .release --json
       - uses: actions/attest-build-provenance@v2
+      - uses: actions/upload-artifact@v7
       - uses: softprops/action-gh-release@v2
         with:
           files: |
@@ -966,11 +1043,14 @@ jobs:
 jobs:
   analyze:
     steps:
-      - uses: github/codeql-action/init@v3
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+      - uses: github/codeql-action/init@v4
         with:
           languages: javascript-typescript
           queries: security-extended
       - run: npm run build
+      - uses: github/codeql-action/analyze@v4
 `,
   );
   writeText(
@@ -986,6 +1066,8 @@ jobs:
     name: Packaged CLI local lab smoke
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
       - run: npm ci
       - run: npm run test:vm-lab
 `,
@@ -1000,7 +1082,9 @@ jobs:
   real-tool-recon:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+      - uses: actions/setup-go@v6
       - run: npm run test:vm-real-tools
         env:
           BOUNTYPILOT_VM_REAL_TOOLS_INSTALL: "true"

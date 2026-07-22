@@ -90,6 +90,17 @@ describe("packaged bugbounty bin", () => {
       const hermesHome = path.join(root, "hermes-home");
       const hermesProfile = path.join(hermesHome, "profiles", "bugbounty");
       mkdirSync(hermesProfile, { recursive: true });
+      cpSync(
+        path.join(
+          consumerDir,
+          "node_modules",
+          "bountypilot",
+          "hermes",
+          "bountypilot-agent",
+          "config.yaml",
+        ),
+        path.join(hermesProfile, "config.yaml"),
+      );
       const hermesDryRun = runBounty(
         hermesBinPath,
         ["--dry-run", "--json", "--hermes-home", hermesHome, "--profile", "bugbounty"],

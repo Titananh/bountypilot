@@ -23,24 +23,24 @@ The CLI uses a compact, terminal-first presentation inspired by modern agent CLI
 
 BountyPilot requires Node.js 22.13.0 or newer.
 
-After this repository is pushed to GitHub, users can install the CLI with one command:
+Install the current reviewed candidate directly from its public GitHub branch:
 
 ```bash
-npm install -g github:OWNER/REPO
+npm install -g github:Titananh/bountypilot#codex/hermes-bountypilot-agent
 ```
-
-Replace `OWNER/REPO` with the GitHub repository, for example `your-name/bountypilot`.
 
 Linux/macOS installer:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/OWNER/REPO/main/scripts/install.sh | BOUNTYPILOT_SOURCE=github:OWNER/REPO#main bash
+curl -fsSL https://raw.githubusercontent.com/Titananh/bountypilot/codex/hermes-bountypilot-agent/scripts/install.sh \
+  | BOUNTYPILOT_SOURCE=github:Titananh/bountypilot#codex/hermes-bountypilot-agent bash
 ```
 
 Windows PowerShell installer:
 
 ```powershell
-$env:BOUNTYPILOT_SOURCE="github:OWNER/REPO#main"; irm https://raw.githubusercontent.com/OWNER/REPO/main/scripts/install.ps1 | iex
+$env:BOUNTYPILOT_SOURCE="github:Titananh/bountypilot#codex/hermes-bountypilot-agent"
+irm https://raw.githubusercontent.com/Titananh/bountypilot/codex/hermes-bountypilot-agent/scripts/install.ps1 | iex
 ```
 
 Set `BOUNTYPILOT_INSTALL_DRY_RUN=1` to make either installer verify Node/npm and print the resolved `npm install -g ...` command without installing globally. The scripts require an explicit `BOUNTYPILOT_SOURCE`, `BOUNTYPILOT_REPO`, or `BOUNTYPILOT_VERSION`; they never fall back to an unpublished npm package name.
@@ -123,7 +123,7 @@ The Hermes 0.17+ profile distribution is in `hermes/bountypilot-agent`. The repo
 The Hermes skills require the BountyPilot CLI `0.2.0` on `PATH`. Installing the nested profile does not install the CLI. For the current reviewed candidate branch, install both from the same checkout:
 
 ```bash
-git clone --branch codex/hermes-bountypilot-agent --depth 1 https://github.com/OWNER/REPO.git bountypilot
+git clone --branch codex/hermes-bountypilot-agent --depth 1 https://github.com/Titananh/bountypilot.git bountypilot
 cd bountypilot
 npm ci
 npm install -g .

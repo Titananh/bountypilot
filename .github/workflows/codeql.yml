@@ -25,10 +25,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "22.13.0"
           cache: npm
@@ -37,7 +37,7 @@ jobs:
         run: npm ci
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: javascript-typescript
           queries: security-extended,security-and-quality
@@ -46,5 +46,4 @@ jobs:
         run: npm run build
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
-
+        uses: github/codeql-action/analyze@v4
