@@ -591,7 +591,11 @@ function remediationCommandsForRequirement(name: string, context: PublicReadines
     return ["gh auth status", "gh auth login"];
   }
   if (name === "git:working-tree") {
-    return ["git status --short", "git add .", 'git commit -m "Prepare BountyPilot release"'];
+    return [
+      "git status --short",
+      "git add -- README.md LICENSE SECURITY.md CONTRIBUTING.md package.json package-lock.json tsconfig.json src tests scripts examples skills hermes .github",
+      'git commit -m "Prepare BountyPilot release"',
+    ];
   }
   if (name === "git:local-tag") {
     return [`git tag -f ${context.tag} HEAD`];

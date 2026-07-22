@@ -1,19 +1,9 @@
-import path from "node:path";
 import type { ActionRecord } from "../../core/actions/action-queue.js";
-import { createJobAuditLogger, type Runtime } from "../../cli/runtime.js";
-import type { ExecutionMode, ReconObservation, ReconObservationKind, RiskLevel, ToolAdapterRunInput, ToolAdapterRunResult, ToolAdapterSpec } from "../../types.js";
+import type { Runtime } from "../../cli/runtime.js";
+import type { ExecutionMode, ReconObservation, ReconObservationKind, RiskLevel, ToolAdapterSpec } from "../../types.js";
 import { BountyPilotError } from "../../utils/errors.js";
-import {
-  assertLocalProcessArgument,
-  createExecutableApprovalStore,
-  localProcessEnv,
-  resolveApprovedLocalProcess,
-} from "../../utils/local-process-policy.js";
-import { killProcessTree, spawnOutputProcess } from "../../utils/process-tree.js";
-import { maskSecrets } from "../../utils/secrets.js";
-import { ToolManager } from "./tool-manager.js";
+import { createExecutableApprovalStore } from "../../utils/local-process-policy.js";
 
-const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_CAPTURE_BYTES = 768_000;
 
 export const TOOL_ADAPTER_SPECS: ToolAdapterSpec[] = [
@@ -32,154 +22,18 @@ export const TOOL_ADAPTER_SPECS: ToolAdapterSpec[] = [
 export class ToolAdapterRunner {
   constructor(private readonly runtime: Runtime) {}
 
-  async execute(input: ToolAdapterRunInput): Promise<ToolAdapterRunResult> {
-    const scoped = this.runtime.scopeGuard.assertAllowed(input.target);
-    const manager = new ToolManager();
-    const tool = manager.assertAllowedForMode(input.tool, input.mode);
-    const action = tool.actions.find((candidate) => candidate.action_type === input.actionType) ?? tool.actions[0];
-    if (!action) {
-      throw new BountyPilotError(`Tool ${tool.name} has no trusted actions`, "TOOL_ACTION_NOT_FOUND");
-    }
-    const validation = manager.validateRunPlan({
-      tool: tool.name,
-      mode: input.mode,
-      actionType: action.action_type,
-      target: scoped.url,
-      labModeEnabled: this.runtime.config.rules.lab_mode === true,
-      programRules: this.runtime.config.rules,
-    });
-    if (!validation.allowed) {
-      throw new BountyPilotError(validation.reasons.join("; "), "TOOL_RUN_PLAN_BLOCKED");
-    }
-
-    const approval = latestToolApproval(this.runtime, tool.name);
-    if (!approval) {
-      throw new BountyPilotError(`Tool ${tool.name} has no approved executable. Run tools approve-executable first.`, "TOOL_EXECUTABLE_APPROVAL_MISSING");
-    }
-    const launch = resolveApprovedLocalProcess({
-      integration: toolApprovalIntegrationName(tool.name),
-      config: { command: approval.command },
-      integrationsDir: this.runtime.paths.workspace.integrationsDir,
-      cwd: this.runtime.paths.programDir,
-    });
-    const spec = toolAdapterSpec(tool.name, action.action_type);
-    const args = renderToolArgs(spec.defaultArgs, scoped.url).map(assertAndReturnArgument);
-    const started = Date.now();
-    const processResult = await runProcess({
-      executable: launch.executable.realPath,
-      commandSha256: launch.executable.sha256,
-      args,
-      cwd: this.runtime.paths.programDir,
-      timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-    });
-    const durationMs = Date.now() - started;
-    const parsed = parseToolOutput({
-      tool: tool.name,
-      actionType: action.action_type,
-      target: scoped.url,
-      content: [processResult.stdout, processResult.stderr].filter(Boolean).join("\n"),
-    });
-    const observations = parsed
-      .map((observation) => ({
-        ...observation,
-        jobId: input.jobId,
-        sourceUrl: observation.sourceUrl ?? scoped.url,
-        scopeAllowed: scopedObservationAllowed(this.runtime, observation),
-      }))
-      .filter((observation) => observation.scopeAllowed)
-      .map((observation) => this.runtime.recon.upsert(observation));
-
-    for (const observation of observations) {
-      if (
-        observation.kind === "url" ||
-        observation.kind === "endpoint" ||
-        observation.kind === "parameter" ||
-        observation.kind === "js_asset" ||
-        observation.kind === "form"
-      ) {
-        this.runtime.crawlGraph.upsertPage({ url: observation.normalizedValue });
-        this.runtime.crawlGraph.addEdge(scoped.url, observation.normalizedValue);
-      }
-    }
-
-    const artifact = this.runtime.evidence.writeTextArtifact({
-      jobId: input.jobId,
-      adapterName: tool.name,
-      kind: "tool_output",
-      sourceUrl: scoped.url,
-      relativePath: path.join(input.jobId ?? "ad-hoc-tools", `${safeFileName(tool.name)}-${safeFileName(action.action_type)}.json`),
-      content: `${JSON.stringify(
-        {
-          tool: tool.name,
-          actionType: action.action_type,
-          target: scoped.url,
-          command: launch.executable.realPath,
-          commandSha256: launch.executable.sha256,
-          args,
-          cwd: this.runtime.paths.programDir,
-          exitCode: processResult.exitCode,
-          signal: processResult.signal,
-          timedOut: processResult.timedOut,
-          durationMs,
-          stdout: maskSecrets(processResult.stdout),
-          stderr: maskSecrets(processResult.stderr),
-          observations: observations.map((observation) => observation.id),
-        },
-        null,
-        2,
-      )}\n`,
-    });
-
-    createJobAuditLogger(this.runtime.paths, input.jobId ?? "ad-hoc-tools").log({
-      jobId: input.jobId,
-      actionType: action.action_type,
-      url: scoped.url,
-      adapterName: tool.name,
-      status: processResult.exitCode === 0 && !processResult.timedOut ? "completed" : "failed",
-      policyDecision: validation.requiresApproval ? "require_approval" : "allow",
-      reason: validation.reasons.join("; "),
-      metadata: {
-        commandSha256: launch.executable.sha256,
-        exitCode: processResult.exitCode,
-        timedOut: processResult.timedOut,
-        observations: observations.length,
-      },
-    });
-
-    return {
-      tool: tool.name,
-      actionType: action.action_type,
-      target: scoped.url,
-      exitCode: processResult.exitCode,
-      timedOut: processResult.timedOut,
-      durationMs,
-      stdout: processResult.stdout,
-      stderr: processResult.stderr,
-      evidence: artifact,
-      observations,
-    };
+  async execute(_input: unknown): Promise<never> {
+    throw new BountyPilotError(
+      "External tool execution is disabled at the authoritative boundary; use a queued plan and human handoff.",
+      "TOOL_EXECUTION_DISABLED",
+    );
   }
 
-  async executeAction(action: ActionRecord, scopedUrl: string, mode: ExecutionMode): Promise<{ message: string; evidenceCreated: number; findingsCreated: number }> {
-    const tool = actionToolName(action);
-    const result = await this.execute({
-      tool,
-      actionType: action.actionType,
-      target: scopedUrl,
-      mode,
-      jobId: action.jobId,
-    });
-    if (result.timedOut) {
-      throw new BountyPilotError(`Tool ${tool} timed out after ${result.durationMs}ms`, "TOOL_EXECUTION_TIMEOUT");
-    }
-    if (result.exitCode !== 0) {
-      throw new BountyPilotError(`Tool ${tool} exited with code ${result.exitCode}. Evidence: ${result.evidence.path}`, "TOOL_EXECUTION_NONZERO");
-    }
-    return {
-      message: `${tool} completed with ${result.observations.length} scoped observation(s)`,
-      evidenceCreated: 1,
-      findingsCreated: 0,
-    };
+  async executeAction(_action: ActionRecord, _scopedUrl: string, _mode: ExecutionMode): Promise<never> {
+    throw new BountyPilotError(
+      "External tool execution is disabled at the authoritative boundary; use a queued plan and human handoff.",
+      "TOOL_EXECUTION_DISABLED",
+    );
   }
 }
 
@@ -230,64 +84,6 @@ export function parseToolOutput(input: {
     output.push(...observationsFromRecord(input, entireJson));
   }
   return dedupeObservations(output);
-}
-
-interface ProcessResult {
-  exitCode: number | null;
-  signal: NodeJS.Signals | null;
-  timedOut: boolean;
-  stdout: string;
-  stderr: string;
-}
-
-function runProcess(input: {
-  executable: string;
-  commandSha256: string;
-  args: string[];
-  cwd: string;
-  timeoutMs: number;
-}): Promise<ProcessResult> {
-  return new Promise((resolve, reject) => {
-    const child = spawnOutputProcess(input.executable, input.args, {
-      cwd: input.cwd,
-      env: localProcessEnv(),
-    });
-    let stdout = "";
-    let stderr = "";
-    let timedOut = false;
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      killProcessTree(child);
-    }, input.timeoutMs);
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => {
-      stdout = appendBounded(stdout, chunk);
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr = appendBounded(stderr, chunk);
-    });
-    child.on("error", (error) => {
-      clearTimeout(timeout);
-      reject(new BountyPilotError(error.message, "TOOL_PROCESS_SPAWN_FAILED"));
-    });
-    child.on("close", (exitCode, signal) => {
-      clearTimeout(timeout);
-      resolve({ exitCode, signal, timedOut, stdout, stderr });
-    });
-  });
-}
-
-function renderToolArgs(args: string[], target: string): string[] {
-  const url = new URL(target);
-  const host = url.hostname;
-  const origin = url.origin;
-  return args.map((arg) => arg.replaceAll("{url}", target).replaceAll("{host}", host).replaceAll("{origin}", origin));
-}
-
-function assertAndReturnArgument(argument: string): string {
-  assertLocalProcessArgument(argument, "TOOL_ARGUMENT_INVALID");
-  return argument;
 }
 
 function parseJsonRecord(value: string): unknown | undefined {

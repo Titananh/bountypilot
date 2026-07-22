@@ -1,11 +1,12 @@
 name: bountypilot-agent
-version: 0.1.0
-description: Safe, scope-bound bug bounty research with BountyPilot.
+version: 0.2.0
+description: One-request, scope-bound dry-run mission coordinator.
 hermes_requires: ">=0.17.0"
 author: BountyPilot
 license: MIT
 distribution_owned:
   - SOUL.md
+  - config.yaml
   - distribution.yaml
   - skills/security/bountypilot-duplicate-check
   - skills/security/bountypilot-evidence

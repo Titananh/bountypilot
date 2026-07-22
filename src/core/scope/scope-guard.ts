@@ -15,6 +15,22 @@ export class ScopeGuard {
 
   test(urlLike: string): ScopeMatch {
     const url = parseUrl(urlLike);
+    if (url.username || url.password) {
+      return {
+        allowed: false,
+        url: url.toString(),
+        host: url.hostname.toLowerCase(),
+        reason: "Credentials in target URLs are not allowed",
+      };
+    }
+    if (hasPercentEncodedPathOctet(url.pathname)) {
+      return {
+        allowed: false,
+        url: url.toString(),
+        host: url.hostname.toLowerCase(),
+        reason: "Percent-encoded path octets are not allowed at the scope boundary",
+      };
+    }
     if (url.protocol !== "http:" && url.protocol !== "https:") {
       return {
         allowed: false,
@@ -109,21 +125,38 @@ function patternMatchesUrl(pattern: string, url: URL): boolean {
 }
 
 function parseScopePattern(pattern: string): ParsedScopePattern {
-  const trimmed = pattern.trim().toLowerCase();
+  const trimmed = pattern.trim();
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
     try {
       const parsed = new URL(trimmed);
+      if (
+        (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+        parsed.username ||
+        parsed.password ||
+        parsed.search ||
+        parsed.hash ||
+        !parsed.hostname ||
+        hasPercentEncodedPathOctet(parsed.pathname)
+      ) {
+        return { hostPattern: "\u0000invalid-scope-pattern" };
+      }
       return {
-        hostPattern: parsed.hostname,
-        protocol: parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.protocol : undefined,
-        port: explicitPort(trimmed) ?? undefined,
+        hostPattern: parsed.hostname.toLowerCase(),
+        protocol: parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.protocol.toLowerCase() : undefined,
+        // An explicit URL denotes one origin. If the text omits a port, bind
+        // the scheme's canonical default instead of authorizing every service
+        // on the host.
+        port: explicitPort(trimmed) ?? effectivePort(parsed),
         pathPrefix: parsed.pathname && parsed.pathname !== "/" ? parsed.pathname : undefined,
       };
     } catch {
-      return { hostPattern: trimmed.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").split("/")[0] ?? trimmed };
+      return { hostPattern: "\u0000invalid-scope-pattern" };
     }
   }
-  return { hostPattern: trimmed.replace(/^https?:\/\//, "").split("/")[0] ?? trimmed };
+  if (/[/?#@]/.test(trimmed)) {
+    return { hostPattern: "\u0000invalid-scope-pattern" };
+  }
+  return { hostPattern: (trimmed.split("/")[0] ?? trimmed).toLowerCase() };
 }
 
 function explicitPort(pattern: string): string | undefined {
@@ -142,4 +175,8 @@ function effectivePort(url: URL): string {
 function pathMatchesPrefix(pathname: string, prefix: string): boolean {
   const normalizedPrefix = prefix.endsWith("/") ? prefix : `${prefix}/`;
   return pathname === prefix || pathname.startsWith(normalizedPrefix);
+}
+
+function hasPercentEncodedPathOctet(pathname: string): boolean {
+  return /%[0-9a-f]{2}/i.test(pathname);
 }

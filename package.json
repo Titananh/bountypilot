@@ -1,11 +1,12 @@
 {
   "name": "bountypilot",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Safe, local-first, scoped bug bounty CLI for authorized security researchers.",
   "type": "module",
   "bin": {
     "bugbounty": "./dist/cli/index.js",
-    "bounty": "./dist/cli/index.js"
+    "bounty": "./dist/cli/index.js",
+    "bountypilot-hermes": "./scripts/install-hermes-bountypilot.mjs"
   },
   "files": [
     "dist",

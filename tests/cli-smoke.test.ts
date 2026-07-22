@@ -60,7 +60,7 @@ describe("CLI smoke", () => {
 
     const version = runCli(["--version"], workspace);
     expectCommand(version).toExit(0);
-    expect(version.stdout.trim()).toBe("0.1.0");
+    expect(version.stdout.trim()).toBe("0.2.0");
     expect(version.stderr).toBe("");
   });
 
@@ -1041,6 +1041,8 @@ integrations: {}
     );
     expect(parsedNestedIntegration.config["execution.enabled"]).toBeUndefined();
 
+    await allowVitestRpc();
+
     const missingCrawlSetupCommand = runCli(["integrations", "setup", "crawl4ai", "--json"], workspace);
     expectCommand(missingCrawlSetupCommand).toExit(1);
     expect(missingCrawlSetupCommand.stderr).toBe("");
@@ -1057,7 +1059,7 @@ integrations: {}
     expect(parsedCrawlSetup.config).toMatchObject({
       enabled: true,
       type: "crawler",
-      allow_execute: true,
+      allow_execute: false,
       command: process.execPath,
       capabilities: ["crawler.fetch"],
     });
@@ -1089,7 +1091,7 @@ integrations: {}
     const parsedSetupMcp = JSON.parse(setupMcpJson.stdout);
     expect(parsedSetupMcp.integration).toBe("playwright_mcp");
     expect(parsedSetupMcp.config.execution).toMatchObject({
-      enabled: true,
+      enabled: false,
       package: "@playwright/mcp",
       package_version: "1.2.3",
       entrypoint: "cli.js",
@@ -1098,7 +1100,7 @@ integrations: {}
     expect(parsedSetupMcp.config.execution.package_json_sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(parsedSetupMcp.approval.integration).toBe("playwright_mcp");
     expect(parsedSetupMcp.nextCommands).toContain(
-      "bounty mcp call playwright-mcp browser_navigate --target <in-scope-url> --arg url=<in-scope-url>",
+      "bounty mcp plan playwright-mcp browser_navigate --target <in-scope-url> --arg url=<in-scope-url>",
     );
 
     const validateAfterConfig = runCli(
@@ -1142,7 +1144,8 @@ integrations: {}
       expect.arrayContaining([
         expect.objectContaining({ name: "scope", status: "pass" }),
         expect.objectContaining({ name: "policy", status: "pass" }),
-        expect.objectContaining({ name: "executable_approval", status: "pass" }),
+        expect.objectContaining({ name: "dispatch_boundary", status: "pass" }),
+        expect.objectContaining({ name: "executable_pin", status: "pass" }),
       ]),
     );
 
@@ -1168,14 +1171,14 @@ integrations: {}
     const parsedIntegrationsDoctor = JSON.parse(integrationsDoctorJson.stdout);
     expect(parsedIntegrationsDoctor.integrations.length).toBeGreaterThan(0);
     expect(parsedIntegrationsDoctor.nextCommands).toContain(
-      "bounty mcp call playwright-mcp browser_navigate --target <in-scope-url> --arg url=<in-scope-url>",
+      "bounty mcp plan playwright-mcp browser_navigate --target <in-scope-url> --arg url=<in-scope-url>",
     );
-    expect(parsedIntegrationsDoctor.nextCommands).toContain("bounty run <in-scope-host> --mode safe --with crawl4ai");
+    expect(parsedIntegrationsDoctor.nextCommands).toContain("bounty run <in-scope-host> --dry-run --with crawl4ai");
 
     const integrationsDoctor = runCli(["integrations", "doctor"], workspace);
     expectCommand(integrationsDoctor).toExit(0);
     expect(outputOf(integrationsDoctor)).toContain("next commands");
-    expect(outputOf(integrationsDoctor)).toContain("$ bounty mcp call playwright-mcp");
+    expect(outputOf(integrationsDoctor)).toContain("$ bounty mcp plan playwright-mcp");
 
     const mcpPlan = runCli(
       [
@@ -1210,6 +1213,8 @@ integrations: {}
     expectCommand(mcpPlanJson).toExit(0);
     expect(outputOf(mcpPlanJson).trimStart().startsWith("{")).toBe(true);
     expect(JSON.parse(outputOf(mcpPlanJson)).execute).toBe(false);
+
+    await allowVitestRpc();
 
     const browserPlanJson = runCli(["browser", "api.smoke.example", "--json"], workspace);
     expectCommand(browserPlanJson).toExit(0);
@@ -1431,6 +1436,8 @@ integrations: {}
     expect(parsedCockpitWatchJson.iterations).toBe(1);
     expect(parsedCockpitWatchJson.latest.workspace.program.name).toBe("cli-smoke");
 
+    await allowVitestRpc();
+
     const jobResultsJson = runCli(["results", "--job", summary.jobId, "--json"], workspace);
     expectCommand(jobResultsJson).toExit(0);
     expect(jobResultsJson.stderr).toBe("");
@@ -1595,6 +1602,8 @@ integrations: {}
     expect(JSON.parse(auditExportJson.stdout).eventCount).toBeGreaterThan(0);
     expect(auditExportJson.stdout).not.toContain("cli-audit-token-secret");
     expect(auditExportJson.stdout).not.toContain("cli-audit-password-secret");
+
+    await allowVitestRpc();
 
     const dashboard = runCli(["dashboard"], workspace);
     expectCommand(dashboard).toExit(0);

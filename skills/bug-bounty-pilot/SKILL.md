@@ -15,7 +15,7 @@ Guide an authorized bug bounty workflow from imported scope to local report draf
 
 ## What This Skill Does Not Do
 - It does not scan random targets, exploit deeply, dump data, bypass authentication, evade WAFs, or submit reports.
-- It does not execute external tools unless the executable is absolute, approved, and allowed by policy.
+- It never executes external tools or MCP calls. Executable paths, checksums, registry policy, and approval records are reviewable handoff metadata only.
 
 ## Authorized Use Only
 Use this skill only on assets that are explicitly in scope for an imported program or a local/private lab you own.
@@ -45,16 +45,16 @@ Default deny. Out-of-scope entries take precedence. Program import and scope mat
 The policy in `policy.yml` is authoritative for skill-level mode capability decisions.
 
 ## Human Approval Gates
-Active scanning, fuzzing, nuclei medium/high, ffuf, dalfox, naabu, nmap, external executable runs, and live MCP execution require human review.
+Active scanning, fuzzing, nuclei medium/high, ffuf, dalfox, naabu, and nmap require human review in a separate researcher-controlled workflow. External executable and MCP proposals remain plan/handoff-only even after review; BountyPilot never dispatches them.
 
 ## Tool Arsenal
-The trusted arsenal is declared in `tool-registry.yml`. Tools are never installed or executed automatically by this skill.
+The planning registry is declared in `tool-registry.yml`. Registry entries are never installed, spawned, or dispatched by this skill; an executable fingerprint is not execution authority.
 
 ## Recon Workflow
-Passive recon creates observations from approved passive sources. Web recon can queue active actions and only execute safe approved actions.
+Passive recon creates observations from approved passive sources. Web recon can queue target actions for BountyPilot review; only allowlisted built-in low-risk actions can later execute through `ActionExecutor` after all gates pass.
 
 ## Hunt Workflow
-The hunt workflow plans, queues, executes allowed safe steps, stores artifacts, creates candidates, scores report readiness, and stops for human review.
+The hunt workflow plans and queues steps, executes only eligible built-in low-risk actions through `ActionExecutor`, stores artifacts, creates candidates, scores report readiness, and stops for human review. External and MCP steps stay handoffs.
 
 ## Playbook Workflow
 Playbooks in `playbooks.yml` define evidence thresholds and approval gates. Weak signals stay as observations or candidates.

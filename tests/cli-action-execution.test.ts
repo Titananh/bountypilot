@@ -142,14 +142,15 @@ describe("CLI action execution", () => {
           expect.objectContaining({ kind: "finding_candidate", sourceAdapter: "hunt-playbook" }),
         ]),
       );
-      expect(parsedCorsPlaybook.evidence.length).toBeGreaterThanOrEqual(3);
-      const corsValidation = parsedCorsPlaybook.evidence.find((item: { path?: string }) =>
-        item.path?.endsWith("cors-validation.json"),
+      expect(parsedCorsPlaybook.evidence.length).toBeGreaterThanOrEqual(2);
+      const corsEvidence = parsedCorsPlaybook.evidence.find(
+        (item: { adapterName?: string; kind?: string; path?: string }) =>
+          item.adapterName === "safe-checks" && item.kind === "tool_output",
       );
-      expect(corsValidation?.path).toBeTruthy();
-      const corsEvidenceText = readFileSync(corsValidation.path, "utf8");
-      expect(corsEvidenceText).toContain('"credentialedReflectedOrigin": true');
-      expect(corsEvidenceText).toContain('"corsCandidate": true');
+      expect(corsEvidence?.path).toBeTruthy();
+      const corsEvidenceText = readFileSync(corsEvidence?.path!, "utf8");
+      expect(corsEvidenceText).toContain("CORS reflected arbitrary origin with credentials observed");
+      expect(corsEvidenceText).toContain('"category": "cors"');
 
       const reportScore = await runCli(
         ["reports", "score", parsedCorsPlaybook.findingsCreated[0].id, "--job", parsedCorsPlaybook.jobId, "--json"],
@@ -177,7 +178,7 @@ describe("CLI action execution", () => {
         ok: true,
         candidate: { id: corsCandidateId, findingId: parsedCorsPlaybook.findingsCreated[0].id },
       });
-      expect(parsedCandidateShow.evidence.length).toBeGreaterThanOrEqual(2);
+      expect(parsedCandidateShow.evidence.length).toBeGreaterThanOrEqual(1);
 
       const candidateScore = await runCli(
         ["reports", "score", corsCandidateId, "--job", parsedCorsPlaybook.jobId, "--json"],
@@ -213,41 +214,38 @@ describe("CLI action execution", () => {
       expect(existsSync(path.join(candidateBundleDir, "evidence-manifest.json"))).toBe(true);
 
       const candidateDraft = await runCli(["reports", "draft", corsCandidateId, "--json"], workspace);
-      expectCommand(candidateDraft).toExit(0);
+      expectCommand(candidateDraft).toExit(2);
       const parsedCandidateDraft = JSON.parse(candidateDraft.stdout);
       expect(parsedCandidateDraft).toMatchObject({
-        ok: true,
+        ok: false,
         candidateId: corsCandidateId,
         findingId: parsedCorsPlaybook.findingsCreated[0].id,
-        status: "report_drafted",
+        readiness: "needs_review",
       });
-      expect(parsedCandidateDraft.report.path).toContain("reports");
+      expect(parsedCandidateDraft.blockers.length).toBeGreaterThan(0);
+      expect(parsedCandidateDraft.report).toBeUndefined();
 
       const ssrfPlaybook = await runCli(["hunt", "playbook", "ssrf", ssrfTarget, "--live", "--json"], workspace);
       expectCommand(ssrfPlaybook).toExit(0);
       expect(ssrfPlaybook.stderr).toBe("");
       const parsedSsrfPlaybook = JSON.parse(ssrfPlaybook.stdout);
-      expect(parsedSsrfPlaybook.bugClass).toBe("ssrf");
-      expect(parsedSsrfPlaybook.findingsCreated.length).toBeGreaterThanOrEqual(1);
-      expect(parsedSsrfPlaybook.findingsCreated[0].category).toBe("ssrf_server_fetch_indicator");
+      expect(parsedSsrfPlaybook).toMatchObject({
+        ok: true,
+        bugClass: "ssrf",
+      });
+      expect(parsedSsrfPlaybook.findingsCreated.every((finding: any) => finding.category !== "ssrf")).toBe(true);
+      expect(parsedSsrfPlaybook.candidatesCreated.every((candidate: any) => candidate.category !== "ssrf")).toBe(true);
       expect(parsedSsrfPlaybook.observations).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ kind: "finding_candidate", sourceAdapter: "hunt-playbook" }),
+          expect.objectContaining({ kind: "parameter", metadata: expect.objectContaining({ signal: "server_fetch_parameter" }) }),
         ]),
       );
-      const ssrfValidation = parsedSsrfPlaybook.evidence.find((item: { path?: string }) =>
-        item.path?.endsWith("ssrf-server-fetch-validation.json"),
+      expect(parsedSsrfPlaybook.evidence).toEqual(
+        expect.arrayContaining([expect.objectContaining({ adapterName: "safe-checks", kind: "tool_output" })]),
       );
-      expect(ssrfValidation?.path).toBeTruthy();
-      const ssrfEvidenceText = readFileSync(ssrfValidation.path, "utf8");
-      expect(ssrfEvidenceText).toContain('"ssrfCandidate": true');
-      expect(ssrfEvidenceText).toContain('"probeMatched": true');
-
-      const ssrfResults = await runCli(["results", "--job", parsedSsrfPlaybook.jobId, "--json"], workspace);
-      expectCommand(ssrfResults).toExit(0);
-      const parsedSsrfResults = JSON.parse(ssrfResults.stdout);
-      expect(parsedSsrfResults.findings[0].category).toBe("ssrf_server_fetch_indicator");
-      expect(parsedSsrfResults.reconSignals.total).toBeGreaterThanOrEqual(1);
+      expect(actionsForJob(workspace, parsedSsrfPlaybook.jobId)).toEqual(
+        expect.arrayContaining([expect.objectContaining({ adapter: "manual-validation", status: "pending" })]),
+      );
 
       const redirectPlaybook = await runCli(
         ["hunt", "playbook", "open-redirect", new URL("/redirect?next=https://example.org", demo.ready.target).toString(), "--live", "--json"],
@@ -257,18 +255,22 @@ describe("CLI action execution", () => {
       expect(redirectPlaybook.stderr).toBe("");
       const parsedRedirectPlaybook = JSON.parse(redirectPlaybook.stdout);
       expect(parsedRedirectPlaybook.bugClass).toBe("open-redirect");
-      expect(parsedRedirectPlaybook.findingsCreated.length).toBeGreaterThanOrEqual(1);
-      expect(parsedRedirectPlaybook.findingsCreated[0].category).toBe("open_redirect");
+      expect(parsedRedirectPlaybook.findingsCreated.every((finding: any) => finding.category !== "open_redirect")).toBe(true);
       expect(parsedRedirectPlaybook.observations).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ kind: "finding_candidate", sourceAdapter: "hunt-playbook" }),
+          expect.objectContaining({
+            kind: "parameter",
+            sourceAdapter: "hunt-playbook",
+            metadata: expect.objectContaining({ signal: "redirect_parameter" }),
+          }),
         ]),
       );
+      expect(parsedRedirectPlaybook.evidence.some((item: { path?: string }) => item.path?.endsWith("open-redirect-validation.json"))).toBe(false);
 
       const redirectResults = await runCli(["results", "--job", parsedRedirectPlaybook.jobId, "--json"], workspace);
       expectCommand(redirectResults).toExit(0);
       const parsedRedirectResults = JSON.parse(redirectResults.stdout);
-      expect(parsedRedirectResults.findings[0].category).toBe("open_redirect");
+      expect(parsedRedirectResults.findings.every((finding: any) => finding.category !== "open_redirect")).toBe(true);
       expect(parsedRedirectResults.reconSignals.total).toBeGreaterThanOrEqual(1);
 
       const exposurePlaybook = await runCli(
@@ -279,26 +281,19 @@ describe("CLI action execution", () => {
       expect(exposurePlaybook.stderr).toBe("");
       const parsedExposurePlaybook = JSON.parse(exposurePlaybook.stdout);
       expect(parsedExposurePlaybook.bugClass).toBe("exposure");
-      expect(parsedExposurePlaybook.findingsCreated.length).toBeGreaterThanOrEqual(1);
-      expect(parsedExposurePlaybook.findingsCreated[0].category).toBe("sensitive_file_exposure");
-      expect(parsedExposurePlaybook.observations).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ kind: "finding_candidate", sourceAdapter: "hunt-playbook" }),
-        ]),
+      expect(parsedExposurePlaybook.findingsCreated.every((finding: any) => finding.category !== "sensitive_file_exposure")).toBe(true);
+      expect(parsedExposurePlaybook.evidence.some((item: { path?: string }) => item.path?.endsWith("exposure-validation.json"))).toBe(false);
+      const exposureEvidence = parsedExposurePlaybook.evidence.find(
+        (item: { adapterName?: string; kind?: string; path?: string }) => item.adapterName === "safe-checks" && item.kind === "tool_output",
       );
-      const exposureValidation = parsedExposurePlaybook.evidence.find((item: { path?: string }) =>
-        item.path?.endsWith("exposure-validation.json"),
-      );
-      expect(exposureValidation?.path).toBeTruthy();
-      const exposureEvidenceText = readFileSync(exposureValidation.path, "utf8");
-      expect(exposureEvidenceText).toContain("API_KEY=[REDACTED]");
+      expect(exposureEvidence?.path).toBeTruthy();
+      const exposureEvidenceText = readFileSync(exposureEvidence?.path!, "utf8");
       expect(exposureEvidenceText).not.toContain("bp_demo_env_key_for_local_detection_only");
 
       const exposureResults = await runCli(["results", "--job", parsedExposurePlaybook.jobId, "--json"], workspace);
       expectCommand(exposureResults).toExit(0);
       const parsedExposureResults = JSON.parse(exposureResults.stdout);
-      expect(parsedExposureResults.findings[0].category).toBe("sensitive_file_exposure");
-      expect(parsedExposureResults.reconSignals.total).toBeGreaterThanOrEqual(1);
+      expect(parsedExposureResults.findings.every((finding: any) => finding.category !== "sensitive_file_exposure")).toBe(true);
 
       const xssPlaybook = await runCli(
         ["hunt", "playbook", "xss", new URL("/search?q=%3Cbountypilot-xss%3E", demo.ready.target).toString(), "--live", "--json"],
@@ -307,27 +302,28 @@ describe("CLI action execution", () => {
       expectCommand(xssPlaybook).toExit(0);
       expect(xssPlaybook.stderr).toBe("");
       const parsedXssPlaybook = JSON.parse(xssPlaybook.stdout);
-      expect(parsedXssPlaybook.bugClass).toBe("xss");
-      expect(parsedXssPlaybook.findingsCreated.length).toBeGreaterThanOrEqual(1);
-      expect(parsedXssPlaybook.findingsCreated[0].category).toBe("reflected_xss_candidate");
+      expect(parsedXssPlaybook).toMatchObject({
+        ok: true,
+        bugClass: "xss",
+      });
+      expect(parsedXssPlaybook.findingsCreated.every((finding: any) => finding.category !== "xss")).toBe(true);
       expect(parsedXssPlaybook.observations).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ kind: "finding_candidate", sourceAdapter: "hunt-playbook" }),
+          expect.objectContaining({ kind: "parameter", metadata: expect.objectContaining({ signal: "reflected_input_parameter" }) }),
         ]),
       );
-      const xssValidation = parsedXssPlaybook.evidence.find((item: { path?: string }) =>
-        item.path?.endsWith("xss-reflection-validation.json"),
+      expect(actionsForJob(workspace, parsedXssPlaybook.jobId)).toEqual(
+        expect.arrayContaining([expect.objectContaining({ adapter: "manual-validation", status: "pending" })]),
       );
-      expect(xssValidation?.path).toBeTruthy();
-      const xssEvidenceText = readFileSync(xssValidation.path, "utf8");
-      expect(xssEvidenceText).toContain('"reflectedXssCandidate": true');
-      expect(xssEvidenceText).toContain("<bountypilot-xss>");
 
-      const xssResults = await runCli(["results", "--job", parsedXssPlaybook.jobId, "--json"], workspace);
-      expectCommand(xssResults).toExit(0);
-      const parsedXssResults = JSON.parse(xssResults.stdout);
-      expect(parsedXssResults.findings[0].category).toBe("reflected_xss_candidate");
-      expect(parsedXssResults.reconSignals.total).toBeGreaterThanOrEqual(1);
+      const xssHuman = await runCli(
+        ["hunt", "playbook", "xss", new URL("/search?q=%3Cbountypilot-xss%3E", demo.ready.target).toString(), "--live"],
+        workspace,
+      );
+      expectCommand(xssHuman).toExit(0);
+      expect(outputOf(xssHuman)).toContain("playbook low-risk execution completed");
+      expect(outputOf(xssHuman)).toContain("[ok]");
+      expect(outputOf(xssHuman)).not.toContain("xss playbook finished");
 
       const graphqlPlaybook = await runCli(
         ["hunt", "playbook", "graphql", new URL("/graphql", demo.ready.target).toString(), "--live", "--json"],
@@ -336,27 +332,19 @@ describe("CLI action execution", () => {
       expectCommand(graphqlPlaybook).toExit(0);
       expect(graphqlPlaybook.stderr).toBe("");
       const parsedGraphqlPlaybook = JSON.parse(graphqlPlaybook.stdout);
-      expect(parsedGraphqlPlaybook.bugClass).toBe("graphql");
-      expect(parsedGraphqlPlaybook.findingsCreated.length).toBeGreaterThanOrEqual(1);
-      expect(parsedGraphqlPlaybook.findingsCreated[0].category).toBe("graphql_introspection_enabled");
+      expect(parsedGraphqlPlaybook).toMatchObject({
+        ok: true,
+        bugClass: "graphql",
+      });
+      expect(parsedGraphqlPlaybook.findingsCreated.every((finding: any) => finding.category !== "graphql")).toBe(true);
       expect(parsedGraphqlPlaybook.observations).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ kind: "finding_candidate", sourceAdapter: "hunt-playbook" }),
+          expect.objectContaining({ kind: "endpoint", metadata: expect.objectContaining({ signal: "graphql_route" }) }),
         ]),
       );
-      const graphqlValidation = parsedGraphqlPlaybook.evidence.find((item: { path?: string }) =>
-        item.path?.endsWith("graphql-introspection-validation.json"),
+      expect(actionsForJob(workspace, parsedGraphqlPlaybook.jobId)).toEqual(
+        expect.arrayContaining([expect.objectContaining({ adapter: "manual-validation", status: "pending" })]),
       );
-      expect(graphqlValidation?.path).toBeTruthy();
-      const graphqlEvidenceText = readFileSync(graphqlValidation.path, "utf8");
-      expect(graphqlEvidenceText).toContain('"introspectionEnabled": true');
-      expect(graphqlEvidenceText).toContain('"queryTypeName": "Query"');
-
-      const graphqlResults = await runCli(["results", "--job", parsedGraphqlPlaybook.jobId, "--json"], workspace);
-      expectCommand(graphqlResults).toExit(0);
-      const parsedGraphqlResults = JSON.parse(graphqlResults.stdout);
-      expect(parsedGraphqlResults.findings[0].category).toBe("graphql_introspection_enabled");
-      expect(parsedGraphqlResults.reconSignals.total).toBeGreaterThanOrEqual(1);
 
       const idorPlaybook = await runCli(
         ["hunt", "playbook", "idor", new URL("/api/account?id=1001", demo.ready.target).toString(), "--live", "--json"],
@@ -365,33 +353,25 @@ describe("CLI action execution", () => {
       expectCommand(idorPlaybook).toExit(0);
       expect(idorPlaybook.stderr).toBe("");
       const parsedIdorPlaybook = JSON.parse(idorPlaybook.stdout);
-      expect(parsedIdorPlaybook.bugClass).toBe("idor");
-      expect(parsedIdorPlaybook.findingsCreated.length).toBeGreaterThanOrEqual(1);
-      expect(parsedIdorPlaybook.findingsCreated[0].category).toBe("idor_adjacent_object_access");
+      expect(parsedIdorPlaybook).toMatchObject({
+        ok: true,
+        bugClass: "idor",
+      });
+      expect(parsedIdorPlaybook.findingsCreated.every((finding: any) => finding.category !== "idor")).toBe(true);
       expect(parsedIdorPlaybook.observations).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ kind: "finding_candidate", sourceAdapter: "hunt-playbook" }),
+          expect.objectContaining({ kind: "parameter", metadata: expect.objectContaining({ signal: "object_identifier" }) }),
         ]),
       );
-      const idorValidation = parsedIdorPlaybook.evidence.find((item: { path?: string }) =>
-        item.path?.endsWith("idor-adjacent-object-validation.json"),
+      expect(actionsForJob(workspace, parsedIdorPlaybook.jobId)).toEqual(
+        expect.arrayContaining([expect.objectContaining({ adapter: "manual-validation", status: "pending" })]),
       );
-      expect(idorValidation?.path).toBeTruthy();
-      const idorEvidenceText = readFileSync(idorValidation.path, "utf8");
-      expect(idorEvidenceText).toContain('"idorCandidate": true');
-      expect(idorEvidenceText).toContain('"adjacentValue": "1002"');
-
-      const idorResults = await runCli(["results", "--job", parsedIdorPlaybook.jobId, "--json"], workspace);
-      expectCommand(idorResults).toExit(0);
-      const parsedIdorResults = JSON.parse(idorResults.stdout);
-      expect(parsedIdorResults.findings[0].category).toBe("idor_adjacent_object_access");
-      expect(parsedIdorResults.reconSignals.total).toBeGreaterThanOrEqual(1);
     } finally {
       await demo.stop();
     }
   }, 100_000);
 
-  it("runs a guarded local lab e2e gate with explicit live execution", async () => {
+  it("runs a guarded local lab e2e gate with explicit live execution and a truthful dry-run handoff", async () => {
     const workspace = createWorkspace();
     const authDir = path.join(workspace, "auth");
     const programFile = path.join(workspace, "local-lab.yml");
@@ -407,7 +387,6 @@ describe("CLI action execution", () => {
     expect(dryRun.stderr).toBe("");
     const parsedDryRun = JSON.parse(dryRun.stdout);
     expect(parsedDryRun).toMatchObject({
-      ok: true,
       live: false,
       dryRun: true,
       mode: "lab-offensive",
@@ -421,11 +400,12 @@ describe("CLI action execution", () => {
         expect.objectContaining({ name: "workflow_execution", status: "pass" }),
       ]),
     );
+    expect(parsedDryRun).toMatchObject({ ok: true });
     expect(parsedDryRun.summary).toMatchObject({ status: "completed", mode: "lab-offensive", dryRun: true });
-    expect(parsedDryRun.nextCommands).toContain(
-      `bounty lab e2e ${baseUrl} --live --with safe-checks,js-analyzer,triage,planner`,
+    expect(parsedDryRun.summary.actionCounts.pending).toBeGreaterThan(0);
+    expect(parsedDryRun.nextCommands).toEqual(
+      expect.arrayContaining([expect.stringContaining("bounty actions review --job")]),
     );
-
     const liveRun = await runCli(["lab", "e2e", baseUrl, "--live", "--with", "safe-checks,js-analyzer", "--json"], workspace);
     expectCommand(liveRun).toExit(0);
     expect(liveRun.stderr).toBe("");
@@ -605,7 +585,7 @@ describe("CLI action execution", () => {
     expect(readFileSync(parsedBugcrowdReport.report.path, "utf8")).toContain("## Vulnerability Summary");
   }, 20_000);
 
-  it("records browser evidence with request and response samples for report readiness", async () => {
+  it("records browser evidence artifacts for report readiness", async () => {
     const workspace = createWorkspace();
     const programFile = path.join(workspace, "program.yml");
     writeFileSync(programFile, localProgramYaml(), "utf8");
@@ -643,21 +623,28 @@ describe("CLI action execution", () => {
     expect(record.stderr).toBe("");
     const parsedRecord = JSON.parse(record.stdout);
     const artifactKinds = parsedRecord.artifacts.map((artifact: any) => artifact.kind);
-    expect(artifactKinds).toEqual(expect.arrayContaining(["request_sample", "response_sample", "reproduction_note"]));
+    expect(artifactKinds).toEqual(
+      expect.arrayContaining(["crawl_graph", "screenshot", "dom_snapshot", "console_log", "har", "reproduction_note"]),
+    );
+    expect(artifactKinds).not.toContain("browser_trace");
+    expect(artifactKinds).not.toContain("video");
     for (const artifact of parsedRecord.artifacts) {
       expect(existsSync(artifact.path)).toBe(true);
     }
 
-    const responseSample = parsedRecord.artifacts.find((artifact: any) => artifact.kind === "response_sample");
-    expect(readFileSync(responseSample.path, "utf8")).toContain("Local lab");
+    const domSnapshot = parsedRecord.artifacts.find((artifact: any) => artifact.kind === "dom_snapshot");
+    expect(readFileSync(domSnapshot?.path!, "utf8")).toContain("Local lab");
 
     const reportScore = await runCli(["reports", "score", finding.id, "--job", parsedRecord.jobId, "--json"], workspace);
     expectCommand(reportScore).toExit(0);
     expect(reportScore.stderr).toBe("");
     const parsedScore = JSON.parse(reportScore.stdout);
     expect(parsedScore.counts.evidenceKinds).toMatchObject({
-      request_sample: 1,
-      response_sample: 1,
+      crawl_graph: 1,
+      screenshot: 1,
+      dom_snapshot: 1,
+      console_log: 1,
+      har: 1,
       reproduction_note: 1,
     });
     expect(parsedScore.checks).toEqual(
@@ -667,6 +654,35 @@ describe("CLI action execution", () => {
       ]),
     );
   }, 35_000);
+
+  it("returns a failing exit code and blocked human status for a policy-blocked playbook", async () => {
+    const workspace = createWorkspace();
+    const programFile = path.join(workspace, "blocked-program.yml");
+    writeFileSync(
+      programFile,
+      localProgramYaml().replace("automated_scanning: limited", "automated_scanning: none"),
+      "utf8",
+    );
+
+    expectCommand(await runCli(["init"], workspace)).toExit(0);
+    expectCommand(await runCli(["import", programFile], workspace)).toExit(0);
+
+    const blockedJson = await runCli(["hunt", "playbook", "xss", baseUrl, "--live", "--json"], workspace);
+    expectCommand(blockedJson).toExit(1);
+    expect(blockedJson.stderr).toBe("");
+    expect(JSON.parse(blockedJson.stdout)).toMatchObject({
+      ok: false,
+      bugClass: "xss",
+      findingsCreated: [],
+      candidatesCreated: [],
+    });
+
+    const blockedHuman = await runCli(["hunt", "playbook", "xss", baseUrl, "--live"], workspace);
+    expectCommand(blockedHuman).toExit(1);
+    expect(outputOf(blockedHuman)).toContain("[blocked]");
+    expect(outputOf(blockedHuman)).toContain("playbook blocked by policy");
+    expect(outputOf(blockedHuman)).not.toContain("xss playbook finished");
+  }, 20_000);
 
   it("prints clean JSON for live check and JavaScript commands", async () => {
     const workspace = createWorkspace();
@@ -687,7 +703,7 @@ describe("CLI action execution", () => {
     expect(JSON.parse(jsJson.stdout)).toMatchObject({ ok: true, status: "completed" });
   }, 20_000);
 
-  it("reviews actions interactively without executing them", async () => {
+  it("keeps planning-only handoffs non-executable during interactive review", async () => {
     const workspace = createWorkspace();
     const programFile = path.join(workspace, "program.yml");
     writeFileSync(programFile, localProgramYaml(), "utf8");
@@ -699,7 +715,6 @@ describe("CLI action execution", () => {
     const summary = readOnlyWorkflowSummary(workspace);
     const action = actionsForJob(workspace, summary.jobId)[0];
     expect(action?.id).toBeDefined();
-    forceActionPending(workspace, action.id);
     expect(actionsForJob(workspace, summary.jobId).find((candidate) => candidate.id === action.id)?.status).toBe("pending");
 
     const interactiveReview = await runCli(
@@ -710,23 +725,23 @@ describe("CLI action execution", () => {
     expectCommand(interactiveReview).toExit(0);
     expect(interactiveReview.stderr).toBe("");
     const parsedReview = JSON.parse(interactiveReview.stdout);
-    expect(parsedReview.summary).toMatchObject({ approved: 1, blocked: 0, skipped: 0, quit: false });
+    expect(parsedReview.summary).toMatchObject({ approved: 0, blocked: 0, skipped: 1, quit: false });
     expect(parsedReview.decisions[0]).toMatchObject({
       actionId: action.id,
-      decision: "approved",
+      decision: "skipped",
       statusBefore: "pending",
-      statusAfter: "approved",
+      statusAfter: "pending",
     });
-    expect(parsedReview.decisions[0].review.note).toBe("interactive local approval");
-    expect(parsedReview.nextCommands).toContain(`bounty actions execute ${action.id}`);
+    expect(parsedReview.decisions[0].message).toMatch(/planning-only handoff/i);
+    expect(parsedReview.nextCommands).not.toContain(`bounty actions execute ${action.id}`);
+    expect(parsedReview.nextCommands).not.toEqual(expect.arrayContaining([expect.stringContaining(`bounty actions approve ${action.id}`)]));
 
     const updatedAction = actionsForJob(workspace, summary.jobId).find((candidate) => candidate.id === action.id);
-    expect(updatedAction.status).toBe("approved");
+    expect(updatedAction.status).toBe("pending");
     expect(updatedAction.executedAt).toBeUndefined();
-    const actionShow = await runCli(["actions", "show", action.id, "--json"], workspace);
-    expectCommand(actionShow).toExit(0);
-    const parsedActionShow = JSON.parse(actionShow.stdout);
-    expect(parsedActionShow.reviews[0]).toMatchObject({ decision: "approved", note: "interactive local approval" });
+    const approve = await runCli(["actions", "approve", action.id, "--json"], workspace);
+    expectCommand(approve).toExit(1);
+    expect(JSON.parse(approve.stdout).error.code).toBe("ACTION_HANDOFF_ONLY");
   }, 20_000);
 
   it("runs approved internal actions and records evidence", async () => {
@@ -742,23 +757,26 @@ describe("CLI action execution", () => {
 
     const summary = readOnlyWorkflowSummary(workspace);
     expect(summary.actionsPlanned).toBe(1);
-    expect(summary.actionCounts.approved).toBe(1);
+    expect(summary.actionCounts).toMatchObject({ approved: 0, pending: 1, executed: 1 });
     const actionId = actionsForJob(workspace, summary.jobId)[0]?.id;
     expect(actionId).toBeDefined();
+    promoteActionFixtureForApproval(workspace, actionId!);
 
     const review = await runCli(["actions", "review", "--job", summary.jobId], workspace);
     expectCommand(review).toExit(0);
     expect(outputOf(review)).toContain("actions review");
     expect(outputOf(review)).toContain(actionId!);
     expect(outputOf(review)).toContain(`bounty actions show ${actionId}`);
-    expect(outputOf(review)).toContain(`bounty actions execute ${actionId}`);
+    expect(outputOf(review)).toContain(`bounty actions approve ${actionId}`);
 
     const reviewJson = await runCli(["actions", "review", "--job", summary.jobId, "--json"], workspace);
     expectCommand(reviewJson).toExit(0);
     expect(reviewJson.stderr).toBe("");
     const parsedReview = JSON.parse(reviewJson.stdout);
     expect(parsedReview.actions[0].id).toBe(actionId);
-    expect(parsedReview.nextCommands).toContain(`bounty actions execute ${actionId}`);
+    expect(parsedReview.nextCommands).toEqual(
+      expect.arrayContaining([expect.stringContaining(`bounty actions approve ${actionId}`)]),
+    );
 
     const missingReviewJob = await runCli(["actions", "review", "--job", "job-does-not-exist", "--json"], workspace);
     expectCommand(missingReviewJob).toExit(1);
@@ -778,7 +796,7 @@ describe("CLI action execution", () => {
     const actionShowHuman = await runCli(["actions", "show", actionId!], workspace);
     expectCommand(actionShowHuman).toExit(0);
     expect(outputOf(actionShowHuman)).toContain("next commands");
-    expect(outputOf(actionShowHuman)).toContain(`bounty actions execute ${actionId}`);
+    expect(outputOf(actionShowHuman)).toContain(`bounty actions approve ${actionId}`);
 
     const approve = await runCli(["actions", "approve", actionId!, "--note", "authorized local lab check", "--json"], workspace);
     expectCommand(approve).toExit(0);
@@ -798,9 +816,10 @@ describe("CLI action execution", () => {
 
     const jobShow = await runCli(["jobs", "show", summary.jobId], workspace);
     expectCommand(jobShow).toExit(0);
+    expect(outputOf(jobShow)).toContain("completed");
     expect(outputOf(jobShow)).toContain("executed");
-    expect(outputOf(jobShow)).toContain("1");
-    expect(outputOf(jobShow)).toContain("Action approved by human review");
+    expect(outputOf(jobShow)).toContain("2");
+    expect(outputOf(jobShow)).toContain("Action approval completed");
 
     const findings = await runCli(["findings"], workspace);
     expectCommand(findings).toExit(0);
@@ -967,10 +986,12 @@ describe("CLI action execution", () => {
     const bundle = await runCli(["export", "bundle", "--job", summary.jobId, "--output", bundleDir, "--json"], workspace);
     expectCommand(bundle).toExit(0);
     const bundleActions = JSON.parse(readFileSync(path.join(bundleDir, "actions.json"), "utf8"));
-    expect(bundleActions.reviews[0].note).toBe("authorized local lab check");
+    expect(bundleActions.reviews).toEqual(
+      expect.arrayContaining([expect.objectContaining({ note: "authorized local lab check", source: "human" })]),
+    );
 
     expect(findFiles(path.join(workspace, ".bounty"), "safe-checks.json").length).toBeGreaterThan(0);
-  }, 20_000);
+  }, 45_000);
 
   it("returns a failing exit code when an approved batch action fails", async () => {
     const workspace = createWorkspace();
@@ -984,6 +1005,7 @@ describe("CLI action execution", () => {
     const summary = readOnlyWorkflowSummary(workspace);
     const actionId = actionsForJob(workspace, summary.jobId)[0]?.id;
     expect(actionId).toBeDefined();
+    promoteActionFixtureForApproval(workspace, actionId!);
     expectCommand(await runCli(["actions", "approve", actionId!, "--note", "approved before target drift"], workspace)).toExit(0);
     poisonActionTarget(workspace, actionId!, "https://outside.example/");
 
@@ -1261,12 +1283,33 @@ function poisonActionTarget(workspace: string, actionId: string, target: string)
   }
 }
 
-function forceActionPending(workspace: string, actionId: string): void {
+function promoteActionFixtureForApproval(workspace: string, actionId: string): void {
   const dbPath = findFiles(path.join(workspace, ".bounty"), "bountypilot.sqlite")[0];
   expect(dbPath).toBeDefined();
   const db = new DatabaseSync(dbPath!);
   try {
-    db.prepare("UPDATE actions SET status = ?, requires_approval = ? WHERE id = ?").run("pending", 1, actionId);
+    const row = db.prepare("SELECT job_id, metadata_json FROM actions WHERE id = ?").get(actionId) as {
+      job_id?: string;
+      metadata_json?: string;
+    } | undefined;
+    expect(row?.job_id).toBeDefined();
+    const metadata = row?.metadata_json ? JSON.parse(row.metadata_json) as Record<string, unknown> : {};
+    delete metadata.planningOnly;
+    delete metadata.handoffOnly;
+    delete metadata.execute;
+    db.prepare(
+      `UPDATE actions
+       SET status = 'pending', requires_approval = 1, required_for_completion = 1,
+           metadata_json = ?, active_review_id = NULL,
+           planned_scope_hash = NULL, planned_policy_hash = NULL,
+           planned_action_hash = NULL, planned_context_hash = NULL
+       WHERE id = ?`,
+    ).run(JSON.stringify(metadata), actionId);
+    db.prepare(
+      `UPDATE jobs
+       SET status = 'paused', pause_reason = 'approval_required', status_detail = NULL, updated_at = ?
+       WHERE id = ?`,
+    ).run(new Date().toISOString(), row!.job_id);
   } finally {
     db.close();
   }

@@ -74,11 +74,47 @@ describe("packaged bugbounty bin", () => {
 
       const binPath = path.join(consumerDir, "node_modules", ".bin", process.platform === "win32" ? "bugbounty.cmd" : "bugbounty");
       const legacyBinPath = path.join(consumerDir, "node_modules", ".bin", process.platform === "win32" ? "bounty.cmd" : "bounty");
+      const hermesBinPath = path.join(
+        consumerDir,
+        "node_modules",
+        ".bin",
+        process.platform === "win32" ? "bountypilot-hermes.cmd" : "bountypilot-hermes",
+      );
       expect(existsSync(binPath)).toBe(true);
       expect(existsSync(legacyBinPath)).toBe(true);
+      expect(existsSync(hermesBinPath)).toBe(true);
       const help = runBounty(binPath, ["--help"], consumerDir);
       expectCommand(help).toExit(0);
       expect(outputOf(help)).toContain("BountyPilot safe, local-first");
+
+      const hermesHome = path.join(root, "hermes-home");
+      const hermesProfile = path.join(hermesHome, "profiles", "bugbounty");
+      mkdirSync(hermesProfile, { recursive: true });
+      const hermesDryRun = runBounty(
+        hermesBinPath,
+        ["--dry-run", "--json", "--hermes-home", hermesHome, "--profile", "bugbounty"],
+        consumerDir,
+      );
+      expectCommand(hermesDryRun).toExit(0);
+      expect(JSON.parse(hermesDryRun.stdout)).toMatchObject({ mode: "plan" });
+      const hermesApply = runBounty(
+        hermesBinPath,
+        ["--apply", "--json", "--hermes-home", hermesHome, "--profile", "bugbounty"],
+        consumerDir,
+      );
+      expectCommand(hermesApply).toExit(0);
+      expect(JSON.parse(hermesApply.stdout)).toMatchObject({ mode: "apply", verified: true });
+      const hermesVerify = runBounty(
+        hermesBinPath,
+        ["--verify", "--json", "--hermes-home", hermesHome, "--profile", "bugbounty"],
+        consumerDir,
+      );
+      expectCommand(hermesVerify).toExit(0);
+      expect(JSON.parse(hermesVerify.stdout)).toMatchObject({ ok: true });
+      expect(existsSync(path.join(hermesProfile, "skills", "security", "bountypilot-orchestrate", "SKILL.md"))).toBe(true);
+      for (const forbidden of ["src", "tests", "package.json", "README.md", ".env", "auth.json"]) {
+        expect(existsSync(path.join(hermesProfile, forbidden)), forbidden).toBe(false);
+      }
 
       const skillValidate = runBounty(binPath, ["skill", "validate", "bug-bounty-pilot", "--json"], consumerDir);
       expectCommand(skillValidate).toExit(0);
@@ -228,17 +264,19 @@ function linkRuntimeDependencies(nodeModulesDir: string): void {
 }
 
 function writeBountyBins(nodeModulesDir: string): void {
-  writeBountyBin(nodeModulesDir, "bugbounty");
-  writeBountyBin(nodeModulesDir, "bounty");
+  writePackageBin(nodeModulesDir, "bugbounty", "dist/cli/index.js");
+  writePackageBin(nodeModulesDir, "bounty", "dist/cli/index.js");
+  writePackageBin(nodeModulesDir, "bountypilot-hermes", "scripts/install-hermes-bountypilot.mjs");
 }
 
-function writeBountyBin(nodeModulesDir: string, commandName: "bugbounty" | "bounty"): void {
+function writePackageBin(nodeModulesDir: string, commandName: string, relativeEntrypoint: string): void {
   const binDir = path.join(nodeModulesDir, ".bin");
   mkdirSync(binDir, { recursive: true });
   if (process.platform === "win32") {
+    const windowsEntrypoint = relativeEntrypoint.replaceAll("/", "\\");
     writeFileSync(
       path.join(binDir, `${commandName}.cmd`),
-      "@ECHO off\r\nnode \"%~dp0\\..\\bountypilot\\dist\\cli\\index.js\" %*\r\n",
+      `@ECHO off\r\nnode "%~dp0\\..\\bountypilot\\${windowsEntrypoint}" %*\r\n`,
       "utf8",
     );
     return;
@@ -246,7 +284,7 @@ function writeBountyBin(nodeModulesDir: string, commandName: "bugbounty" | "boun
   const binPath = path.join(binDir, commandName);
   writeFileSync(
     binPath,
-    "#!/usr/bin/env sh\nbasedir=$(dirname \"$(printf '%s\\n' \"$0\" | sed -e 's,\\\\,/,g')\")\nexec node \"$basedir/../bountypilot/dist/cli/index.js\" \"$@\"\n",
+    `#!/usr/bin/env sh\nbasedir=$(dirname "$(printf '%s\\n' "$0" | sed -e 's,\\\\,/,g')")\nexec node "$basedir/../bountypilot/${relativeEntrypoint}" "$@"\n`,
     "utf8",
   );
   chmodSync(binPath, 0o755);

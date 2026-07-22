@@ -426,8 +426,12 @@ describe("release checks", () => {
       branch: "main",
       tag: "v0.0.0",
     });
-    expect(publishStatus.nextCommands).toEqual(expect.arrayContaining(["git status --short", "git add .", "git commit -m \"Prepare BountyPilot release\""]));
-    expect(publishStatus.nextCommands.join("\n")).not.toContain("git add . && git commit");
+    expect(publishStatus.nextCommands).toEqual(expect.arrayContaining([
+      "git status --short",
+      "git add -- README.md LICENSE SECURITY.md CONTRIBUTING.md package.json package-lock.json tsconfig.json src tests scripts examples skills hermes .github",
+      "git commit -m \"Prepare BountyPilot release\"",
+    ]));
+    expect(publishStatus.nextCommands.join("\n")).not.toContain("git add .");
 
     const bootstrap = buildReleaseGithubBootstrap({
       cwd: root,
@@ -437,8 +441,12 @@ describe("release checks", () => {
       ghCommand: process.execPath,
       ghArgsPrefix: [fakeGh],
     });
-    expect(bootstrap.nextCommands).toEqual(expect.arrayContaining(["git status --short", "git add .", "git commit -m \"Prepare BountyPilot release\""]));
-    expect(bootstrap.nextCommands.join("\n")).not.toContain("git add . && git commit");
+    expect(bootstrap.nextCommands).toEqual(expect.arrayContaining([
+      "git status --short",
+      "git add -- README.md LICENSE SECURITY.md CONTRIBUTING.md package.json package-lock.json tsconfig.json src tests scripts examples skills hermes .github",
+      "git commit -m \"Prepare BountyPilot release\"",
+    ]));
+    expect(bootstrap.nextCommands.join("\n")).not.toContain("git add .");
   });
 
   it("builds a GitHub bootstrap bundle with gh/auth probes and publish scripts", () => {

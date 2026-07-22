@@ -84,7 +84,7 @@ steps:
     failure_behavior: Store plan and continue with available observations.
     artifacts: [recon_plan, recon_observations]
   - id: web_recon
-    purpose: Queue or run safe web recon.
+    purpose: Queue built-in safe actions and external-tool handoffs.
     allowed_modes: [safe, deep-safe]
     inputs: [scoped_target, recon_observations]
     outputs: [recon_observations, action_queue]
@@ -144,7 +144,7 @@ steps:
     failure_behavior: No matching playbook becomes a blocker.
     artifacts: [playbook_plan]
   - id: playbook_execution
-    purpose: Execute or queue playbook checks.
+    purpose: Execute eligible built-in checks or queue reviewable handoffs.
     allowed_modes: [safe, deep-safe, lab-offensive]
     inputs: [playbook_plan, scoped_target]
     outputs: [observations, finding_candidates, evidence]

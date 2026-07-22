@@ -49,6 +49,8 @@ describe("bug-bounty-pilot skill policy", () => {
         "mass_internet_scan",
         "auto_submit_report",
         "dump_sensitive_data",
+        "external_tool_execution",
+        "mcp_live_execution",
       ]),
     );
     expect(skill.policy.approval_required).toEqual(expect.arrayContaining(["ffuf", "dalfox", "naabu", "nmap", "external_tool_execution"]));
@@ -58,6 +60,9 @@ describe("bug-bounty-pilot skill policy", () => {
       no_shell: true,
       bounded_output: true,
     });
+    const skillText = readFileSync(path.join(repoRoot, "skills", BUG_BOUNTY_PILOT_SKILL_ID, "SKILL.md"), "utf8");
+    expect(skillText).toContain("It never executes external tools or MCP calls");
+    expect(skillText).not.toMatch(/does not execute external tools unless/i);
   });
 
   it("fails validation when UI metadata stops invoking the bundled skill", () => {

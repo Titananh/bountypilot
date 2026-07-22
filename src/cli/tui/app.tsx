@@ -1743,7 +1743,7 @@ function ToolsPanel(input: { insight: TuiWorkspaceInsight; showDetails: boolean;
       <Text color={input.theme.muted}>Trusted bounty tool registry, install checks, and executable approvals.</Text>
       <Box marginTop={1} flexDirection="column">
         <MetricLine label="trusted" value={`${input.insight.tools.total} tool(s)`} theme={input.theme} />
-        <MetricLine label="available" value={`${input.insight.tools.available} on PATH/package`} theme={input.theme} />
+        <MetricLine label="verified" value={`${input.insight.tools.available} package/registry records`} theme={input.theme} />
         <MetricLine label="approved" value={`${input.insight.tools.approvedExecutables} executable approval(s)`} theme={input.theme} />
         <MetricLine label="review gate" value={`${input.insight.tools.reviewRequired} review-required, ${input.insight.tools.activeScanning} active-scan`} theme={input.theme} />
         <MetricLine label="missing" value={`${input.insight.tools.missing}`} theme={input.theme} />
@@ -1780,7 +1780,7 @@ function McpPanel(input: { insight: TuiWorkspaceInsight; showDetails: boolean; t
       <Text color={input.theme.accent} bold>
         /mcp
       </Text>
-      <Text color={input.theme.muted}>MCP and adapter readiness. Execution stays gated by scope, policy, and approvals.</Text>
+      <Text color={input.theme.muted}>MCP and adapter readiness. External dispatch is disabled; records are plans and human handoffs.</Text>
       <Box marginTop={1} flexDirection="column">
         <MetricLine label="total" value={`${input.insight.integrations.total} adapter(s)`} theme={input.theme} />
         <MetricLine label="configured" value={`${input.insight.integrations.configured}`} theme={input.theme} />

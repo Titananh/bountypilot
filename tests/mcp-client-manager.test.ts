@@ -32,16 +32,99 @@ describe("McpClientManager", () => {
       tool: "browser_navigate",
       target: "https://api.example.com/",
       mode: "safe",
-      arguments: { url: "https://api.example.com/" },
+      arguments: {
+        navigation: {
+          url: "https://api.example.com/path",
+          mirrors: ["https://api.example.com/asset"],
+          hostname: "api.example.com",
+        },
+      },
     });
 
     expect(plan.execute).toBe(false);
+    expect(plan.message).toContain("zero-execution, scope-checked MCP handoff");
+    expect(plan.message).not.toContain("Use `mcp call`");
     expect(plan.validation).toMatchObject({
       ok: true,
       decision: "allow",
       server: "playwright_mcp",
       tool: "browser_navigate",
     });
+  });
+
+  it("blocks an out-of-scope plan target", () => {
+    const validation = configuredPlaywrightManager().validateCallPlan({
+      server: "playwright-mcp",
+      tool: "browser_navigate",
+      target: "https://outside.example.net/",
+      mode: "safe",
+    });
+
+    expect(validation).toMatchObject({ ok: false, decision: "block" });
+    expect(validation.reasons[0]).toContain("MCP plan target blocked by ScopeGuard");
+  });
+
+  it.each([
+    {
+      label: "an absolute URL under an arbitrary key",
+      arguments: { payload: { redirect: "https://outside.example.net/path" } },
+      path: "arguments.payload.redirect",
+    },
+    {
+      label: "a host under a target-like key",
+      arguments: { payload: [{ hostname: "outside.example.net" }] },
+      path: "arguments.payload[0].hostname",
+    },
+  ])("blocks nested arguments containing $label", ({ arguments: callArguments, path }) => {
+    const validation = configuredPlaywrightManager().validateCallPlan({
+      server: "playwright-mcp",
+      tool: "browser_navigate",
+      target: "https://api.example.com/",
+      mode: "safe",
+      arguments: callArguments,
+    });
+
+    expect(validation).toMatchObject({ ok: false, decision: "block" });
+    expect(validation.reasons[0]).toContain(`MCP argument ${path} blocked by ScopeGuard`);
+  });
+
+  it.each([
+    { label: "a malformed target", arguments: { request: { endpoint: "https://[" } } },
+    { label: "a non-string target", arguments: { request: { target: 42 } } },
+  ])("fails closed for $label in nested arguments", ({ arguments: callArguments }) => {
+    const validation = configuredPlaywrightManager().validateCallPlan({
+      server: "playwright-mcp",
+      tool: "browser_navigate",
+      target: "https://api.example.com/",
+      mode: "safe",
+      arguments: callArguments,
+    });
+
+    expect(validation).toMatchObject({ ok: false, decision: "block" });
+  });
+
+  it("fails closed for cycles, excessive nesting, and unsafe values", () => {
+    const manager = configuredPlaywrightManager();
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    let deeplyNested: Record<string, unknown> = {};
+    const deepRoot = deeplyNested;
+    for (let depth = 0; depth < 40; depth += 1) {
+      const child: Record<string, unknown> = {};
+      deeplyNested.child = child;
+      deeplyNested = child;
+    }
+
+    for (const callArguments of [cyclic, deepRoot, { callback: () => undefined }]) {
+      const validation = manager.validateCallPlan({
+        server: "playwright-mcp",
+        tool: "browser_navigate",
+        target: "https://api.example.com/",
+        mode: "safe",
+        arguments: callArguments,
+      });
+      expect(validation).toMatchObject({ ok: false, decision: "block" });
+    }
   });
 
   it("blocks unregistered MCP tools", () => {
@@ -95,6 +178,20 @@ describe("McpClientManager", () => {
     });
   });
 });
+
+function configuredPlaywrightManager(): McpClientManager {
+  return new McpClientManager(
+    testConfig({
+      playwright_mcp: {
+        enabled: true,
+        type: "mcp",
+        transport: "stdio",
+        command: "npx",
+        capabilities: ["browser.navigate"],
+      },
+    }),
+  );
+}
 
 function testConfig(integrations: Record<string, unknown>): ProgramConfig {
   return {

@@ -44,13 +44,14 @@ modes:
       - dalfox
       - naabu
       - nmap
-      - external_tool_execution
     blocked_capabilities:
       - deep_exploit
       - dangerous_rce_validation
       - file_write
       - internal_ssrf_callback
       - dump_sensitive_data
+      - external_tool_execution
+      - mcp_live_execution
   lab-offensive:
     allowed_capabilities:
       - lab_validation
@@ -58,11 +59,11 @@ modes:
       - owned_lab_exploitation
     review_required_capabilities:
       - destructive_lab_action
-      - external_tool_execution
-      - mcp_live_execution
     blocked_capabilities:
       - internet_target_attack
       - out_of_scope_lab_action
+      - external_tool_execution
+      - mcp_live_execution
 scope:
   default: deny
   out_of_scope_precedence: true
@@ -84,6 +85,8 @@ blocked_always:
   - mass_internet_scan
   - auto_submit_report
   - dump_sensitive_data
+  - external_tool_execution
+  - mcp_live_execution
 approval_required:
   - active_scan
   - fuzzing
@@ -99,6 +102,8 @@ evidence:
   redact_tokens: true
   store_local_only: true
 external_tools:
+  # These controls validate manual-handoff metadata only. Production execution
+  # remains blocked even when every field below is present.
   require_absolute_path: true
   require_approval: true
   no_shell: true

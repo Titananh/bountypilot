@@ -1,4 +1,4 @@
 interface:
   display_name: "BountyPilot Orchestrator"
-  short_description: "Coordinate authorized bug bounty hunts"
-  default_prompt: "Use $bountypilot-orchestrate to coordinate an authorized BountyPilot hunt from program intake to report draft."
+  short_description: "Run a scope-bound mission from one request"
+  default_prompt: "Use $bountypilot-orchestrate to turn my authorized program request into one guarded dry-run mission and truthful terminal handoff."

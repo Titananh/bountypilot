@@ -126,7 +126,7 @@ describe("Safety acceptance", () => {
 
     const summary = readOnlyWorkflowSummary(workspace);
     expect(summary.seeds).toEqual(["https://api.safety.example/"]);
-    expect(summary.actionsPlanned).toBe(0);
+    expect(summary.actionsPlanned).toBe(1);
     expect(summary.phases).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -147,7 +147,10 @@ describe("Safety acceptance", () => {
     expectCommand(run).toExit(1);
     expect(run.stderr).toBe("");
     const parsed = JSON.parse(run.stdout);
-    expect(parsed.summary.status).toBe("failed");
+    // The HTTP effect was marked dispatched before the connection failure, so
+    // lifecycle truthfully retains an ambiguous paused outcome instead of
+    // claiming a clean pre-dispatch failure.
+    expect(parsed.summary.status).toBe("paused");
     expect(parsed.summary.phases).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "safe-checks", status: "failed" }),

@@ -226,7 +226,9 @@ function nextCommandsForBootstrap(input: {
   }
   if (byName.get("git:working-tree")?.status === "fail") {
     commands.add("git status --short");
-    commands.add("git add .");
+    // Keep generated bootstrap instructions away from arbitrary local docs or
+    // operator notes.  New files still require an explicit human `git add`.
+    commands.add("git add -- README.md LICENSE SECURITY.md CONTRIBUTING.md package.json package-lock.json tsconfig.json src tests scripts examples skills hermes .github");
     commands.add("git commit -m \"Prepare BountyPilot release\"");
   }
   if (originMissing) {

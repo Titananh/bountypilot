@@ -1,0 +1,39 @@
+delegation:
+  max_iterations: 30
+  max_concurrent_children: 3
+  max_spawn_depth: 1
+  orchestrator_enabled: true
+  child_timeout_seconds: 1800
+agent:
+  # The mission skill is intentionally terminal and non-delegating. Keep
+  # target-capable Hermes toolsets unavailable even if a platform profile
+  # previously enabled them; BountyPilot remains the only action authority.
+  disabled_toolsets:
+    - web
+    - browser
+    - mcp
+    - delegation
+    - cronjob
+    - messaging
+    - homeassistant
+    - code_execution
+terminal:
+  # The agent still needs a shell to invoke the local BountyPilot CLI, but its
+  # shell runs in an air-gapped Docker backend. Mounting only the launch
+  # workspace makes the CLI/review artifacts available without exposing the
+  # host HOME or network. If Docker is unavailable, stop and provision it;
+  # switching to the local backend is an explicit operator risk decision.
+  backend: docker
+  cwd: /workspace
+  home_mode: profile
+  docker_network: false
+  docker_mount_cwd_to_workspace: true
+  docker_persist_across_processes: false
+  container_persistent: false
+  docker_forward_env: []
+  env_passthrough: []
+approvals:
+  mode: manual
+  cron_mode: deny
+security:
+  allow_lazy_installs: false

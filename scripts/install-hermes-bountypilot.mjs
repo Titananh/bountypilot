@@ -1,9 +1,11 @@
+#!/usr/bin/env node
 /**
  * Install the BountyPilot Hermes skills without replacing a user's profile.
  *
- * This intentionally does not use `hermes profile install`: Hermes 0.17 treats
- * whole distribution-owned directories as replaceable. This installer owns
- * nine category-qualified skill directories and one bundle file only.
+ * Use `hermes profile install <checkout>/hermes/bountypilot-agent` for a fresh
+ * profile. This companion
+ * merge installer exists for an already-configured profile and deliberately
+ * owns only nine category-qualified skill directories plus one bundle file.
  */
 
 import { createHash, randomBytes } from "node:crypto";
@@ -29,11 +31,7 @@ import YAML from "yaml";
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const REPOSITORY_ROOT = path.resolve(path.dirname(SCRIPT_PATH), "..");
 
-export const DEFAULT_SOURCE_ROOT = path.join(
-  REPOSITORY_ROOT,
-  "hermes",
-  "bountypilot-agent",
-);
+export const DEFAULT_SOURCE_ROOT = path.join(REPOSITORY_ROOT, "hermes", "bountypilot-agent");
 
 export const MANAGED_SKILL_NAMES = Object.freeze([
   "bountypilot-duplicate-check",
@@ -50,8 +48,17 @@ export const MANAGED_SKILL_NAMES = Object.freeze([
 export const MANAGED_BUNDLE_RELATIVE_PATH = "skill-bundles/bountypilot.yaml";
 export const LEGACY_BUNDLE_RELATIVE_PATH = "skill-bundles/bountypilot.yml";
 
-const EXPECTED_SOURCE_TOP_LEVEL = Object.freeze([
+const EXPECTED_MANAGED_SOURCE_PATHS = Object.freeze([
   "SOUL.md",
+  "config.yaml",
+  "distribution.yaml",
+  "skill-bundles/bountypilot.yaml",
+  ...MANAGED_SKILL_NAMES.map((skillName) => `skills/security/${skillName}`),
+]);
+
+const EXPECTED_DISTRIBUTION_TOP_LEVEL = Object.freeze([
+  "SOUL.md",
+  "config.yaml",
   "distribution.yaml",
   "skill-bundles",
   "skills",
@@ -59,6 +66,7 @@ const EXPECTED_SOURCE_TOP_LEVEL = Object.freeze([
 
 const EXPECTED_DISTRIBUTION_OWNED = Object.freeze([
   "SOUL.md",
+  "config.yaml",
   "distribution.yaml",
   "skill-bundles/bountypilot.yaml",
   ...MANAGED_SKILL_NAMES.map((skillName) => `skills/security/${skillName}`),
@@ -85,7 +93,6 @@ const FORBIDDEN_SOURCE_BASENAMES = new Set([
   "checkpoints",
   "config.json",
   "config.toml",
-  "config.yaml",
   "config.yml",
   "credentials",
   "credentials.json",
@@ -120,7 +127,18 @@ const FORBIDDEN_SOURCE_BASENAMES = new Set([
 ]);
 
 const MAX_BUNDLE_METADATA_BYTES = 1024 * 1024;
+const MAX_PROFILE_CONFIG_BYTES = 1024 * 1024;
 const RESERVED_PROFILE_NAMES = new Set(["hermes", "root", "sudo", "test", "tmp"]);
+const REQUIRED_DISABLED_TOOLSETS = Object.freeze([
+  "browser",
+  "code_execution",
+  "cronjob",
+  "delegation",
+  "homeassistant",
+  "mcp",
+  "messaging",
+  "web",
+]);
 
 export class InstallerError extends Error {
   constructor(message, options) {
@@ -317,6 +335,94 @@ function parseYamlMapping(text, label, { tolerateInvalid = false } = {}) {
   return value;
 }
 
+function isMapping(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasRequiredDisabledToolsets(value) {
+  if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) {
+    return false;
+  }
+  const disabled = new Set(value);
+  return REQUIRED_DISABLED_TOOLSETS.every((toolset) => disabled.has(toolset));
+}
+
+function isEmptyStringArray(value) {
+  return Array.isArray(value)
+    && value.length === 0
+    && value.every((entry) => typeof entry === "string");
+}
+
+/**
+ * Validate the critical zero-live subset of an existing Hermes profile.
+ *
+ * The merge installer reads this file only to make a fail-closed decision. It
+ * never returns, logs, copies, backs up, or rewrites its contents. Unrelated
+ * profile keys remain valid so the operator retains ownership of the profile.
+ */
+export async function validateProfileZeroLiveContract(profileDir) {
+  if (!profileDir) {
+    throw new InstallerError("A Hermes profile directory is required for safety validation.");
+  }
+  const absoluteProfile = path.resolve(profileDir);
+  await requireExistingProfile(absoluteProfile);
+
+  const configPath = path.join(absoluteProfile, "config.yaml");
+  assertPathInside(absoluteProfile, configPath, "The profile config");
+  await assertNoSymlinkAncestors(configPath);
+  const configStat = await lstatOrNull(configPath);
+  if (
+    !configStat?.isFile()
+    || configStat.isSymbolicLink()
+    || configStat.size > MAX_PROFILE_CONFIG_BYTES
+  ) {
+    throw new InstallerError(
+      "The selected Hermes profile requires a bounded regular config.yaml with the zero-live safety contract.",
+    );
+  }
+
+  const config = parseYamlMapping(
+    await readFile(configPath, "utf8"),
+    "The selected Hermes profile config.yaml",
+  );
+  const delegation = config.delegation;
+  const agent = config.agent;
+  const terminal = config.terminal;
+  const approvals = config.approvals;
+  const security = config.security;
+  if (
+    !isMapping(delegation)
+    || delegation.max_iterations !== 30
+    || delegation.max_concurrent_children !== 3
+    || delegation.max_spawn_depth !== 1
+    || delegation.orchestrator_enabled !== true
+    || delegation.child_timeout_seconds !== 1800
+    || !isMapping(agent)
+    || !hasRequiredDisabledToolsets(agent.disabled_toolsets)
+    || !isMapping(terminal)
+    || terminal.backend !== "docker"
+    || terminal.cwd !== "/workspace"
+    || terminal.home_mode !== "profile"
+    || terminal.docker_network !== false
+    || terminal.docker_mount_cwd_to_workspace !== true
+    || terminal.docker_persist_across_processes !== false
+    || terminal.container_persistent !== false
+    || !isEmptyStringArray(terminal.docker_forward_env)
+    || !isEmptyStringArray(terminal.env_passthrough)
+    || !isMapping(approvals)
+    || approvals.mode !== "manual"
+    || approvals.cron_mode !== "deny"
+    || !isMapping(security)
+    || security.allow_lazy_installs !== false
+  ) {
+    throw new InstallerError(
+      "The selected Hermes profile config.yaml does not satisfy the required zero-live safety contract.",
+    );
+  }
+
+  return absoluteProfile;
+}
+
 async function inspectSourceNode(absolutePath, sourceRoot) {
   assertPathInside(sourceRoot, absolutePath, "A source entry");
   const stat = await lstat(absolutePath);
@@ -349,18 +455,28 @@ export async function validateDistributionSource(sourceRoot = DEFAULT_SOURCE_ROO
     throw new InstallerError("The BountyPilot Hermes distribution source is missing.");
   }
 
-  const topLevel = (await readdir(absoluteSource)).sort(compareNames);
-  if (JSON.stringify(topLevel) !== JSON.stringify(EXPECTED_SOURCE_TOP_LEVEL)) {
-    throw new InstallerError("The distribution source top level does not match its strict allowlist.");
+  // Hermes 0.17 copies every top-level entry from an install source. Keep the
+  // official distribution in its own clean directory and reject every
+  // unexpected top-level entry before reading managed content.
+  const topLevelNames = (await readdir(absoluteSource)).sort(compareNames);
+  if (
+    JSON.stringify(topLevelNames)
+    !== JSON.stringify([...EXPECTED_DISTRIBUTION_TOP_LEVEL].sort(compareNames))
+  ) {
+    throw new InstallerError("The distribution source contains an unexpected top-level entry.");
   }
-  for (const entry of topLevel) {
-    await inspectSourceNode(path.join(absoluteSource, entry), absoluteSource);
+  for (const relativePath of EXPECTED_MANAGED_SOURCE_PATHS) {
+    const managedPath = path.join(absoluteSource, ...relativePath.split("/"));
+    if (!(await lstatOrNull(managedPath))) {
+      throw new InstallerError("The distribution is missing a managed source entry.");
+    }
+    await inspectSourceNode(managedPath, absoluteSource);
   }
 
   const securityRoot = path.join(absoluteSource, "skills", "security");
-  const skillsRootEntries = (await readdir(path.join(absoluteSource, "skills"))).sort(compareNames);
-  if (JSON.stringify(skillsRootEntries) !== JSON.stringify(["security"])) {
-    throw new InstallerError("The distribution may contain only the security skill category.");
+  const skillCategoryNames = (await readdir(path.join(absoluteSource, "skills"))).sort(compareNames);
+  if (JSON.stringify(skillCategoryNames) !== JSON.stringify(["security"])) {
+    throw new InstallerError("The distribution must contain exactly the security skill category.");
   }
   const skillNames = (await readdir(securityRoot)).sort(compareNames);
   if (JSON.stringify(skillNames) !== JSON.stringify([...MANAGED_SKILL_NAMES].sort(compareNames))) {
@@ -388,13 +504,97 @@ export async function validateDistributionSource(sourceRoot = DEFAULT_SOURCE_ROO
     : [];
   if (
     manifest.name !== "bountypilot-agent"
-    || manifest.version !== "0.1.0"
+    || manifest.version !== "0.2.0"
     || manifest.hermes_requires !== ">=0.17.0"
     || manifest.license !== "MIT"
     || Object.hasOwn(manifest, "env_requires")
     || JSON.stringify(distributionOwned) !== JSON.stringify([...EXPECTED_DISTRIBUTION_OWNED].sort(compareNames))
   ) {
     throw new InstallerError("distribution.yaml violates the credential-free ownership contract.");
+  }
+
+  const config = parseYamlMapping(
+    await readFile(path.join(absoluteSource, "config.yaml"), "utf8"),
+    "config.yaml",
+  );
+  const configKeys = Object.keys(config).sort(compareNames);
+  const delegation = config.delegation;
+  const delegationKeys = delegation && typeof delegation === "object" && !Array.isArray(delegation)
+    ? Object.keys(delegation).sort(compareNames)
+    : [];
+  const agent = config.agent;
+  const agentKeys = agent && typeof agent === "object" && !Array.isArray(agent)
+    ? Object.keys(agent).sort(compareNames)
+    : [];
+  const terminal = config.terminal;
+  const terminalKeys = terminal && typeof terminal === "object" && !Array.isArray(terminal)
+    ? Object.keys(terminal).sort(compareNames)
+    : [];
+  const approvals = config.approvals;
+  const approvalsKeys = approvals && typeof approvals === "object" && !Array.isArray(approvals)
+    ? Object.keys(approvals).sort(compareNames)
+    : [];
+  const security = config.security;
+  const securityKeys = security && typeof security === "object" && !Array.isArray(security)
+    ? Object.keys(security).sort(compareNames)
+    : [];
+  const disabledToolsets = agent && Array.isArray(agent.disabled_toolsets)
+    ? agent.disabled_toolsets.map(String).sort(compareNames)
+    : [];
+  if (
+    JSON.stringify(configKeys) !== JSON.stringify(["agent", "approvals", "delegation", "security", "terminal"])
+    || JSON.stringify(delegationKeys) !== JSON.stringify([
+      "child_timeout_seconds",
+      "max_concurrent_children",
+      "max_iterations",
+      "max_spawn_depth",
+      "orchestrator_enabled",
+    ])
+    || delegation.max_iterations !== 30
+    || delegation.max_concurrent_children !== 3
+    || delegation.max_spawn_depth !== 1
+    || delegation.orchestrator_enabled !== true
+    || delegation.child_timeout_seconds !== 1800
+    || JSON.stringify(agentKeys) !== JSON.stringify(["disabled_toolsets"])
+    || JSON.stringify(disabledToolsets) !== JSON.stringify([
+      "browser",
+      "code_execution",
+      "cronjob",
+      "delegation",
+      "homeassistant",
+      "mcp",
+      "messaging",
+      "web",
+    ])
+    || JSON.stringify(terminalKeys) !== JSON.stringify([
+      "backend",
+      "container_persistent",
+      "cwd",
+      "docker_forward_env",
+      "docker_mount_cwd_to_workspace",
+      "docker_network",
+      "docker_persist_across_processes",
+      "env_passthrough",
+      "home_mode",
+    ])
+    || terminal.backend !== "docker"
+    || terminal.cwd !== "/workspace"
+    || terminal.home_mode !== "profile"
+    || terminal.docker_network !== false
+    || terminal.docker_mount_cwd_to_workspace !== true
+    || terminal.docker_persist_across_processes !== false
+    || terminal.container_persistent !== false
+    || !Array.isArray(terminal.docker_forward_env)
+    || terminal.docker_forward_env.length !== 0
+    || !Array.isArray(terminal.env_passthrough)
+    || terminal.env_passthrough.length !== 0
+    || JSON.stringify(approvalsKeys) !== JSON.stringify(["cron_mode", "mode"])
+    || approvals.mode !== "manual"
+    || approvals.cron_mode !== "deny"
+    || JSON.stringify(securityKeys) !== JSON.stringify(["allow_lazy_installs"])
+    || security.allow_lazy_installs !== false
+  ) {
+    throw new InstallerError("config.yaml violates the bounded zero-live terminal/toolset contract.");
   }
 
   const bundle = parseYamlMapping(
@@ -562,9 +762,8 @@ export async function createInstallPlan({
     throw new InstallerError("createInstallPlan requires an explicit profile directory.");
   }
   const normalizedProfile = validateProfileName(profile);
-  const absoluteProfile = path.resolve(profileDir);
+  const absoluteProfile = await validateProfileZeroLiveContract(profileDir);
   const absoluteSource = await validateDistributionSource(sourceRoot);
-  await requireExistingProfile(absoluteProfile);
   await assertNoOtherBundleSlugCollision(absoluteProfile);
 
   const entries = [];
@@ -623,9 +822,8 @@ export async function verifyInstallation({
     throw new InstallerError("verifyInstallation requires an explicit profile directory.");
   }
   const normalizedProfile = validateProfileName(profile);
-  const absoluteProfile = path.resolve(profileDir);
+  const absoluteProfile = await validateProfileZeroLiveContract(profileDir);
   const absoluteSource = await validateDistributionSource(sourceRoot);
-  await requireExistingProfile(absoluteProfile);
   await assertNoOtherBundleSlugCollision(absoluteProfile);
 
   const entries = [];

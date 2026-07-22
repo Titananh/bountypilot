@@ -29,8 +29,26 @@ const ScopeRuleSchema = z
   .trim()
   .min(1)
   .refine(
-    (value) => hasExplicitScheme(value) || !/[/?#]/.test(value),
-    "Scope rules with paths, queries, or fragments must use an explicit http(s) URL, for example https://api.example.com/app",
+    (value) => {
+      if (!hasExplicitScheme(value)) {
+        return !/[/?#@]/.test(value);
+      }
+      try {
+        const parsed = new URL(value);
+        return (
+          (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+          parsed.hostname.length > 0 &&
+          parsed.username === "" &&
+          parsed.password === "" &&
+          parsed.search === "" &&
+          parsed.hash === "" &&
+          !hasPercentEncodedPathOctet(parsed.pathname)
+        );
+      } catch {
+        return false;
+      }
+    },
+    "Scope rules must be http(s), contain no credentials/query/fragment, and use a host-only or path-prefix form",
   );
 
 export const ProgramSchema = z.object({
@@ -99,4 +117,10 @@ export type ProgramConfig = z.infer<typeof ProgramSchema>;
 
 function hasExplicitScheme(value: string): boolean {
   return /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
+}
+
+function hasPercentEncodedPathOctet(pathname: string): boolean {
+  // Path-scoped authorization must not depend on how many decode/normalize
+  // passes an origin server performs. Reject encoded octets conservatively.
+  return /%[0-9a-f]{2}/i.test(pathname);
 }

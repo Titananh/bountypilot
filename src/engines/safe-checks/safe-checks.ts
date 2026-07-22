@@ -1,4 +1,5 @@
 import { maskSecrets } from "../../utils/secrets.js";
+import { BountyPilotError } from "../../utils/errors.js";
 
 export interface SafeCheckResult {
   url: string;
@@ -16,15 +17,24 @@ export interface SafeCheckFinding {
   remediation?: string;
 }
 
-export async function runSafeChecks(url: string): Promise<SafeCheckResult> {
-  const response = await fetch(url, {
-    method: "GET",
-    redirect: "manual",
-    headers: {
-      "User-Agent": "BountyPilot/0.1 safe-checks",
-      "Origin": "https://bountypilot.local",
-    },
-  });
+export interface SafeCheckExecutionContext {
+  /** The authority-bound fetcher supplied by ActionExecutor. */
+  fetchResponse: (url: string) => Promise<Response>;
+  /** Explicit scope predicate; there is intentionally no permissive default. */
+  allowUrl: (url: string) => boolean;
+}
+
+export async function runSafeChecks(url: string, context: SafeCheckExecutionContext): Promise<SafeCheckResult> {
+  if (!context || typeof context.fetchResponse !== "function" || typeof context.allowUrl !== "function") {
+    throw new BountyPilotError(
+      "Safe checks require an authority-bound fetch context.",
+      "SAFE_CHECK_CONTEXT_REQUIRED",
+    );
+  }
+  if (!context.allowUrl(url)) {
+    throw new BountyPilotError("Safe-check target is outside the approved scope.", "SCOPE_BLOCKED");
+  }
+  const response = await context.fetchResponse(url);
 
   const headers = Object.fromEntries(response.headers.entries());
   await response.body?.cancel().catch(() => undefined);

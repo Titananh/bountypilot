@@ -1,33 +1,28 @@
 #!/usr/bin/env node
-import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync, type Stats } from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import type { ActionRecord } from "../core/actions/action-queue.js";
 import { labAuthorizationFilePath, loadProgramFile, loadWorkspaceProgram } from "../core/config/config-loader.js";
 import type { ProgramConfig } from "../core/config/program-schema.js";
-import { fetchScopedText } from "../core/http/scoped-fetch.js";
 import type { WorkflowEventRecord } from "../core/jobs/workflow-event-store.js";
 import { runPackageReleaseCheck, runReleaseCheck } from "../core/release/release-check.js";
 import { ensureWorkspace, programWorkspace, saveProgramConfig, workspacePaths } from "../core/workspace.js";
-import { crawlWithPlaywright } from "../engines/crawler/playwright-crawler.js";
 import { AgentPlanner, type PlannerActionContext } from "../engines/agent-planner/agent-planner.js";
 import { DuplicateRiskEngine } from "../engines/duplicate-risk/duplicate-risk-engine.js";
 import { candidateBaselineReportabilityScore } from "../engines/finding-candidates/finding-candidate-engine.js";
-import { analyzeJavaScript } from "../engines/js-analyzer/js-analyzer.js";
 import {
   generateReproductionNote,
   isSupportedReportPlatform,
   writePlatformReport,
 } from "../engines/report-generator/report-generator.js";
 import { buildReportReview, type ReportReadiness } from "../engines/report-generator/report-review.js";
-import { runSafeChecks } from "../engines/safe-checks/safe-checks.js";
 import { TriageEngine } from "../engines/triage/triage-engine.js";
-import { IntegrationManager, type ResolvedIntegration } from "../integrations/integration-manager/integration-manager.js";
+import { IntegrationManager } from "../integrations/integration-manager/integration-manager.js";
 import { McpClientManager } from "../integrations/mcp/mcp-client-manager.js";
-import { McpStdioExecutor, type McpSessionStepInput } from "../integrations/mcp/mcp-stdio-executor.js";
+import type { McpSessionStepInput } from "../integrations/mcp/mcp-stdio-executor.js";
 import { ToolManager } from "../integrations/tool-manager/tool-manager.js";
 import { latestToolApproval, toolApprovalIntegrationName } from "../integrations/tool-manager/tool-adapter-runner.js";
 import { buildReleaseBundle, verifyReleaseBundle } from "../core/release/release-bundle.js";
@@ -45,6 +40,7 @@ import {
 } from "../hunting/hunt-arsenal.js";
 import { BUG_CLASSES, runHuntPlaybook, runHuntRecon, type HuntReconProfile } from "../hunting/recon-engine.js";
 import { startDemoLabServer, type DemoLabServerHandle, type DemoLabServerInfo } from "../labs/demo-lab-server.js";
+import { MissionRunner } from "../missions/mission-runner.js";
 import { ProviderManager, type ProviderSummary, type ProviderVerifyResult } from "../providers/provider-manager.js";
 import { ProviderChatClient, type ProviderChatMessage, type ProviderChatSession } from "../providers/provider-chat-client.js";
 import {
@@ -60,6 +56,11 @@ import {
 import { renderSkillReadinessPublicPlan, scoreSkillReadiness } from "../skills/skill-readiness.js";
 import { runSkill, type SkillRunResult } from "../skills/skill-runner.js";
 import { ActionExecutor } from "../workflows/action-executor.js";
+import {
+  WORKFLOW_BARRIER_ACTION_TYPE,
+  WORKFLOW_BARRIER_ADAPTER,
+  WORKFLOW_BARRIER_PURPOSE,
+} from "../core/actions/production-action-authority.js";
 import { writeHandoffBundle } from "../workflows/handoff-bundle.js";
 import { WorkflowRunner, type WorkflowOptions, type WorkflowSummary } from "../workflows/run-workflow.js";
 import { buildWorkspaceSummary, writeWorkspaceSummary, type WorkspaceSummary } from "../workflows/workspace-summary.js";
@@ -68,10 +69,8 @@ import { openPath } from "../utils/open-path.js";
 import {
   createExecutableApprovalStore,
   inspectLocalPackageEntrypoint,
-  resolveApprovedLocalProcess,
   resolveLocalExecutable,
   type InspectedNpmPackageEntrypoint,
-  type LocalProcessConfig,
 } from "../utils/local-process-policy.js";
 import { maskSecrets, maskSecretsDeep } from "../utils/secrets.js";
 import type {
@@ -93,6 +92,7 @@ import {
   createRuntime,
   modeFromOptions,
   planAllowedAction,
+  planAllowedActionWithRecord,
   type Runtime,
 } from "./runtime.js";
 import * as ui from "./ui.js";
@@ -179,7 +179,7 @@ function commandFromArgs(args: unknown[]): Command {
 program
   .name("bugbounty")
   .description("BountyPilot safe, local-first, scoped bug bounty CLI")
-  .version("0.1.0")
+  .version("0.2.0")
   .option("-p, --program <name>", "Program name to load from .bounty/programs")
   .option("--tool-registry <path>", "Trusted tool registry YAML to merge with built-in tools")
   .addHelpText(
@@ -209,6 +209,74 @@ Local lab gate:
       options: { temperature: "0.2", maxTokens: "1200" },
       defaultLaunch: true,
     });
+  });
+
+const mission = program.command("mission").description("Run one typed, scope-bound local research mission");
+
+mission
+  .command("start")
+  .option("--target <url>", "Optional in-scope HTTP(S) target")
+  .option("--goal <goal>", "Mission goal (only local-report-draft is accepted)", "local-report-draft")
+  .option("--profile <profile>", "Mission profile: recon, web, or validate", "web")
+  .option("--session <class>", "Hermes session class", "normal")
+  .option("--json", "Print the typed mission receipt as JSON")
+  .description("Turn one Hermes request into one local, zero-live BountyPilot workflow")
+  .action(async (...args: unknown[]) => {
+    const command = commandFromArgs(args);
+    const options = command.opts<{
+      target?: string;
+      goal: string;
+      profile: string;
+      session: string;
+      json?: boolean;
+    }>();
+    const runtime = createRuntime(rootProgramName());
+
+    try {
+      const receipt = await new MissionRunner(runtime).run({
+        schemaVersion: "bountypilot/mission-request/v1",
+        origin: "hermes",
+        program: runtime.config.program,
+        goal: options.goal,
+        profile: options.profile,
+        sessionClass: options.session,
+        ...(options.target ? { target: options.target } : {}),
+        constraints: {
+          liveTargetEffects: false,
+          automaticSubmission: false,
+        },
+      });
+
+      if (options.json || requestedJsonOutput(process.argv)) {
+        ui.json(receipt);
+        return;
+      }
+
+      ui.header("mission handoff");
+      ui.status(receipt.accepted ? "ok" : "blocked", receipt.agentState);
+      ui.panel("mission", [
+        ui.kv("program", receipt.mission.request.program),
+        ui.kv("profile", receipt.mission.request.profile),
+        ui.kv("job", receipt.job.id),
+        ui.kv("status", receipt.job.status),
+        ui.kv("actions", receipt.actionIds.length),
+        ui.kv("live target effects", false),
+        ui.kv("automatic submission", false),
+      ]);
+      ui.blank();
+      ui.commandList("human review commands", receipt.nextCommands);
+    } catch (error) {
+      if (!isMissionSemanticError(error)) {
+        throw error;
+      }
+      const normalized = normalizeCliError(error);
+      if (options.json || requestedJsonOutput(process.argv)) {
+        ui.json({ ok: false, error: normalized });
+      } else {
+        ui.error(`[${normalized.code}] ${normalized.message}`);
+      }
+      process.exitCode = 2;
+    }
   });
 
 program
@@ -525,8 +593,10 @@ program
       draftReports: options.draftReports,
       withComponents: parseComponentList(options.with),
     });
-    if (summary.status === "failed") {
+    if (summary.status === "failed" || summary.phases.some((phase) => phase.status === "failed")) {
       process.exitCode = 1;
+    } else if (options.dryRun !== true && summary.status === "paused") {
+      process.exitCode = 2;
     }
     if (options.json) {
       ui.json({ summary: workflowSummaryForDisplay(runtime, summary), events: runtime.events.list(summary.jobId) });
@@ -655,7 +725,7 @@ hunt
       ui.json(payload);
       return;
     }
-    printWorkflowSummary(payload.summary, "hunt finished");
+    printWorkflowSummary(payload.summary, "hunt workflow handoff");
     printWorkflowTimeline(runtime.events.list(summary.jobId, 8), "recent events");
     ui.blank();
     ui.commandList("hunt follow-up", payload.nextCommands);
@@ -667,9 +737,9 @@ hunt
   .option("--profile <profile>", "Recon profile: passive or web", "passive")
   .option("--tools <tools>", "Comma-separated trusted tools to include")
   .option("--dry-run", "Plan recon actions without executing tools")
-  .option("--live", "Run approved low-risk tools after scope and policy gates pass")
+  .option("--live", "Record live intent for human handoff; tools are not executed automatically")
   .option("--json", "Print machine-readable JSON")
-  .description("Run or plan a scoped recon pipeline that stores normalized observations")
+  .description("Plan a scoped recon pipeline and store a zero-effect human handoff")
   .action(async (target: string, ...args: unknown[]) => {
     const command = commandFromArgs(args);
     const options = command.opts<{ profile: string; tools?: string; dryRun?: boolean; live?: boolean; json?: boolean }>();
@@ -690,7 +760,7 @@ hunt
       return;
     }
     ui.header("hunt recon");
-    ui.status(result.ok ? (result.live ? "ok" : "planned") : "warn", `${result.profile} recon finished`);
+    ui.status(result.ok ? "planned" : "warn", `${result.profile} recon handoff recorded`);
     ui.panel("recon", [
       ui.kv("job", result.jobId),
       ui.kv("target", result.target),
@@ -701,7 +771,7 @@ hunt
     ]);
     ui.blank();
     ui.table(
-      ["status", "tool", "approved", "observations", "message"],
+      ["status", "tool", "executable pin", "observations", "message"],
       result.tools.map((tool) => [tool.status, tool.tool, tool.approvalPresent, tool.observations, tool.message]),
     );
     ui.blank();
@@ -713,9 +783,9 @@ hunt
   .argument("<bugClass>", `Bug class: ${BUG_CLASSES.join(", ")}`)
   .argument("<target>", "In-scope URL or host")
   .option("--dry-run", "Plan playbook actions without target execution")
-  .option("--live", "Run safe playbook checks after scope and policy gates pass")
+  .option("--live", "Execute only allowlisted low-risk built-ins through lifecycle; keep validation as human handoff")
   .option("--json", "Print machine-readable JSON")
-  .description("Run a bug-specific guarded playbook and create findings only when evidence thresholds are met")
+  .description("Run a guarded bug-class playbook with lifecycle-bound low-risk checks and human validation handoff")
   .action(async (bugClass: string, target: string, ...args: unknown[]) => {
     const command = commandFromArgs(args);
     const options = command.opts<{ dryRun?: boolean; live?: boolean; json?: boolean }>();
@@ -724,20 +794,42 @@ hunt
     }
     const runtime = createRuntime(rootProgramName());
     const result = await runHuntPlaybook(runtime, parseBugClass(bugClass), target, options.live === true);
+    // Policy blocks are failures. A paused playbook is a successful guarded
+    // handoff: allowed low-risk work may have completed, but validation is not
+    // represented as finished or report-ready.
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
     if (options.json || requestedJsonOutput(process.argv)) {
       ui.json(result);
       return;
     }
+    const headlineStatus: "ok" | "planned" | "blocked" = result.paused
+      ? "planned"
+      : result.ok
+        ? "ok"
+        : "blocked";
+    const headlineLabel = result.paused
+      ? `${result.bugClass} playbook paused for human approval`
+      : !result.ok
+        ? `${result.bugClass} playbook blocked by policy`
+        : result.live && result.actionsExecuted > 0
+          ? `${result.bugClass} playbook low-risk execution completed`
+          : `${result.bugClass} playbook plan recorded`;
     ui.header("hunt playbook");
-    ui.status("ok", `${result.bugClass} playbook finished`);
+    ui.status(headlineStatus, headlineLabel);
     ui.panel("playbook", [
       ui.kv("job", result.jobId),
       ui.kv("target", result.target),
       ui.kv("live", result.live),
       ui.kv("actions", result.actionsPlanned),
+      ui.kv("executed", result.actionsExecuted),
+      ui.kv("pending", result.actionsPending),
       ui.kv("observations", result.observations.length),
       ui.kv("findings", result.findingsCreated.length),
       ui.kv("evidence", result.evidence.length),
+      ui.kv("paused", result.paused === true),
+      ui.kv("blocked", !result.ok),
     ]);
     if (result.findingsCreated.length > 0) {
       ui.blank();
@@ -2494,64 +2586,32 @@ evidenceCommand
     const scoped = runtime.scopeGuard.assertAllowed(url);
     const job = jobId ? requireJob(runtime, jobId) : runtime.jobs.create("evidence-record", "safe", scoped.url);
     const audit = createJobAuditLogger(runtime.paths, job.id);
-    await runtime.rateLimiter.wait(scoped.url);
+    const planned = await planAllowedActionWithRecord({
+      runtime,
+      audit,
+      jobId: job.id,
+      adapter: "playwright",
+      actionType: "browser.navigate",
+      target: scoped.url,
+      mode: "safe",
+      riskLevel: "low",
+    });
     const artifacts: EvidenceArtifact[] = [];
-    const warnings: string[] = [];
-    let captureMode: "browser" | "http-fallback" = "browser";
-    let title: string | undefined;
-    let links: string[] = [];
-    try {
-      const result = await crawlWithPlaywright({
-        url: scoped.url,
-        evidenceDir: runtime.paths.evidenceDir,
-        jobId: job.id,
-        evidence: {
-          screenshots: true,
-          har: true,
-          consoleLogs: true,
-          domSnapshot: true,
-          browserTrace: options.full === true,
-          video: false,
-          requestResponseSamples: true,
-        },
-        allowUrl: (requestUrl) => runtime.scopeGuard.test(requestUrl).allowed,
-        onRequest: (event) => {
-          audit.log({
-            jobId: job.id,
-            actionType: "browser.request",
-            method: event.method,
-            url: event.url,
-            adapterName: "evidence-record",
-            policyDecision: event.allowed ? "allow" : "block",
-            reason: event.allowed ? "Request remained in scope" : "Request blocked by ScopeGuard",
-          });
-        },
-      });
-      title = result.title;
-      links = result.links;
-      for (const artifact of result.evidence) {
-        const stored = runtime.evidence.create({ ...artifact, findingId: finding.id, jobId: job.id, sourceUrl: scoped.url });
-        artifacts.push(stored);
-        runtime.findings.linkEvidencePath(finding.id, stored.path);
-      }
-    } catch (error) {
-      if (!isBrowserEvidenceLaunchFailure(error)) {
-        throw error;
-      }
-      captureMode = "http-fallback";
-      warnings.push("Browser evidence capture was unavailable, so BountyPilot recorded scoped HTTP request/response evidence instead.");
-      const fallback = await writeHttpEvidenceFallback(runtime, {
-        findingId: finding.id,
-        jobId: job.id,
-        url: scoped.url,
-      });
-      title = fallback.title;
-      links = fallback.links;
-      artifacts.push(...fallback.artifacts);
-      for (const artifact of fallback.artifacts) {
-        runtime.findings.linkEvidencePath(finding.id, artifact.path);
+    let execution: Awaited<ReturnType<ActionExecutor["execute"]>> | undefined;
+    if (planned.allowed) {
+      const existingEvidenceIds = new Set(runtime.evidence.list().filter((item) => item.jobId === job.id).map((item) => item.id));
+      execution = await new ActionExecutor(runtime).execute(planned.action.id);
+      for (const captured of runtime.evidence.list().filter((item) => item.jobId === job.id && !existingEvidenceIds.has(item.id))) {
+        const linked = runtime.evidence.linkToFinding(captured.id, finding.id);
+        if (linked) {
+          artifacts.push(linked);
+          runtime.findings.linkEvidencePath(finding.id, linked.path);
+        }
       }
     }
+    const finalizedJob = runtime.jobs.finalize(job.id);
+    const captureMode = execution ? "browser" : "planned";
+    const warnings = execution ? [] : ["Browser evidence capture requires an allowlisted execution and approval state."];
     const reproduction = runtime.evidence.writeTextArtifact({
       findingId: finding.id,
       jobId: job.id,
@@ -2563,23 +2623,18 @@ evidenceCommand
     });
     runtime.findings.linkEvidencePath(finding.id, reproduction.path);
     artifacts.push(reproduction);
-    runtime.crawlGraph.upsertPage({ url: scoped.url, title });
-    for (const link of links.filter((link) => runtime.scopeGuard.test(link).allowed)) {
-      runtime.crawlGraph.upsertPage({ url: link });
-      runtime.crawlGraph.addEdge(scoped.url, link);
-    }
-    if (!options.job) {
-      runtime.jobs.updateStatus(job.id, "completed");
-    }
     const payload = {
       ok: true,
       findingId: finding.id,
       jobId: job.id,
       url: scoped.url,
+      status: finalizedJob.status,
+      pauseReason: finalizedJob.pauseReason,
       captureMode,
       warnings,
+      execution,
       artifacts,
-      links: links.filter((link) => runtime.scopeGuard.test(link).allowed),
+      links: [],
       nextCommands: [`bounty reports score ${finding.id} --job ${job.id}`, `bounty reports review ${finding.id} --job ${job.id}`],
     };
     if (options.json || requestedJsonOutput(process.argv)) {
@@ -2587,7 +2642,7 @@ evidenceCommand
       return;
     }
     ui.header("evidence record");
-    ui.status("ok", captureMode === "browser" ? "browser evidence captured" : "http evidence captured");
+    ui.status(captureMode === "browser" ? "ok" : "planned", captureMode === "browser" ? "browser evidence captured" : "browser evidence queued for human approval");
     ui.panel("capture", [
       ui.kv("finding", finding.id),
       ui.kv("job", job.id),
@@ -2707,6 +2762,8 @@ program
         riskLevel: validation.capability?.riskLevel ?? "low",
         requiresApproval: validation.requiresApproval,
         status: validation.decision === "block" ? "blocked" : undefined,
+        requiredForCompletion: false,
+        metadata: { execute: false, planningOnly: true, handoffOnly: true },
       });
       audit.log({
         jobId: job.id,
@@ -2738,10 +2795,34 @@ program
           2,
         ),
       });
+      if (!validation.ok) {
+        const finalizedJob = runtime.jobs.finalize(job.id);
+        const payload = {
+          ok: false,
+          jobId: job.id,
+          status: finalizedJob.status,
+          pauseReason: finalizedJob.pauseReason,
+          engine,
+          target: scope.url,
+          mode,
+          execute: false,
+          action,
+          artifact,
+          validation,
+        };
+        if (options.json) {
+          ui.json(payload);
+          process.exitCode = 1;
+          return;
+        }
+        throw new BountyPilotError(validation.reasons.join("; "), "CRAWL_PLAN_BLOCKED");
+      }
+      const finalizedJob = runtime.jobs.finalize(job.id);
       const payload = {
-        ok: validation.ok,
+        ok: true,
         jobId: job.id,
-        status: validation.ok ? (validation.decision === "allow" ? "completed" : "paused") : "failed",
+        status: finalizedJob.status,
+        pauseReason: finalizedJob.pauseReason,
         engine,
         target: scope.url,
         mode,
@@ -2750,23 +2831,12 @@ program
         artifact,
         validation,
       };
-      if (!validation.ok) {
-        runtime.jobs.updateStatus(job.id, "failed");
-        if (options.json) {
-          ui.json(payload);
-          process.exitCode = 1;
-          return;
-        }
-        throw new BountyPilotError(validation.reasons.join("; "), "CRAWL_PLAN_BLOCKED");
-      }
-      const allowed = validation.decision === "allow";
-      runtime.jobs.updateStatus(job.id, allowed ? "completed" : "paused");
       if (options.json) {
         ui.json(payload);
         return;
       }
       ui.header("crawl");
-      ui.status(allowed ? "ok" : "planned", `${engine} crawl plan recorded`);
+      ui.status("planned", `${engine} crawl plan recorded for human handoff`);
       ui.panel("job", [
         ui.kv("id", job.id),
         ui.kv("engine", engine),
@@ -2788,12 +2858,13 @@ program
       riskLevel: "low",
     });
     if (!allowed) {
-      runtime.jobs.updateStatus(job.id, "paused");
+      const finalizedJob = runtime.jobs.finalize(job.id);
       if (options.json) {
         ui.json({
           ok: true,
           jobId: job.id,
-          status: "paused",
+          status: finalizedJob.status,
+          pauseReason: finalizedJob.pauseReason,
           engine: "playwright",
           target: scope.url,
           mode,
@@ -2808,76 +2879,28 @@ program
       return;
     }
 
-    runtime.jobs.updateStatus(job.id, "running");
     if (!options.json) {
       ui.header("crawl");
       ui.status("running", `playwright crawl started for ${scope.host}`);
     }
-    await runtime.rateLimiter.wait(scope.url);
-    const started = Date.now();
-    const result = await crawlWithPlaywright({
-      url: scope.url,
-      evidenceDir: runtime.paths.evidenceDir,
-      jobId: job.id,
-      evidence: {
-        screenshots: runtime.config.evidence.screenshots,
-        har: runtime.config.evidence.har,
-        consoleLogs: runtime.config.evidence.console_logs,
-        domSnapshot: runtime.config.evidence.dom_snapshot,
-        browserTrace: runtime.config.evidence.browser_trace,
-        video: runtime.config.evidence.video,
-      },
-      allowUrl: (requestUrl) => runtime.scopeGuard.test(requestUrl).allowed,
-      onRequest: (event) => {
-        audit.log({
-          jobId: job.id,
-          actionType: "browser.request",
-          method: event.method,
-          url: event.url,
-          adapterName: "playwright",
-          policyDecision: event.allowed ? "allow" : "block",
-          reason: event.allowed ? "Request remained in scope" : "Request blocked by ScopeGuard",
-        });
-      },
-    });
-
-    for (const artifact of result.evidence) {
-      runtime.evidence.create(artifact);
+    const action = runtime.actions.list(job.id)[0];
+    if (!action) {
+      throw new BountyPilotError("Planned crawl action is unavailable.", "ACTION_NOT_FOUND");
     }
-    runtime.crawlGraph.upsertPage({ url: scope.url, title: result.title });
-    for (const link of result.links.filter((link) => runtime.scopeGuard.test(link).allowed)) {
-      runtime.crawlGraph.upsertPage({ url: link });
-      runtime.crawlGraph.addEdge(scope.url, link);
-    }
-    runtime.evidence.writeTextArtifact({
-      jobId: job.id,
-      adapterName: "playwright",
-      kind: "crawl_graph",
-      sourceUrl: scope.url,
-      relativePath: path.join(job.id, "crawl-graph.json"),
-      content: JSON.stringify({ url: result.url, title: result.title, links: result.links }, null, 2),
-    });
-    audit.log({
-      jobId: job.id,
-      actionType: "browser.navigate",
-      url: scope.url,
-      adapterName: "playwright",
-      durationMs: Date.now() - started,
-      status: "completed",
-      policyDecision: "allow",
-    });
-    runtime.jobs.updateStatus(job.id, "completed");
+    const result = await new ActionExecutor(runtime).execute(action.id);
+    const finalizedJob = runtime.jobs.finalize(job.id);
     if (options.json) {
       ui.json({
         ok: true,
         jobId: job.id,
-        status: "completed",
+        status: finalizedJob.status,
+        pauseReason: finalizedJob.pauseReason,
         engine: "playwright",
         target: scope.url,
         mode,
-        execute: true,
+        execute: result.status === "executed",
         result,
-        evidenceCreated: result.evidence.length + 1,
+        evidenceCreated: result.evidenceCreated,
       });
       return;
     }
@@ -2885,9 +2908,8 @@ program
     ui.panel("job", [
       ui.kv("id", job.id),
       ui.kv("target", scope.url),
-      ui.kv("title", result.title || "-"),
-      ui.kv("evidence", result.evidence.length + 1),
-      ui.kv("links", result.links.length),
+      ui.kv("result", result.message),
+      ui.kv("evidence", result.evidenceCreated),
     ]);
   });
 
@@ -2922,6 +2944,8 @@ program
       riskLevel: mcpPlan.validation.capability?.riskLevel ?? "low",
       requiresApproval: mcpPlan.validation.requiresApproval,
       status: mcpPlan.validation.decision === "block" ? "blocked" : undefined,
+      requiredForCompletion: false,
+      metadata: { execute: false, planningOnly: true, handoffOnly: true, tool: mcpPlan.tool },
     });
     audit.log({
       jobId: job.id,
@@ -2948,25 +2972,25 @@ Decision: ${mcpPlan.validation.decision}
 Reasons:
 ${mcpPlan.validation.reasons.map((reason) => `- ${reason}`).join("\n")}
 
-This command records a scoped browser action. Actual MCP execution requires the adapter to be configured and must still pass ScopeGuard, PolicyGate, RateLimiter, and AuditLogger.
+This command records a scope-checked browser plan for human handoff. This release never starts an MCP server or dispatches an MCP tool.
 `,
     });
     if (!mcpPlan.validation.ok) {
-      runtime.jobs.updateStatus(job.id, "failed");
+      const finalizedJob = runtime.jobs.finalize(job.id);
       if (options.json) {
-        ui.json({ ok: false, jobId: job.id, status: "failed", adapter, target: scope.url, mode, action, plan: mcpPlan });
+        ui.json({ ok: false, jobId: job.id, status: finalizedJob.status, pauseReason: finalizedJob.pauseReason, adapter, target: scope.url, mode, action, plan: mcpPlan });
         process.exitCode = 1;
         return;
       }
       throw new BountyPilotError(mcpPlan.validation.reasons.join("; "), "MCP_PLAN_BLOCKED");
     }
-    const allowed = mcpPlan.validation.decision === "allow";
-    runtime.jobs.updateStatus(job.id, allowed ? "completed" : "paused");
+    const finalizedJob = runtime.jobs.finalize(job.id);
     if (options.json) {
       ui.json({
         ok: true,
         jobId: job.id,
-        status: allowed ? "completed" : "paused",
+        status: finalizedJob.status,
+        pauseReason: finalizedJob.pauseReason,
         adapter,
         target: scope.url,
         mode,
@@ -2977,7 +3001,7 @@ This command records a scoped browser action. Actual MCP execution requires the 
       return;
     }
     ui.header("browser");
-    ui.status(allowed ? "ok" : "planned", allowed ? "browser action planned" : "browser action requires approval");
+    ui.status("planned", "browser action recorded for human handoff");
     ui.panel("job", [
       ui.kv("id", job.id),
       ui.kv("adapter", adapter),
@@ -3014,6 +3038,8 @@ program
       riskLevel: mcpPlan.validation.capability?.riskLevel ?? "medium",
       requiresApproval: mcpPlan.validation.requiresApproval,
       status: mcpPlan.validation.decision === "block" ? "blocked" : undefined,
+      requiredForCompletion: false,
+      metadata: { execute: false, planningOnly: true, handoffOnly: true, tool: mcpPlan.tool },
     });
     audit.log({
       jobId: job.id,
@@ -3042,21 +3068,21 @@ Desktop automation is optional and local-only. It must not control unrelated per
 `,
     });
     if (!mcpPlan.validation.ok) {
-      runtime.jobs.updateStatus(job.id, "failed");
+      const finalizedJob = runtime.jobs.finalize(job.id);
       if (options.json) {
-        ui.json({ ok: false, jobId: job.id, status: "failed", adapter, mode, action, plan: mcpPlan });
+        ui.json({ ok: false, jobId: job.id, status: finalizedJob.status, pauseReason: finalizedJob.pauseReason, adapter, mode, action, plan: mcpPlan });
         process.exitCode = 1;
         return;
       }
       throw new BountyPilotError(mcpPlan.validation.reasons.join("; "), "MCP_PLAN_BLOCKED");
     }
-    const allowed = mcpPlan.validation.decision === "allow";
-    runtime.jobs.updateStatus(job.id, allowed ? "completed" : "paused");
+    const finalizedJob = runtime.jobs.finalize(job.id);
     if (options.json) {
       ui.json({
         ok: true,
         jobId: job.id,
-        status: allowed ? "completed" : "paused",
+        status: finalizedJob.status,
+        pauseReason: finalizedJob.pauseReason,
         adapter,
         mode,
         execute: false,
@@ -3066,7 +3092,7 @@ Desktop automation is optional and local-only. It must not control unrelated per
       return;
     }
     ui.header("desktop");
-    ui.status(allowed ? "ok" : "planned", allowed ? "desktop action planned" : "desktop action requires approval");
+    ui.status("planned", "desktop action recorded for human handoff");
     ui.panel("job", [
       ui.kv("id", job.id),
       ui.kv("adapter", adapter),
@@ -3086,7 +3112,8 @@ program
     const options = command.opts<{ skill: string; mode?: string; json?: boolean }>();
     const runtime = createRuntime(rootProgramName());
     const mode = modeFromOptions(options.mode);
-    const resolvedTarget = target && target !== runtime.config.program ? runtime.scopeGuard.assertAllowed(target).url : runtime.config.program;
+    const scopedTarget = target && target !== runtime.config.program ? runtime.scopeGuard.assertAllowed(target).url : undefined;
+    const resolvedTarget = scopedTarget ?? runtime.config.program;
     const job = runtime.jobs.create("research", mode, resolvedTarget);
     const audit = createJobAuditLogger(runtime.paths, job.id);
     const allowed = await planAllowedAction({
@@ -3095,7 +3122,7 @@ program
       jobId: job.id,
       adapter: options.skill,
       actionType: "research.public",
-      target: resolvedTarget,
+      target: scopedTarget,
       mode,
       riskLevel: "low",
     });
@@ -3124,22 +3151,32 @@ ${runtime.config.out_of_scope.map((entry) => `- ${entry}`).join("\n")}
 - Store citations and public duplicate signals here as the research adapter matures.
 `,
     });
-    runtime.jobs.updateStatus(job.id, allowed ? "completed" : "paused");
+    let execution: Awaited<ReturnType<ActionExecutor["execute"]>> | undefined;
+    if (allowed) {
+      const action = runtime.actions.list(job.id)[0];
+      if (!action) {
+        throw new BountyPilotError("Planned research action is unavailable.", "ACTION_NOT_FOUND");
+      }
+      execution = await new ActionExecutor(runtime).execute(action.id);
+    }
+    const finalizedJob = runtime.jobs.finalize(job.id);
     if (options.json) {
       ui.json({
         ok: true,
         jobId: job.id,
-        status: allowed ? "completed" : "paused",
+        status: finalizedJob.status,
+        pauseReason: finalizedJob.pauseReason,
         target: resolvedTarget,
         mode,
         skill: options.skill,
         artifact,
+        execution,
         actions: runtime.actions.list(job.id),
       });
       return;
     }
     ui.header("research");
-    ui.status(allowed ? "ok" : "planned", "research ledger created");
+    ui.status(execution ? "ok" : "planned", execution?.message ?? "research action requires human approval");
     ui.panel("job", [
       ui.kv("id", job.id),
       ui.kv("target", resolvedTarget),
@@ -3173,12 +3210,13 @@ program
       riskLevel: "low",
     });
     if (!allowed) {
-      runtime.jobs.updateStatus(job.id, "paused");
+      const finalizedJob = runtime.jobs.finalize(job.id);
       if (options.json) {
         ui.json({
           ok: true,
           jobId: job.id,
-          status: "paused",
+          status: finalizedJob.status,
+          pauseReason: finalizedJob.pauseReason,
           target: scope.url,
           mode,
           execute: false,
@@ -3192,60 +3230,28 @@ program
       return;
     }
 
-    runtime.jobs.updateStatus(job.id, "running");
     if (!options.json) {
       ui.header("safe checks");
       ui.status("running", `checking ${scope.host}`);
     }
-    await runtime.rateLimiter.wait(scope.url);
-    const started = Date.now();
-    const result = await runSafeChecks(scope.url);
-    const artifact = runtime.evidence.writeTextArtifact({
-      jobId: job.id,
-      adapterName: "safe-checks",
-      kind: "tool_output",
-      sourceUrl: scope.url,
-      relativePath: path.join(job.id, "safe-checks.json"),
-      content: JSON.stringify(result, null, 2),
-    });
-
-    for (const candidate of result.findings) {
-      runtime.findings.create({
-        title: candidate.title,
-        asset: scope.host,
-        url: scope.url,
-        category: candidate.category,
-        severityEstimate: candidate.severityEstimate,
-        confidence: candidate.confidence,
-        status: "needs_validation",
-        evidencePaths: [artifact.path],
-        remediation: candidate.remediation,
-        duplicateRisk: "unknown",
-        reportabilityScore: candidate.severityEstimate === "medium" ? 45 : 20,
-      });
+    const action = runtime.actions.list(job.id)[0];
+    if (!action) {
+      throw new BountyPilotError("Planned safe-check action is unavailable.", "ACTION_NOT_FOUND");
     }
-
-    audit.log({
-      jobId: job.id,
-      actionType: "http.get",
-      url: scope.url,
-      adapterName: "safe-checks",
-      status: result.status,
-      durationMs: Date.now() - started,
-      policyDecision: "allow",
-      metadata: { findings: result.findings.length },
-    });
-    runtime.jobs.updateStatus(job.id, "completed");
+    const result = await new ActionExecutor(runtime).execute(action.id);
+    const finalizedJob = runtime.jobs.finalize(job.id);
     if (options.json) {
       ui.json({
         ok: true,
         jobId: job.id,
-        status: "completed",
+        status: finalizedJob.status,
+        pauseReason: finalizedJob.pauseReason,
         target: scope.url,
         mode,
         result,
-        findingsCreated: result.findings.length,
-        artifact,
+        findingsCreated: result.findingsCreated,
+        candidatesCreated: result.candidatesCreated,
+        evidenceCreated: result.evidenceCreated,
       });
       return;
     }
@@ -3253,9 +3259,10 @@ program
     ui.panel("job", [
       ui.kv("id", job.id),
       ui.kv("target", scope.url),
-      ui.kv("status", result.status),
-      ui.kv("findings", result.findings.length),
-      ui.kv("evidence", artifact.path),
+      ui.kv("status", finalizedJob.status),
+      ui.kv("findings", result.findingsCreated),
+      ui.kv("candidates", result.candidatesCreated),
+      ui.kv("evidence", result.evidenceCreated),
     ]);
   });
 
@@ -3284,12 +3291,13 @@ program
       riskLevel: "low",
     });
     if (!allowed) {
-      runtime.jobs.updateStatus(job.id, "paused");
+      const finalizedJob = runtime.jobs.finalize(job.id);
       if (options.json) {
         ui.json({
           ok: true,
           jobId: job.id,
-          status: "paused",
+          status: finalizedJob.status,
+          pauseReason: finalizedJob.pauseReason,
           target: scope.url,
           mode,
           execute: false,
@@ -3303,98 +3311,36 @@ program
       return;
     }
 
-    runtime.jobs.updateStatus(job.id, "running");
     if (!options.json) {
       ui.header("javascript");
       ui.status("running", `analyzing ${scope.host}`);
     }
-    const fetchText = async (requestUrl: string): Promise<string> => {
-      return fetchScopedText(requestUrl, {
-        allowUrl: (url) => runtime.scopeGuard.test(url).allowed,
-        wait: async (url) => {
-          const requestScope = runtime.scopeGuard.assertAllowed(url);
-          await runtime.rateLimiter.wait(requestScope.url);
-        },
-        headers: { "User-Agent": "BountyPilot/0.1 js-analyzer" },
-        onRequest: (event) => {
-          audit.log({
-            jobId: job.id,
-            actionType: "http.get",
-            method: "GET",
-            url: event.url,
-            status: event.status,
-            adapterName: "js-analyzer",
-            durationMs: event.durationMs,
-            policyDecision: "allow",
-            metadata: { redirectHop: event.redirectHop, redirectedFrom: event.redirectedFrom },
-          });
-        },
-        onBlockedRedirect: (event) => {
-          audit.log({
-            jobId: job.id,
-            actionType: "http.redirect",
-            method: "GET",
-            url: event.targetUrl,
-            status: event.redirectStatus,
-            adapterName: "js-analyzer",
-            policyDecision: "block",
-            reason: "Redirect target blocked by ScopeGuard",
-            metadata: { fromUrl: event.fromUrl, location: event.location, redirectHop: event.redirectHop },
-          });
-        },
-      });
-    };
-
-    const result = await analyzeJavaScript(scope.url, {
-      allowUrl: (requestUrl) => runtime.scopeGuard.test(requestUrl).allowed,
-      fetchText,
-    });
-    const artifact = runtime.evidence.writeTextArtifact({
-      jobId: job.id,
-      adapterName: "js-analyzer",
-      kind: "tool_output",
-      sourceUrl: scope.url,
-      relativePath: path.join(job.id, "js-analysis.json"),
-      content: JSON.stringify(result, null, 2),
-    });
-
-    if (result.possibleSecrets.length > 0) {
-      runtime.findings.create({
-        title: "Possible secret-like pattern observed in public client-side content",
-        asset: scope.host,
-        url: scope.url,
-        category: "public_js_secret_pattern",
-        severityEstimate: "medium",
-        confidence: "low",
-        status: "needs_manual_review",
-        evidencePaths: [artifact.path],
-        remediation: "Manually verify whether the masked value is a real secret before reporting or validating impact.",
-        duplicateRisk: "unknown",
-        reportabilityScore: 55,
-      });
+    const action = runtime.actions.list(job.id)[0];
+    if (!action) {
+      throw new BountyPilotError("Planned JavaScript analysis action is unavailable.", "ACTION_NOT_FOUND");
     }
-
-    runtime.jobs.updateStatus(job.id, "completed");
+    const result = await new ActionExecutor(runtime).execute(action.id);
+    const finalizedJob = runtime.jobs.finalize(job.id);
     if (options.json) {
       ui.json({
         ok: true,
         jobId: job.id,
-        status: "completed",
+        status: finalizedJob.status,
+        pauseReason: finalizedJob.pauseReason,
         target: scope.url,
         mode,
         result,
-        artifact,
       });
       return;
     }
     ui.status("ok", "analysis completed");
     ui.panel("job", [
       ui.kv("id", job.id),
-      ui.kv("scripts", result.scriptUrls.length),
-      ui.kv("endpoints", result.endpointCandidates.length),
-      ui.kv("routes", result.routeCandidates.length),
-      ui.kv("masked secrets", result.possibleSecrets.length),
-      ui.kv("evidence", artifact.path),
+      ui.kv("result", result.message),
+      ui.kv("endpoints", result.plannerCandidates?.endpointCandidates.length ?? 0),
+      ui.kv("scripts", result.plannerCandidates?.jsAssets.length ?? 0),
+      ui.kv("findings", result.findingsCreated),
+      ui.kv("evidence", result.evidenceCreated),
     ]);
   });
 
@@ -3846,6 +3792,8 @@ program
         riskLevel: plan.validation.capability?.riskLevel ?? "low",
         requiresApproval: plan.validation.requiresApproval,
         status: plan.validation.decision === "block" ? "blocked" : undefined,
+        requiredForCompletion: false,
+        metadata: { execute: false, planningOnly: true, handoffOnly: true, tool: plan.tool },
       });
       audit.log({
         jobId: job.id,
@@ -3868,21 +3816,21 @@ program
       });
       planPayload = { jobId: job.id, adapter, action, plan };
       if (!plan.validation.ok) {
-        runtime.jobs.updateStatus(job.id, "failed");
+        const finalizedJob = runtime.jobs.finalize(job.id);
         if (options.json) {
           ui.json({
             ok: false,
             findingId,
             artifact,
-            plan: { ...planPayload, status: "failed" },
+            plan: { ...planPayload, status: finalizedJob.status, pauseReason: finalizedJob.pauseReason },
           });
           process.exitCode = 1;
           return;
         }
         throw new BountyPilotError(plan.validation.reasons.join("; "), "REPRODUCE_PLAN_BLOCKED");
       }
-      runtime.jobs.updateStatus(job.id, plan.validation.requiresApproval ? "paused" : "completed");
-      planPayload = { ...planPayload, status: plan.validation.requiresApproval ? "paused" : "completed" };
+      const finalizedJob = runtime.jobs.finalize(job.id);
+      planPayload = { ...planPayload, status: finalizedJob.status, pauseReason: finalizedJob.pauseReason };
     }
     if (options.json) {
       ui.json({ ok: true, findingId, status: finding.status, artifact, planJobId, plan: planPayload });
@@ -3924,6 +3872,8 @@ agent
       target,
       mode,
       riskLevel: "low",
+      requiredForCompletion: false,
+      metadata: { execute: false, planningOnly: true, handoffOnly: true, goal: options.goal },
     });
     const artifact = runtime.evidence.writeTextArtifact({
       jobId: job.id,
@@ -3940,12 +3890,13 @@ Mode: ${mode}
 The agent planner may propose safe CLI actions, but it must not execute browser, HTTP, MCP, desktop, or external tool actions directly. Risky actions require ActionQueue approval.
 `,
     });
-    runtime.jobs.updateStatus(job.id, "completed");
+    const finalizedJob = runtime.jobs.finalize(job.id);
     if (options.json) {
       ui.json({
         ok: true,
         jobId: job.id,
-        status: "completed",
+        status: finalizedJob.status,
+        pauseReason: finalizedJob.pauseReason,
         goal: options.goal,
         target,
         mode,
@@ -4025,15 +3976,18 @@ agent
         target: action.target,
         mode,
         riskLevel: action.riskLevel,
+        requiredForCompletion: false,
+        metadata: { execute: false, planningOnly: true, handoffOnly: true, planner: true },
       });
       enqueued += 1;
     }
-    runtime.jobs.updateStatus(job.id, "completed");
+    const finalizedJob = runtime.jobs.finalize(job.id);
     if (options.json) {
       ui.json({
         ok: true,
         jobId: job.id,
-        status: "completed",
+        status: finalizedJob.status,
+        pauseReason: finalizedJob.pauseReason,
         target: scope.url,
         fromJobId: sourceSummary?.jobId,
         mode,
@@ -4328,6 +4282,7 @@ actions
     if (options.job) requireJob(runtime, options.job);
     const records = runtime.actions
       .list(options.job)
+      .filter((action) => !isWorkflowBarrierAction(action))
       .filter((action) => !options.pending || action.status === "pending");
     if (options.json) {
       ui.json({ jobId: options.job, pendingOnly: options.pending === true, actions: records });
@@ -4368,6 +4323,7 @@ actions
     const limit = parsePositiveIntegerOption(options.limit, "limit", 10);
     const records = runtime.actions
       .list(options.job)
+      .filter((action) => !isWorkflowBarrierAction(action))
       .filter((action) => action.status === "pending" || action.status === "approved")
       .slice(0, limit);
     const nextCommands = records.flatMap(actionReviewCommands);
@@ -4453,28 +4409,34 @@ actions
   .command("approve")
   .argument("<actionId>", "Action id to approve")
   .option("--note <text>", "Human review note to store with the approval")
+  .option("--reviewer <id>", "Local human reviewer identifier", "human:local-cli")
+  .option("--ttl-seconds <seconds>", "Finite approval lifetime in seconds", "900")
   .option("--json", "Print machine-readable JSON")
-  .description("Mark a planned action as approved")
+  .description("Approve a planned action through the authoritative human-review service")
   .action((actionId: string, ...args: unknown[]) => {
     const command = commandFromArgs(args);
-    const options = command.opts<{ note?: string; json?: boolean }>();
+    const options = command.opts<{ note?: string; reviewer: string; ttlSeconds: string; json?: boolean }>();
     const runtime = createRuntime(rootProgramName());
-    const action = runtime.actions.get(actionId);
-    if (!action) throw new BountyPilotError(`Action not found: ${actionId}`, "ACTION_NOT_FOUND");
-    const updated = runtime.actions.approve(actionId);
-    const review = recordActionReview(runtime, updated, "approved", options.note);
+    const ttlSeconds = parsePositiveIntegerOption(options.ttlSeconds, "ttl-seconds", 900);
+    const approval = approveActionAsCliHuman(runtime, actionId, {
+      note: options.note,
+      reviewerId: options.reviewer,
+      ttlMs: ttlSeconds * 1_000,
+    });
     if (options.json) {
-      ui.json({ action: updated, review });
+      ui.json(approval);
       return;
     }
     ui.header("actions");
     ui.status("ok", "action approved");
     ui.panel("action", [
-      ui.kv("id", updated.id),
-      ui.kv("adapter", updated.adapter),
-      ui.kv("type", updated.actionType),
-      ui.kv("target", updated.target),
-      ui.kv("note", review.note),
+      ui.kv("id", approval.action.id),
+      ui.kv("adapter", approval.action.adapter),
+      ui.kv("type", approval.action.actionType),
+      ui.kv("target", approval.action.target),
+      ui.kv("reviewer", approval.review.reviewerId),
+      ui.kv("expires", approval.review.expiresAt),
+      ui.kv("note", approval.review.note),
     ]);
   });
 
@@ -4492,6 +4454,10 @@ actions
     if (!action) throw new BountyPilotError(`Action not found: ${actionId}`, "ACTION_NOT_FOUND");
     const updated = runtime.actions.block(actionId);
     const review = recordActionReview(runtime, updated, "blocked", options.note);
+    // Re-derive the owning job after a human block. Required actions must
+    // immediately move the job to its authoritative blocked/failed state;
+    // otherwise the job can retain a stale approval_required status.
+    if (updated.jobId) runtime.jobs.finalize(updated.jobId);
     if (options.json) {
       ui.json({ action: updated, review });
       return;
@@ -4553,9 +4519,15 @@ actions
       try {
         results.push(await executor.execute(action.id));
       } catch (error) {
+        const durableAction = runtime.actions.get(action.id) ?? action;
+        const durableOutcomeUnknown = durableAction.status === "outcome_unknown";
         results.push({
-          action,
-          status: error instanceof BountyPilotError && error.code === "POLICY_BLOCKED" ? ("blocked" as const) : ("failed" as const),
+          action: durableAction,
+          status: durableOutcomeUnknown
+            ? ("outcome_unknown" as const)
+            : error instanceof BountyPilotError && error.code === "POLICY_BLOCKED"
+              ? ("blocked" as const)
+              : ("failed" as const),
           message: error instanceof Error ? error.message : String(error),
           evidenceCreated: 0,
           findingsCreated: 0,
@@ -4567,10 +4539,11 @@ actions
       executed: results.filter((result) => result.status === "executed").length,
       failed: results.filter((result) => result.status === "failed").length,
       blocked: results.filter((result) => result.status === "blocked").length,
+      outcomeUnknown: results.filter((result) => result.status === "outcome_unknown").length,
     };
     if (options.json) {
       ui.json({ jobId: options.job, limit, summary, results });
-      process.exitCode = summary.failed > 0 || summary.blocked > 0 ? 1 : 0;
+      process.exitCode = summary.failed > 0 || summary.blocked > 0 || summary.outcomeUnknown > 0 ? 1 : 0;
       return;
     }
     ui.header("actions run-approved");
@@ -4579,7 +4552,7 @@ actions
       return;
     }
     ui.status(
-      summary.failed > 0 || summary.blocked > 0 ? "error" : "ok",
+      summary.failed > 0 || summary.blocked > 0 || summary.outcomeUnknown > 0 ? "error" : "ok",
       `${summary.executed}/${summary.total} approved actions executed`,
     );
     ui.table(
@@ -4592,10 +4565,10 @@ actions
         result.message,
       ]),
     );
-    process.exitCode = summary.failed > 0 || summary.blocked > 0 ? 1 : 0;
+    process.exitCode = summary.failed > 0 || summary.blocked > 0 || summary.outcomeUnknown > 0 ? 1 : 0;
   });
 
-const tools = program.command("tools").description("Manage trusted external tools");
+const tools = program.command("tools").description("Inspect the trusted external-tool planning registry");
 
 tools
   .command("list")
@@ -4724,7 +4697,7 @@ tools
   .requiredOption("--command <path>", "Absolute path to the reviewed local executable")
   .option("--note <text>", "Human review note")
   .option("--json", "Print machine-readable JSON")
-  .description("Approve a reviewed local executable for one trusted tool")
+  .description("Record a reviewed local executable pin for a human-controlled handoff; dispatch remains disabled")
   .action((tool: string, ...args: unknown[]) => {
     const command = commandFromArgs(args);
     const options = command.opts<{ command: string; note?: string; json?: boolean }>();
@@ -4753,7 +4726,7 @@ tools
       return;
     }
     ui.header("tools approve-executable");
-    ui.status("ok", `approved ${entry.name} executable`);
+    ui.status("ok", `recorded ${entry.name} executable pin; dispatch remains disabled`);
     ui.panel("approval", [
       ui.kv("tool", entry.name),
       ui.kv("command", approval.command),
@@ -4839,7 +4812,13 @@ tools
       target: scope.url,
       riskLevel: validation.riskLevel ?? (toolEntry.permissions.active_scanning ? "medium" : "low"),
       requiresApproval: validation.requiresApproval,
-      metadata: { tool: toolEntry.name },
+      requiredForCompletion: false,
+      metadata: {
+        tool: toolEntry.name,
+        execute: false,
+        planningOnly: true,
+        handoffOnly: true,
+      },
       status: validation.allowed ? undefined : "blocked",
     });
     audit.log({
@@ -4875,13 +4854,13 @@ tools
       ),
     });
     if (!validation.allowed) {
-      runtime.jobs.updateStatus(job.id, "failed");
+      runtime.jobs.finalize(job.id);
       throw new BountyPilotError(validation.reasons.join("; "), "TOOL_RUN_PLAN_BLOCKED");
     }
-    const allowed = !validation.requiresApproval;
-    runtime.jobs.updateStatus(job.id, allowed ? "completed" : "paused");
+    const finalizedJob = runtime.jobs.finalize(job.id);
+    const allowed = finalizedJob.status === "completed";
     const payload = {
-      job,
+      job: finalizedJob,
       action: runtime.actions.get(action.id) ?? action,
       tool: toolEntry,
       target: scope.url,
@@ -4897,7 +4876,7 @@ tools
       return;
     }
     ui.header("tools run");
-    ui.status(allowed ? "ok" : "planned", "trusted tool run planned");
+    ui.status("planned", "trusted tool run recorded for human handoff");
     ui.panel("job", [
       ui.kv("id", job.id),
       ui.kv("tool", toolEntry.name),
@@ -4932,7 +4911,7 @@ tools
     }
     ui.header("tools doctor");
     ui.table(
-      ["name", "status", "approved", "message"],
+      ["name", "status", "pin present", "message"],
       results.map((result) => [result.name, result.status, result.approval.present, result.message]),
     );
   });
@@ -5314,12 +5293,12 @@ integrations
       ui.kv("name", integration.name),
       ui.kv("type", integration.type),
       ui.kv("enabled", integration.enabled),
-      ui.kv("execute", integration.config.allow_execute === true || integration.config.execution?.enabled === true),
+      ui.kv("stored execution intent (dispatch disabled)", integration.config.allow_execute === true || integration.config.execution?.enabled === true),
       ui.kv("status", integration.status),
       ui.kv("config key", integration.configKey),
       ui.kv("transport", integration.config.transport),
       ui.kv("command", integration.config.command),
-      ui.kv("exec cmd", integration.config.execution?.command),
+      ui.kv("stored cmd", integration.config.execution?.command),
       ui.kv("package", integration.config.execution?.package ?? integration.config.package),
       ui.kv("pkg version", integration.config.execution?.package_version ?? integration.config.package_version),
       ui.kv("entrypoint", integration.config.execution?.entrypoint ?? integration.config.entrypoint),
@@ -5413,11 +5392,14 @@ integrations
     });
     const payload = {
       execute: false,
+      dispatch: "disabled",
       integration: {
         name: integration.name,
         type: integration.type,
         enabled: integration.enabled,
-        execute: integration.config.allow_execute === true || integration.config.execution?.enabled === true,
+        execute: false,
+        executionIntent: integration.config.allow_execute === true || integration.config.execution?.enabled === true,
+        dispatch: "disabled",
         status: integration.status,
         message: integration.message,
         missingConfig: integration.missingConfig,
@@ -5543,11 +5525,13 @@ integrations
   .option("--package <name>", "Local npm package name for package entrypoint adapters", "@playwright/mcp")
   .option("--package-version <version>", "Exact local npm package version to pin")
   .option("--entrypoint <path>", "Package-relative entrypoint", "cli.js")
-  .option("--timeout-ms <ms>", "Execution timeout in milliseconds")
-  .option("--enable-execution", "Opt in to execution after config and approval gates")
-  .option("--approve-executable", "Approve the local executable hash used by this setup")
+  .option("--timeout-ms <ms>", "Stored timeout for a future human-controlled handoff")
+  // Accepted only for backwards-compatible scripts; hidden and ignored so
+  // callers cannot mistake it for an execution capability.
+  .addOption(new Option("--enable-execution", "Legacy compatibility flag; external dispatch remains disabled").hideHelp())
+  .option("--approve-executable", "Record the local executable hash as non-authoritative handoff metadata")
   .option("--json", "Print machine-readable JSON")
-  .description("Configure a known integration preset without downloading or executing external tools")
+  .description("Configure a known integration preset for planning and human handoff; no external tool is downloaded or dispatched")
   .action((name: string, ...args: unknown[]) => {
     const command = commandFromArgs(args);
     const options = command.opts<{
@@ -5556,7 +5540,6 @@ integrations
       packageVersion?: string;
       entrypoint: string;
       timeoutMs?: string;
-      enableExecution?: boolean;
       approveExecutable?: boolean;
       json?: boolean;
     }>();
@@ -5592,7 +5575,7 @@ integrations
       ui.kv("program", runtime.config.program),
       ui.kv("file", paths.programFile),
       ui.kv("integration", setup.integration),
-      ui.kv("execution", setup.executionEnabled),
+      ui.kv("dispatch", "disabled"),
       ui.kv("approval", approval ? approval.realPath : "-"),
       ui.kv("detected", setup.detected?.summary ?? "-"),
     ]);
@@ -5751,7 +5734,7 @@ integrations
     ui.commandList("next commands", guidance.nextCommands);
   });
 
-const mcp = program.command("mcp").description("Plan or execute explicitly enabled MCP calls");
+const mcp = program.command("mcp").description("Plan MCP handoffs without automatic external execution");
 
 mcp
   .command("plan")
@@ -5761,7 +5744,7 @@ mcp
   .option("--mode <mode>", "Execution mode", "safe")
   .option("--arg <pairs...>", "Tool argument pairs like key=value")
   .option("--json", "Print machine-readable JSON")
-  .description("Prepare a policy-safe MCP call plan with execute=false")
+   .description("Prepare a scope-checked, zero-execution MCP handoff with execute=false")
   .action((server: string, tool: string, ...args: unknown[]) => {
     const command = commandFromArgs(args);
     const options = command.opts<{ target?: string; mode?: string; arg?: string[]; json?: boolean }>();
@@ -5801,7 +5784,7 @@ mcp
   .option("--mode <mode>", "Execution mode", "safe")
   .option("--arg <pairs...>", "Tool argument pairs like key=value")
   .option("--json", "Print machine-readable JSON")
-  .description("Execute an explicitly enabled stdio MCP tool through BountyPilot guardrails")
+  .description("Plan an MCP tool handoff; external MCP execution remains human-controlled")
   .action(async (server: string, tool: string, ...args: unknown[]) => {
     const command = commandFromArgs(args);
     const options = command.opts<{ target?: string; mode?: string; arg?: string[]; json?: boolean }>();
@@ -5809,34 +5792,43 @@ mcp
     const mode = modeFromOptions(options.mode);
     const target = options.target ? runtime.scopeGuard.assertAllowed(options.target).url : undefined;
     const job = runtime.jobs.create("mcp-call", mode, target ?? server);
-    runtime.jobs.updateStatus(job.id, "running");
-    try {
-      const result = await new McpStdioExecutor(runtime).executeCall({
-        server,
-        tool,
-        mode,
-        target,
-        arguments: parsePairs(options.arg ?? []),
-        jobId: job.id,
-      });
-      runtime.jobs.updateStatus(job.id, "completed");
-      if (options.json) {
-        ui.json({ ok: true, jobId: job.id, status: "completed", server, tool, target, mode, result });
-        return;
-      }
-      ui.header("mcp call");
-      ui.status("ok", result.message);
-      ui.panel("job", [
-        ui.kv("id", job.id),
-        ui.kv("server", server),
-        ui.kv("tool", tool),
-        ui.kv("target", target),
-        ui.kv("evidence", result.evidenceCreated),
-      ]);
-    } catch (error) {
-      runtime.jobs.updateStatus(job.id, "failed");
-      throw error;
+    const plan = new McpClientManager(runtime.config).prepareCallPlan({
+      server,
+      tool,
+      mode,
+      target,
+      arguments: parsePairs(options.arg ?? []),
+    });
+    const action = runtime.actions.enqueue({
+      jobId: job.id,
+      adapter: server,
+      actionType: plan.validation.capability?.actionType ?? "mcp.call",
+      target,
+      riskLevel: plan.validation.capability?.riskLevel ?? "medium",
+      requiresApproval: plan.validation.requiresApproval,
+      status: plan.validation.decision === "block" ? "blocked" : undefined,
+      requiredForCompletion: false,
+      metadata: { tool, execute: false, planningOnly: true, handoffOnly: true },
+    });
+    const artifact = runtime.evidence.writeTextArtifact({
+      jobId: job.id,
+      adapterName: server,
+      kind: "tool_output",
+      sourceUrl: target,
+      relativePath: path.join(job.id, "mcp-call-plan.json"),
+      content: JSON.stringify({ execute: false, server, tool, target, mode, plan, action }, null, 2),
+    });
+    const finalizedJob = runtime.jobs.finalize(job.id);
+    const payload = { ok: plan.validation.ok, jobId: job.id, status: finalizedJob.status, pauseReason: finalizedJob.pauseReason, server, tool, target, mode, execute: false, plan, action, artifact };
+    if (options.json) {
+      ui.json(payload);
+      if (!plan.validation.ok) process.exitCode = 1;
+      return;
     }
+    ui.header("mcp call");
+    ui.status(plan.validation.ok ? "planned" : "blocked", plan.validation.ok ? "MCP action recorded for human handoff" : plan.validation.reasons.join("; "));
+    ui.panel("job", [ui.kv("id", job.id), ui.kv("server", server), ui.kv("tool", tool), ui.kv("status", finalizedJob.status), ui.kv("execute", false)]);
+    if (!plan.validation.ok) process.exitCode = 1;
   });
 
 mcp
@@ -5846,7 +5838,7 @@ mcp
   .option("--target <target>", "Default in-scope target URL or host for steps")
   .option("--mode <mode>", "Execution mode", "safe")
   .option("--json", "Print machine-readable JSON")
-  .description("Execute a multi-step stdio MCP session through BountyPilot guardrails")
+  .description("Plan a multi-step MCP handoff; external MCP execution remains human-controlled")
   .action(async (server: string, ...args: unknown[]) => {
     const command = commandFromArgs(args);
     const options = command.opts<{ steps: string; target?: string; mode?: string; json?: boolean }>();
@@ -5855,33 +5847,44 @@ mcp
     const target = options.target ? runtime.scopeGuard.assertAllowed(options.target).url : undefined;
     const steps = readMcpSessionSteps(options.steps);
     const job = runtime.jobs.create("mcp-session", mode, target ?? server);
-    runtime.jobs.updateStatus(job.id, "running");
-    try {
-      const result = await new McpStdioExecutor(runtime).executeSession({
-        server,
-        mode,
-        target,
-        steps,
-        jobId: job.id,
-      });
-      runtime.jobs.updateStatus(job.id, "completed");
-      if (options.json) {
-        ui.json({ ok: true, jobId: job.id, status: "completed", server, steps, target, mode, result });
-        return;
-      }
-      ui.header("mcp session");
-      ui.status("ok", result.message);
-      ui.panel("job", [
-        ui.kv("id", job.id),
-        ui.kv("server", server),
-        ui.kv("steps", steps.length),
-        ui.kv("target", target),
-        ui.kv("evidence", result.evidenceCreated),
-      ]);
-    } catch (error) {
-      runtime.jobs.updateStatus(job.id, "failed");
-      throw error;
+    const manager = new McpClientManager(runtime.config);
+    const plans = steps.map((step) => manager.prepareCallPlan({
+      server,
+      tool: step.tool,
+      mode,
+      target: step.target ? runtime.scopeGuard.assertAllowed(step.target).url : target,
+      arguments: step.arguments ?? {},
+    }));
+    const actions = plans.map((plan, index) => runtime.actions.enqueue({
+      jobId: job.id,
+      adapter: server,
+      actionType: plan.validation.capability?.actionType ?? "mcp.call",
+      target: plan.target,
+      riskLevel: plan.validation.capability?.riskLevel ?? "medium",
+      requiresApproval: plan.validation.requiresApproval,
+      status: plan.validation.decision === "block" ? "blocked" : undefined,
+      requiredForCompletion: false,
+      metadata: { tool: steps[index]?.tool, step: index, execute: false, planningOnly: true, handoffOnly: true },
+    }));
+    const artifact = runtime.evidence.writeTextArtifact({
+      jobId: job.id,
+      adapterName: server,
+      kind: "tool_output",
+      relativePath: path.join(job.id, "mcp-session-plan.json"),
+      content: JSON.stringify({ execute: false, server, target, mode, plans, actions }, null, 2),
+    });
+    const finalizedJob = runtime.jobs.finalize(job.id);
+    const ok = plans.every((plan) => plan.validation.ok);
+    const payload = { ok, jobId: job.id, status: finalizedJob.status, pauseReason: finalizedJob.pauseReason, server, steps, target, mode, execute: false, plans, actions, artifact };
+    if (options.json) {
+      ui.json(payload);
+      if (!ok) process.exitCode = 1;
+      return;
     }
+    ui.header("mcp session");
+    ui.status(ok ? "planned" : "blocked", ok ? "MCP session recorded for human handoff" : "One or more MCP steps are blocked by policy");
+    ui.panel("job", [ui.kv("id", job.id), ui.kv("server", server), ui.kv("steps", steps.length), ui.kv("status", finalizedJob.status), ui.kv("execute", false)]);
+    if (!ok) process.exitCode = 1;
   });
 
 const release = program.command("release").description("Check local package readiness");
@@ -6723,7 +6726,7 @@ function buildLabE2eNextCommands(result: LabE2eGateResult): string[] {
     commands.push(`bounty jobs show ${result.summary.jobId}`);
     commands.push(`bounty jobs timeline ${result.summary.jobId}`);
     if (result.summary.actionCounts.pending > 0) {
-      commands.push(`bounty actions review --job ${result.summary.jobId} --interactive`);
+      commands.push(`bounty actions review --job ${result.summary.jobId}`);
     }
     if (result.summary.actionCounts.approved > 0) {
       commands.push(`bounty actions run-approved --job ${result.summary.jobId}`);
@@ -7507,6 +7510,15 @@ function requestedJsonOutput(argv: string[]): boolean {
   return argv.includes("--json");
 }
 
+function isMissionSemanticError(error: unknown): error is BountyPilotError {
+  return error instanceof BountyPilotError && new Set([
+    "MISSION_PROGRAM_MISMATCH",
+    "MISSION_REQUEST_INVALID",
+    "MISSION_TARGET_OUT_OF_SCOPE",
+    "MISSION_POLICY_BLOCKED",
+  ]).has(error.code);
+}
+
 function normalizeCliError(error: unknown): { code: string; message: string } {
   if (error instanceof BountyPilotError) {
     return { code: error.code, message: error.message };
@@ -7667,7 +7679,9 @@ interface ArsenalToolReadiness {
   name: string;
   category: string;
   policy: string;
-  installed: boolean;
+  /** Compatibility field. Availability is deliberately never probed. */
+  installed: false;
+  status: "unverified" | "manual";
   command?: string;
   message: string;
 }
@@ -7904,12 +7918,12 @@ function buildQuickstartChecks(input: {
     {
       name: "trusted_tools",
       status: input.availableTools.length > 0 ? "pass" : "warn",
-      message: `${input.availableTools.length}/${input.tools.length} trusted local tool(s) are available.`,
+      message: `${input.availableTools.length}/${input.tools.length} trusted tool package/registry record(s) are locally verified; no executable is probed or dispatched.`,
     },
     {
       name: "vm_arsenal",
-      status: input.installedArsenal.length > 0 ? "pass" : "warn",
-      message: `${input.installedArsenal.length}/${input.arsenal.length} VM arsenal command(s) detected on PATH.`,
+      status: "warn",
+      message: `${input.arsenal.length} VM arsenal entry or entries remain unverified/manual; BountyPilot does not probe PATH or run them.`,
     },
     {
       name: "target",
@@ -7987,7 +8001,7 @@ function buildQuickstartSections(input: {
       id: "arsenal",
       title: "VM Arsenal",
       status: input.arsenalInstalled > 0 || input.toolsAvailable > 0 ? "pass" : "warn",
-      summary: `${input.toolsAvailable} trusted local tool(s), ${input.arsenalInstalled} VM arsenal command(s) detected.`,
+      summary: `${input.toolsAvailable} trusted package/registry record(s) verified; VM arsenal executables remain unverified/manual and are never PATH-probed.`,
       commands: [
         `bounty arsenal bootstrap --level ${input.bootstrapLevel} --write`,
         "bounty arsenal profiles",
@@ -8519,15 +8533,15 @@ function buildHuntDoctor(runtime: Runtime, profile: HuntProfile, target?: string
   checks.push({
     name: "trusted_tools",
     status: availableTools.length > 0 ? "pass" : "warn",
-    message: `${availableTools.length}/${tools.length} trusted BountyPilot tool(s) available`,
+    message: `${availableTools.length}/${tools.length} trusted BountyPilot package/registry record(s) verified without executable probing`,
   });
 
   const arsenal = arsenalReadiness();
   const installedArsenal = arsenal.filter((tool) => tool.installed);
   checks.push({
     name: "vm_arsenal",
-    status: installedArsenal.length > 0 ? "pass" : "warn",
-    message: `${installedArsenal.length}/${arsenal.length} external arsenal tool(s) detected on PATH`,
+    status: "warn",
+    message: `${arsenal.length} external arsenal entry or entries remain unverified/manual; PATH probing and dispatch are disabled`,
   });
 
   return {
@@ -8559,14 +8573,16 @@ function safeProviderList(cwd: string): ProviderSummary[] {
 function arsenalReadiness(): ArsenalToolReadiness[] {
   return ARSENAL_TOOLS.map((tool) => {
     const command = arsenalCommandName(tool.name);
-    const installed = command ? commandAvailable(command) : false;
     return {
       name: tool.name,
       category: tool.category,
       policy: tool.runPolicy,
-      installed,
+      installed: false,
+      status: command ? "unverified" : "manual",
       command,
-      message: command ? (installed ? `${command} found on PATH` : `${command} not found on PATH`) : "manual GUI/tool install",
+      message: command
+        ? `${command} availability is unverified; BountyPilot does not probe PATH or run the command`
+        : "manual GUI/tool availability is unverified and no process is started",
     };
   });
 }
@@ -8577,15 +8593,31 @@ function arsenalCommandName(name: string): string | undefined {
   return name;
 }
 
-function commandAvailable(command: string): boolean {
-  const result = process.platform === "win32"
-    ? spawnSync("where.exe", [command], { stdio: "ignore" })
-    : spawnSync("sh", ["-lc", `command -v ${shellSingleQuote(command)}`], { stdio: "ignore" });
-  return result.status === 0;
-}
-
-function shellSingleQuote(value: string): string {
-  return `'${value.replace(/'/g, "'\\''")}'`;
+function isWorkflowBarrierAction(
+  action: Pick<ActionRecord, "adapter" | "actionType" | "target" | "riskLevel" | "requiresApproval" | "requiredForCompletion" | "metadata">,
+): boolean {
+  if (
+    action.adapter !== WORKFLOW_BARRIER_ADAPTER ||
+    action.actionType !== WORKFLOW_BARRIER_ACTION_TYPE ||
+    action.target !== undefined ||
+    action.riskLevel !== "low" ||
+    action.requiresApproval !== false ||
+    action.requiredForCompletion !== true
+  ) {
+    return false;
+  }
+  const metadata = action.metadata;
+  if (!metadata || (Object.getPrototypeOf(metadata) !== Object.prototype && Object.getPrototypeOf(metadata) !== null)) {
+    return false;
+  }
+  const keys = Object.keys(metadata);
+  return (
+    keys.length === 2 &&
+    Object.prototype.hasOwnProperty.call(metadata, "internal") &&
+    Object.prototype.hasOwnProperty.call(metadata, "purpose") &&
+    metadata.internal === true &&
+    metadata.purpose === WORKFLOW_BARRIER_PURPOSE
+  );
 }
 
 function renderHuntPlanMarkdown(input: Omit<HuntPlanPayload, "markdown">): string {
@@ -8679,7 +8711,7 @@ function huntNextCommands(summary: WorkflowSummary): string[] {
     "bounty dashboard",
   ];
   if (summary.actionCounts.pending > 0) {
-    commands.push(`bounty actions review --job ${summary.jobId} --interactive`);
+    commands.push(`bounty actions review --job ${summary.jobId}`);
   }
   if (summary.findingsCreated > 0) {
     commands.push(`bounty reports review <finding-id> --job ${summary.jobId}`);
@@ -8772,6 +8804,31 @@ function doctorNextCommands(input: {
     commands.push("bounty release check --json");
   }
   return [...new Set(commands)];
+}
+
+function approveActionAsCliHuman(
+  runtime: Runtime,
+  actionId: string,
+  input: { reviewerId: string; ttlMs: number; note?: string },
+): ReturnType<Runtime["actionApproval"]["approveHuman"]> {
+  const action = runtime.actions.get(actionId);
+  if (!action) {
+    throw new BountyPilotError(`Action not found: ${actionId}`, "ACTION_NOT_FOUND");
+  }
+  if (isHandoffOnlyAction(action)) {
+    throw new BountyPilotError(
+      "This action is a planning-only human handoff and cannot receive executable approval.",
+      "ACTION_HANDOFF_ONLY",
+    );
+  }
+  const challenge = runtime.actionApproval.preview(actionId);
+  return runtime.actionApproval.approveHuman({
+    actionId,
+    reviewerId: input.reviewerId,
+    expectedContextHash: challenge.contextHash,
+    ttlMs: input.ttlMs,
+    note: input.note,
+  });
 }
 
 function recordActionReview(
@@ -9810,10 +9867,13 @@ function buildJobReview(runtime: Runtime, jobId: string, limit: number) {
   const summary = new WorkflowRunner(runtime).loadSummary(job.id);
   const displaySummary = summary ? workflowSummaryForDisplay(runtime, summary) : undefined;
   const actionCounts = runtime.actions.summarize(job.id);
-  const actions = runtime.actions
+  const activeActions = runtime.actions
     .list(job.id)
-    .filter((action) => action.status === "pending" || action.status === "approved")
-    .slice(0, limit);
+    .filter((action) => action.status === "pending" || action.status === "approved");
+  const actions = activeActions.slice(0, limit);
+  const hasReviewablePendingAction = activeActions.some(
+    (action) => action.status === "pending" && !isHandoffOnlyAction(action),
+  );
   const evidence = filterEvidenceByJob(runtime.evidence.list(), job.id);
   const findings = findingsForJob(runtime.findings.list(), evidence);
   const findingSummaries = summarizeJobFindings(runtime, findings, job.id, limit);
@@ -9835,7 +9895,7 @@ function buildJobReview(runtime: Runtime, jobId: string, limit: number) {
     `bounty jobs timeline ${job.id}`,
     `bounty jobs watch ${job.id} --iterations 3`,
     `bounty actions review --job ${job.id}`,
-    ...(actionCounts.pending > 0 ? [`bounty actions review --job ${job.id} --interactive`] : []),
+    ...(hasReviewablePendingAction ? [`bounty actions review --job ${job.id} --interactive`] : []),
     ...actions.flatMap(actionReviewCommands),
     `bounty evidence verify --job ${job.id}`,
     ...findingCommands,
@@ -9982,7 +10042,7 @@ function phaseReviewCheck(summary: WorkflowSummary | undefined): JobReviewCheck 
   }
   const planned = summary.phases.filter((phase) => phase.status === "planned");
   if (planned.length > 0) {
-    return jobReviewCheck("phases", "warn", `${planned.length} phase(s) still need human review or execution.`);
+    return jobReviewCheck("phases", "warn", `${planned.length} phase(s) still need human review or a handoff decision.`);
   }
   return jobReviewCheck("phases", "pass", `${summary.phases.length} phase records are terminal.`);
 }
@@ -9995,7 +10055,7 @@ function actionReviewCheck(actionCounts: ReturnType<Runtime["actions"]["summariz
     return jobReviewCheck("actions", "warn", `${actionCounts.pending} action(s) are pending human review.`);
   }
   if (actionCounts.approved > 0) {
-    return jobReviewCheck("actions", "warn", `${actionCounts.approved} approved action(s) are ready for explicit execution.`);
+    return jobReviewCheck("actions", "warn", `${actionCounts.approved} approved action(s) await an explicit lifecycle handoff.`);
   }
   return jobReviewCheck("actions", "pass", `${actionCounts.total} action(s) have no pending execution decision.`);
 }
@@ -10166,12 +10226,25 @@ async function runInteractiveActionReview(
     };
   }
 
-  const inputs = await collectInteractiveReviewInputs(actions);
+  const reviewableActions = actions.filter((action) => !isHandoffOnlyAction(action));
+  const inputs = reviewableActions.length > 0 ? await collectInteractiveReviewInputs(reviewableActions) : [];
   const parsed = inputs.map((input) => parseInteractiveReviewDecision(input, options.defaultNote));
   const decisions: InteractiveActionReviewDecision[] = [];
   for (let index = 0; index < actions.length; index += 1) {
     const action = actions[index];
-    const decision = parsed[index] ?? { kind: "skipped" as const, input: "", note: options.defaultNote };
+    if (isHandoffOnlyAction(action)) {
+      decisions.push({
+        actionId: action.id,
+        input: "",
+        decision: "skipped",
+        statusBefore: action.status,
+        statusAfter: action.status,
+        message: "Planning-only handoff retained; executable approval is unavailable.",
+      });
+      continue;
+    }
+    const reviewableIndex = reviewableActions.findIndex((candidate) => candidate.id === action.id);
+    const decision = parsed[reviewableIndex] ?? { kind: "skipped" as const, input: "", note: options.defaultNote };
     if (decision.kind === "quit") {
       decisions.push({
         actionId: action.id,
@@ -10316,8 +10389,13 @@ function applyInteractiveActionReviewDecision(
         message: `Action is already ${action.status}; approve was not applied.`,
       };
     }
-    const updated = runtime.actions.approve(action.id);
-    const review = recordActionReview(runtime, updated, "approved", decision.note);
+    const approval = approveActionAsCliHuman(runtime, action.id, {
+      note: decision.note,
+      reviewerId: "human:local-cli",
+      ttlMs: 15 * 60_000,
+    });
+    const updated = approval.action;
+    const review = approval.review;
     return {
       actionId: action.id,
       input: decision.input,
@@ -10331,6 +10409,7 @@ function applyInteractiveActionReviewDecision(
   if (decision.kind === "blocked") {
     const updated = runtime.actions.block(action.id);
     const review = recordActionReview(runtime, updated, "blocked", decision.note);
+    if (updated.jobId) runtime.jobs.finalize(updated.jobId);
     return {
       actionId: action.id,
       input: decision.input,
@@ -10353,9 +10432,11 @@ function applyInteractiveActionReviewDecision(
 
 function actionReviewCommands(action: ActionRecord): string[] {
   const commands = [`bounty actions show ${action.id}`];
-  if (action.status === "pending") {
+  if (action.status === "pending" && !isHandoffOnlyAction(action)) {
     commands.push(`bounty actions approve ${action.id} --note "authorized by program scope"`);
     commands.push(`bounty actions block ${action.id} --note "not clearly authorized"`);
+  } else if (action.status === "pending" && isHandoffOnlyAction(action)) {
+    commands.push(`bounty actions block ${action.id} --note "discard planning-only handoff"`);
   }
   if (action.status === "approved") {
     commands.push(`bounty actions execute ${action.id}`);
@@ -10368,6 +10449,11 @@ function actionReviewCommands(action: ActionRecord): string[] {
     commands.push(`bounty jobs timeline ${action.jobId}`);
   }
   return commands;
+}
+
+function isHandoffOnlyAction(action: ActionRecord): boolean {
+  return action.metadata?.handoffOnly === true
+    || (action.requiredForCompletion === false && action.metadata?.planningOnly === true);
 }
 
 function printActionReviewCommands(actions: ActionRecord[]): void {
@@ -10746,14 +10832,12 @@ interface IntegrationSetupOptions {
   packageVersion?: string;
   entrypoint: string;
   timeoutMs?: string;
-  enableExecution?: boolean;
   approveExecutable?: boolean;
 }
 
 interface IntegrationSetupResult {
   integration: string;
   config: Record<string, unknown>;
-  executionEnabled: boolean;
   approvalCommand?: string;
   detected?: {
     summary: string;
@@ -10789,7 +10873,7 @@ function buildIntegrationVerification(runtime: Runtime, input: IntegrationVerifi
     target: scopedTarget,
     mode: input.mode,
   });
-  const executionEnabled = integrationExecutionEnabled(integration.config);
+  const executionIntentRecorded = integrationExecutionIntentRecorded(integration.config);
   const checks: IntegrationVerificationCheck[] = [
     {
       name: "scope",
@@ -10811,42 +10895,42 @@ function buildIntegrationVerification(runtime: Runtime, input: IntegrationVerifi
       status: validation.ok ? (validation.requiresApproval ? "warn" : "pass") : "fail",
       message: validation.ok
         ? validation.requiresApproval
-          ? "Policy allows planning but requires an approved queued action before execution."
-          : "Policy allows this capability for the scoped target."
+          ? "Policy allows planning but requires an approved queued action; external dispatch remains disabled."
+          : "Policy allows this capability for the scoped target; external dispatch remains disabled."
         : validation.reasons.join("; "),
       details: validation,
     },
     {
-      name: "execution_opt_in",
-      status: executionEnabled ? "pass" : "warn",
-      message: executionEnabled
-        ? "Execution opt-in is enabled; local approval and hash checks are required before spawn."
-        : "Execution is disabled; this integration is planning-only until explicit opt-in.",
+      name: "dispatch_boundary",
+      status: "pass",
+      message: executionIntentRecorded
+        ? "Legacy execution intent is retained only as non-authoritative metadata; external dispatch is disabled."
+        : "This integration is planning/handoff-only; external dispatch is disabled.",
     },
-    executableReadinessCheck(runtime, integration, executionEnabled),
+    executableReadinessCheck(),
   ];
   const status = checks.some((check) => check.status === "fail")
     ? "fail"
     : checks.some((check) => check.status === "warn")
       ? "warn"
       : "pass";
-  const nextCommands = integrationVerificationNextCommands(integration.name, input.capability, scopedTarget, input.mode, checks, executionEnabled);
+  const nextCommands = integrationVerificationNextCommands(integration.name, input.capability, scopedTarget, input.mode, checks);
   return {
     ok: status !== "fail",
     status,
     message:
       status === "pass"
-        ? "Integration is ready for an explicit approved execution path."
-        : status === "warn"
-          ? "Integration is planning-ready, but one or more execution readiness steps remain."
-          : "Integration readiness failed; fix blocking checks before execution.",
+       ? "Integration is ready for a scoped planning and human-handoff path; external dispatch is disabled."
+       : status === "warn"
+           ? "Integration is planning-ready, but one or more local configuration checks remain."
+           : "Integration readiness failed; fix blocking checks before planning.",
     execute: false,
     integration: {
       name: integration.name,
       type: integration.type,
       enabled: integration.enabled,
       status: integration.status,
-      executionEnabled,
+      executionIntentRecorded,
     },
     request: {
       capability: input.capability,
@@ -10859,62 +10943,11 @@ function buildIntegrationVerification(runtime: Runtime, input: IntegrationVerifi
   };
 }
 
-function executableReadinessCheck(
-  runtime: Runtime,
-  integration: ResolvedIntegration,
-  executionEnabled: boolean,
-): IntegrationVerificationCheck {
-  if (!executionEnabled) {
-    return {
-      name: "executable_approval",
-      status: "warn",
-      message: "Executable approval is not required until execution is explicitly enabled.",
-    };
-  }
-  if (!isLocalProcessBackedIntegration(integration)) {
-    return {
-      name: "executable_approval",
-      status: "pass",
-      message: "This integration does not use the external local process executor.",
-    };
-  }
-  try {
-    const resolved = resolveApprovedLocalProcess({
-      integration: integration.name,
-      config: localProcessConfigForIntegration(integration),
-      integrationsDir: runtime.paths.workspace.integrationsDir,
-      cwd: runtime.paths.programDir,
-    });
-    return {
-      name: "executable_approval",
-      status: "pass",
-      message: `Approved executable hash verified for ${resolved.executable.realPath}.`,
-      details: {
-        command: resolved.executable.command,
-        realPath: resolved.executable.realPath,
-        sha256: resolved.executable.sha256,
-        package: resolved.npmPackage,
-      },
-    };
-  } catch (error) {
-    return {
-      name: "executable_approval",
-      status: "fail",
-      message: error instanceof Error ? error.message : String(error),
-    };
-  }
-}
-
-function localProcessConfigForIntegration(integration: ResolvedIntegration): LocalProcessConfig {
-  const execution = integrationRecord(integration.config.execution);
+function executableReadinessCheck(): IntegrationVerificationCheck {
   return {
-    command: stringConfigValue(execution.command) ?? integration.config.command,
-    args: stringArrayConfigValue(execution.args) ?? integration.config.args,
-    package: stringConfigValue(execution.package) ?? integration.config.package,
-    package_version: stringConfigValue(execution.package_version) ?? integration.config.package_version,
-    entrypoint: stringConfigValue(execution.entrypoint) ?? integration.config.entrypoint,
-    entrypoint_sha256: stringConfigValue(execution.entrypoint_sha256) ?? integration.config.entrypoint_sha256,
-    package_json_sha256: stringConfigValue(execution.package_json_sha256) ?? integration.config.package_json_sha256,
+    name: "executable_pin",
+    status: "pass",
+    message: "Executable pins are optional handoff metadata; they never grant process or MCP dispatch authority.",
   };
 }
 
@@ -10924,7 +10957,6 @@ function integrationVerificationNextCommands(
   target: string,
   mode: ReturnType<typeof modeFromOptions>,
   checks: IntegrationVerificationCheck[],
-  executionEnabled: boolean,
 ): string[] {
   const commands = [
     `bounty integrations preflight ${displayIntegrationName(integrationName)} ${capability} --target ${target} --mode ${mode}`,
@@ -10939,45 +10971,18 @@ function integrationVerificationNextCommands(
       commands.unshift('bounty integrations setup crawl4ai --command "<absolute-path-to-crawl4ai>"');
     }
   }
-  if (!executionEnabled) {
-    if (integrationName === "playwright_mcp") {
-      commands.push("bounty integrations setup playwright-mcp --enable-execution --approve-executable");
-    } else if (integrationName === "crawl4ai") {
-      commands.push('bounty integrations setup crawl4ai --command "<absolute-path-to-crawl4ai>" --enable-execution --approve-executable');
-    }
-  } else if (failedChecks.has("executable_approval")) {
-    if (integrationName === "playwright_mcp") {
-      commands.push("bounty integrations setup playwright-mcp --enable-execution --approve-executable");
-    } else if (integrationName === "crawl4ai") {
-      commands.push("bounty integrations setup crawl4ai --command <current-command> --enable-execution --approve-executable");
-    }
-  } else if (integrationName === "playwright_mcp") {
+  if (integrationName === "playwright_mcp") {
     commands.push(`bounty mcp plan playwright-mcp browser_navigate --target ${target} --arg url=${target}`);
-    commands.push(`bounty mcp call playwright-mcp browser_navigate --target ${target} --arg url=${target}`);
+    commands.push(`bounty actions review --job <planned-job-id>`);
   } else if (integrationName === "crawl4ai") {
     commands.push(`bounty run ${target} --dry-run --with crawl4ai`);
-    commands.push(`bounty run ${target} --mode safe --with crawl4ai`);
+    commands.push("bounty review --job <planned-job-id>");
   }
   return [...new Set(commands)];
 }
 
-function isLocalProcessBackedIntegration(integration: ResolvedIntegration): boolean {
-  if (integration.type === "mcp" || integration.type === "desktop") {
-    return (integration.config.transport ?? integration.registration?.mcp?.defaultTransport) === "stdio";
-  }
-  return integration.type === "crawler" || integration.type === "research-skill" || integration.type === "external-tool";
-}
-
 function displayIntegrationName(name: string): string {
   return name.replaceAll("_", "-");
-}
-
-function stringConfigValue(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
-function stringArrayConfigValue(value: unknown): string[] | undefined {
-  return Array.isArray(value) && value.every((item): item is string => typeof item === "string") ? value : undefined;
 }
 
 function buildIntegrationSetup(runtime: Runtime, name: string, options: IntegrationSetupOptions): IntegrationSetupResult {
@@ -11021,11 +11026,7 @@ function integrationDoctorNextCommands(integrations: ReturnType<IntegrationManag
     commands.push("bounty integrations preflight playwright-mcp browser.navigate --target <in-scope-url>");
     commands.push("bounty mcp plan playwright-mcp browser_navigate --target <in-scope-url> --arg url=<in-scope-url>");
     commands.push("bounty integrations approved-executables playwright-mcp");
-    if (integrationExecutionEnabled(playwrightMcp.config)) {
-      commands.push("bounty mcp call playwright-mcp browser_navigate --target <in-scope-url> --arg url=<in-scope-url>");
-    } else {
-      commands.push("bounty integrations setup playwright-mcp --enable-execution --approve-executable");
-    }
+    commands.push("bounty actions review --job <planned-job-id>");
   }
 
   if (!crawl4ai || crawl4ai.status !== "configured") {
@@ -11034,12 +11035,7 @@ function integrationDoctorNextCommands(integrations: ReturnType<IntegrationManag
     commands.push("bounty integrations preflight crawl4ai crawler.fetch --target <in-scope-url>");
     commands.push("bounty run <in-scope-host> --dry-run --with crawl4ai");
     commands.push("bounty integrations approved-executables crawl4ai");
-    if (integrationExecutionEnabled(crawl4ai.config)) {
-      commands.push("bounty run <in-scope-host> --mode safe --with crawl4ai");
-    } else {
-      const command = typeof crawl4ai.config.command === "string" ? crawl4ai.config.command : "<absolute-path-to-crawl4ai>";
-      commands.push(`bounty integrations setup crawl4ai --command "${command}" --enable-execution --approve-executable`);
-    }
+    commands.push("bounty review --job <planned-job-id>");
   }
 
   commands.push("bounty tools doctor");
@@ -11047,7 +11043,7 @@ function integrationDoctorNextCommands(integrations: ReturnType<IntegrationManag
   return [...new Set(commands)];
 }
 
-function integrationExecutionEnabled(config: Record<string, unknown>): boolean {
+function integrationExecutionIntentRecorded(config: Record<string, unknown>): boolean {
   const execution = integrationRecord(config.execution);
   return config.allow_execute === true || execution.enabled === true;
 }
@@ -11069,17 +11065,14 @@ function buildPlaywrightMcpSetup(_runtime: Runtime, options: IntegrationSetupOpt
       process.cwd(),
     );
   } catch (error) {
-    if (options.enableExecution && !options.packageVersion) {
-      throw error;
-    }
     const message = error instanceof Error ? error.message : String(error);
     warnings.push(
-      `Could not inspect local package ${packageName}; setup remains planning-ready. Install it locally or pass --package-version before enabling execution. ${message}`,
+      `Could not inspect local package ${packageName}; setup remains planning/handoff-only. A reviewed package pin may be added later as metadata. ${message}`,
     );
   }
 
   const execution: Record<string, unknown> = {
-    enabled: options.enableExecution === true,
+    enabled: false,
     package: packageName,
     entrypoint,
     args: [],
@@ -11096,7 +11089,7 @@ function buildPlaywrightMcpSetup(_runtime: Runtime, options: IntegrationSetupOpt
     enabled: true,
     type: "mcp",
     transport: "stdio",
-    allow_execute: options.enableExecution === true,
+    allow_execute: false,
     execution,
     capabilities: ["browser.navigate", "browser.snapshot"],
   };
@@ -11106,16 +11099,11 @@ function buildPlaywrightMcpSetup(_runtime: Runtime, options: IntegrationSetupOpt
     "bounty integrations preflight playwright-mcp browser.navigate --target <in-scope-url>",
     "bounty mcp plan playwright-mcp browser_navigate --target <in-scope-url> --arg url=<in-scope-url>",
   ];
-  if (!options.enableExecution) {
-    nextCommands.push("bounty integrations setup playwright-mcp --enable-execution --approve-executable");
-  } else {
-    nextCommands.push("bounty mcp call playwright-mcp browser_navigate --target <in-scope-url> --arg url=<in-scope-url>");
-  }
+  nextCommands.push("bounty actions review --job <planned-job-id>");
 
   return {
     integration: "playwright_mcp",
     config,
-    executionEnabled: options.enableExecution === true,
     approvalCommand: options.approveExecutable ? process.execPath : undefined,
     detected: detectedPackage ? { summary: `${detectedPackage.name}@${detectedPackage.version}`, package: detectedPackage } : undefined,
     nextCommands,
@@ -11132,7 +11120,7 @@ function buildCrawl4AiSetup(_runtime: Runtime, options: IntegrationSetupOptions)
   const config: Record<string, unknown> = {
     enabled: true,
     type: "crawler",
-    allow_execute: options.enableExecution === true,
+    allow_execute: false,
     command: executable.command,
     capabilities: ["crawler.fetch"],
   };
@@ -11142,15 +11130,10 @@ function buildCrawl4AiSetup(_runtime: Runtime, options: IntegrationSetupOptions)
     "bounty integrations preflight crawl4ai crawler.fetch --target <in-scope-url>",
     "bounty run <in-scope-host> --dry-run --with crawl4ai",
   ];
-  if (!options.enableExecution) {
-    nextCommands.push(`bounty integrations setup crawl4ai --command "${executable.command}" --enable-execution --approve-executable`);
-  } else {
-    nextCommands.push("bounty run <in-scope-host> --mode safe --with crawl4ai");
-  }
+  nextCommands.push("bounty review --job <planned-job-id>");
   return {
     integration: "crawl4ai",
     config,
-    executionEnabled: options.enableExecution === true,
     approvalCommand: options.approveExecutable ? executable.command : undefined,
     detected: { summary: executable.realPath, command: executable },
     nextCommands,
@@ -11263,7 +11246,7 @@ function printSkillRunResult(result: SkillRunResult): void {
     ]);
     ui.blank();
     ui.table(
-      ["status", "tool", "approved", "observations", "message"],
+      ["status", "tool", "executable pin", "observations", "message"],
       result.recon.tools.map((tool) => [tool.status, tool.tool, tool.approvalPresent, tool.observations, tool.message]),
     );
   }
@@ -11847,81 +11830,18 @@ function printHuntDoctor(result: HuntDoctorResult): void {
   ui.commandList("next commands", result.nextCommands);
 }
 
-async function writeHttpEvidenceFallback(
-  runtime: Runtime,
-  input: { findingId: string; jobId: string; url: string },
-): Promise<{ artifacts: EvidenceArtifact[]; title?: string; links: string[] }> {
-  const requestHeaders = { "user-agent": "BountyPilot/0.1 evidence-record" };
-  const requestArtifact = runtime.evidence.writeTextArtifact({
-    findingId: input.findingId,
-    jobId: input.jobId,
-    adapterName: "evidence-record",
-    kind: "request_sample",
-    sourceUrl: input.url,
-    relativePath: path.join(input.findingId, `${input.jobId}-request-sample.json`),
-    content: `${JSON.stringify({ method: "GET", url: input.url, headers: requestHeaders, captureMode: "http-fallback" }, null, 2)}\n`,
-  });
-
-  const response = await fetch(input.url, {
-    method: "GET",
-    redirect: "manual",
-    headers: requestHeaders,
-  });
-  const headers = Object.fromEntries(response.headers.entries());
-  const body = await response.text();
-  const boundedBody = maskSecrets(body.slice(0, 64 * 1024));
-  const responseArtifact = runtime.evidence.writeTextArtifact({
-    findingId: input.findingId,
-    jobId: input.jobId,
-    adapterName: "evidence-record",
-    kind: "response_sample",
-    sourceUrl: input.url,
-    relativePath: path.join(input.findingId, `${input.jobId}-response-sample.txt`),
-    content: [
-      `HTTP ${response.status} ${response.statusText}`,
-      ...Object.entries(headers).map(([key, value]) => `${key}: ${maskSecrets(value)}`),
-      "",
-      boundedBody,
-      body.length > boundedBody.length ? "\n[truncated at 65536 characters]\n" : "",
-    ].join("\n"),
-  });
-
-  return {
-    artifacts: [requestArtifact, responseArtifact],
-    title: extractHtmlTitle(body),
-    links: extractHtmlLinks(body, input.url),
-  };
-}
-
-function isBrowserEvidenceLaunchFailure(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return /browserType\.launch|spawn EPERM|Executable doesn't exist|Failed to launch/i.test(message);
-}
-
-function extractHtmlTitle(text: string): string | undefined {
-  const match = /<title[^>]*>([^<]{1,200})<\/title>/i.exec(text);
-  return match ? match[1].replace(/\s+/g, " ").trim() : undefined;
-}
-
-function extractHtmlLinks(text: string, baseUrl: string): string[] {
-  const links = new Set<string>();
-  for (const match of text.matchAll(/\bhref\s*=\s*["']([^"']+)["']/gi)) {
-    try {
-      links.add(new URL(match[1], baseUrl).toString());
-    } catch {
-      // Ignore malformed hrefs in fallback evidence.
-    }
-  }
-  return [...links].slice(0, 200);
-}
-
 function cliPackageRoot(): string {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 }
 
 function workflowSummaryForDisplay(runtime: Runtime, summary: WorkflowSummary): WorkflowSummary {
+  const job = runtime.jobs.get(summary.jobId);
   return {
     ...summary,
+    status: job?.status ?? summary.status,
+    updatedAt: job?.updatedAt ?? summary.updatedAt,
+    ...(job?.status === "completed" && !summary.completedAt ? { completedAt: job.updatedAt } : {}),
+    ...(job?.status === "failed" && !summary.failedAt ? { failedAt: job.updatedAt } : {}),
     actionCounts: runtime.actions.summarize(summary.jobId),
   };
 }

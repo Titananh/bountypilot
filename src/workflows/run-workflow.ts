@@ -1,16 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { crawlWithPlaywright } from "../engines/crawler/playwright-crawler.js";
 import { AgentPlanner, type PlannerActionContext, type PlannerLoopResult } from "../engines/agent-planner/agent-planner.js";
-import { DuplicateRiskEngine } from "../engines/duplicate-risk/duplicate-risk-engine.js";
-import { candidateBaselineReportabilityScore, evaluateFindingCandidateReadiness } from "../engines/finding-candidates/finding-candidate-engine.js";
-import { analyzeJavaScript, type JsAnalysisResult } from "../engines/js-analyzer/js-analyzer.js";
 import {
   isSupportedReportPlatform,
   writePlatformReport,
   type ReportPlatform,
 } from "../engines/report-generator/report-generator.js";
-import { runSafeChecks } from "../engines/safe-checks/safe-checks.js";
 import { TriageEngine, type TriageResult } from "../engines/triage/triage-engine.js";
 import type { EvidenceArtifact, ExecutionMode, NormalizedFinding, PolicyDecision, RiskLevel } from "../types.js";
 import { maskSecrets } from "../utils/secrets.js";
@@ -18,11 +13,23 @@ import { nowIso } from "../utils/time.js";
 import { BountyPilotError } from "../utils/errors.js";
 import type { AuditLogger } from "../core/audit/audit-logger.js";
 import type { ActionQueueSummary, ActionRecord } from "../core/actions/action-queue.js";
-import type { JobStatus } from "../core/jobs/job-manager.js";
-import { fetchScopedText } from "../core/http/scoped-fetch.js";
+import {
+  productionActionSurface,
+  WORKFLOW_BARRIER_ACTION_TYPE,
+  WORKFLOW_BARRIER_ADAPTER,
+  WORKFLOW_BARRIER_PURPOSE,
+} from "../core/actions/production-action-authority.js";
+import type { JobRecord, JobStatus } from "../core/jobs/job-manager.js";
+import type { WorkflowEventStatus } from "../core/jobs/workflow-event-store.js";
 import { createJobAuditLogger, type Runtime } from "../cli/runtime.js";
-import { IntegrationManager, type ResolvedIntegration } from "../integrations/integration-manager/integration-manager.js";
+import { IntegrationManager } from "../integrations/integration-manager/integration-manager.js";
 import { ActionExecutor } from "./action-executor.js";
+import {
+  isMissionRecordV1,
+  missionExecutionPlan,
+  parseMissionRecord,
+  type MissionRecordV1,
+} from "../missions/mission-contract.js";
 
 export interface WorkflowOptions {
   target?: string;
@@ -33,6 +40,7 @@ export interface WorkflowOptions {
   resumeFromJobId?: string;
   resumeSkipPhases?: string[];
   resumeProgress?: ResumeProgress;
+  mission?: MissionRecordV1;
 }
 
 export interface WorkflowPhaseResult {
@@ -63,6 +71,7 @@ export interface WorkflowSummary {
   candidatesCreated: number;
   findingsCreated: number;
   evidenceCreated: number;
+  /** User/work actions planned by workflow components; excludes the internal completion barrier. */
   actionsPlanned: number;
   actionCounts: ActionQueueSummary;
   reportsDrafted: number;
@@ -80,6 +89,7 @@ export interface WorkflowSummary {
   resumeSkippedWork?: WorkflowSkippedWork[];
   checkpointPath?: string;
   summaryPath?: string;
+  mission?: MissionRecordV1;
 }
 
 interface ExternalWorkflowComponent {
@@ -104,7 +114,7 @@ export class WorkflowRunner {
 
   async resume(
     jobId: string,
-    overrides: Partial<Omit<WorkflowOptions, "resumeFromJobId" | "resumeSkipPhases">> = {},
+    overrides: Partial<Omit<WorkflowOptions, "resumeFromJobId" | "resumeSkipPhases" | "mission">> = {},
   ): Promise<WorkflowSummary> {
     const previous = this.loadSummary(jobId);
     if (!previous) {
@@ -112,7 +122,17 @@ export class WorkflowRunner {
     }
     const resumeChangesExecution = hasResumeExecutionOverrides(previous, overrides);
     if (previous.status === "completed" && !resumeChangesExecution) {
-      return previous;
+      // A completed checkpoint is only a cache hint. Required actions may have
+      // been appended or mutated after the summary was written, so derive the
+      // authoritative tuple from the current queue before returning it.
+      const authoritative = this.runtime.jobs.finalize(jobId);
+      if (authoritative.status === "completed") {
+        return {
+          ...previous,
+          status: authoritative.status,
+          updatedAt: authoritative.updatedAt,
+        };
+      }
     }
 
     return this.run({
@@ -123,13 +143,31 @@ export class WorkflowRunner {
       draftReports: overrides.draftReports ?? previous.draftReports,
       resumeFromJobId: jobId,
       resumeProgress: resumeChangesExecution ? emptyResumeProgress() : resumableProgress(previous, this.runtime.actions.list(jobId)),
+      mission: previous.mission,
     });
   }
 
   async run(options: WorkflowOptions): Promise<WorkflowSummary> {
+    const mission = options.mission === undefined ? undefined : parseMissionRecord(options.mission);
     const resolved = resolveSeeds(this.runtime, options.target);
     const components = componentSet(options.mode, options.withComponents);
-    const job = this.runtime.jobs.create("run", options.mode, options.target ?? this.runtime.config.program);
+    if (mission) {
+      assertMissionWorkflowOptions(this.runtime, options, mission, components);
+    }
+    const job = this.runtime.jobs.create(mission ? "mission" : "run", options.mode, options.target ?? this.runtime.config.program);
+    // This required, targetless sentinel opens the scheduling window before
+    // any workflow phase can enqueue or execute work. Action finalization may
+    // derive the job tuple after every effect, but this pending row prevents a
+    // successful early action from completing a still-growing workflow.
+    const workflowBarrier = this.runtime.actions.enqueue({
+      jobId: job.id,
+      adapter: WORKFLOW_BARRIER_ADAPTER,
+      actionType: WORKFLOW_BARRIER_ACTION_TYPE,
+      riskLevel: "low",
+      requiresApproval: false,
+      requiredForCompletion: true,
+      metadata: { internal: true, purpose: WORKFLOW_BARRIER_PURPOSE },
+    });
     const audit = createJobAuditLogger(this.runtime.paths, job.id);
     const startedAt = nowIso();
     const summary: WorkflowSummary = {
@@ -158,6 +196,7 @@ export class WorkflowRunner {
       resumeSkippedPhases: [],
       resumeSkippedWork: [],
       checkpointPath: workflowCheckpointPath(this.runtime.paths.jobsDir, job.id),
+      mission,
     };
     const resumeProgress = options.resumeProgress ?? resumeProgressFromPhaseNames(options.resumeSkipPhases ?? []);
     const resumeSkipPhases = resumeProgress.globalPhases;
@@ -170,27 +209,41 @@ export class WorkflowRunner {
     this.writeCheckpoint(summary);
     this.runtime.events.record({
       jobId: job.id,
-      phase: "workflow",
+      phase: mission ? "mission" : "workflow",
       status: "running",
-      message: "Workflow started.",
-      metadata: {
-        mode: options.mode,
-        target: options.target,
-        components: [...components],
-        dryRun: summary.dryRun,
-        resumedFromJobId: options.resumeFromJobId,
-        resumeSkipPhases: [...resumeSkipPhases],
-        resumeSkippedSeedPhases: resumeProgressForMetadata(resumeProgress),
-      },
+      message: mission ? "Typed zero-live mission accepted for local planning." : "Workflow started.",
+      metadata: mission
+        ? {
+            missionDigest: mission.missionDigest,
+            scopeHash: mission.authority.scopeHash,
+            policyHash: mission.authority.policyHash,
+          }
+        : {
+            mode: options.mode,
+            target: options.target,
+            components: [...components],
+            dryRun: summary.dryRun,
+            resumedFromJobId: options.resumeFromJobId,
+            resumeSkipPhases: [...resumeSkipPhases],
+            resumeSkippedSeedPhases: resumeProgressForMetadata(resumeProgress),
+          },
     });
     audit.log({
       jobId: job.id,
       actionType: "workflow.start",
       adapterName: "workflow",
       policyDecision: "allow",
-      metadata: { mode: options.mode, target: options.target, components: [...components] },
+      metadata: mission
+        ? {
+            missionDigest: mission.missionDigest,
+            scopeHash: mission.authority.scopeHash,
+            policyHash: mission.authority.policyHash,
+            dryRun: true,
+          }
+        : { mode: options.mode, target: options.target, components: [...components] },
     });
 
+    let finalizationAttempted = false;
     try {
       this.recordProgramResearchNote(job.id, summary, resumeSkipPhases);
 
@@ -204,7 +257,7 @@ export class WorkflowRunner {
           });
         }
       } else {
-        this.runResearchSkill(job.id, options.mode, resolved.seeds, components, summary, resumeSkipPhases);
+        await this.runResearchSkill(job.id, options.mode, resolved.seeds, components, summary, resumeSkipPhases);
         await this.runSafeChecks(job.id, options.mode, resolved.seeds, components, summary, resumeProgress);
         await this.runJsAnalysis(job.id, options.mode, resolved.seeds, components, summary, resumeProgress);
         await this.runPlaywrightCrawl(job.id, options.mode, resolved.seeds, components, summary, resumeProgress);
@@ -219,41 +272,40 @@ export class WorkflowRunner {
       const failedPhases = summary.phases.filter((phase) => phase.status === "failed");
       if (failedPhases.length > 0) {
         const detail = `Workflow failed because ${failedPhases.length} phase(s) failed: ${failedPhases.map((phase) => phase.name).join(", ")}.`;
-        summary.status = "failed";
-        summary.failedAt = nowIso();
         this.recordPhase(summary, { name: "workflow", status: "failed", detail });
-        summary.summaryPath = this.writeSummary(job.id, summary);
-        audit.log({
-          jobId: job.id,
-          actionType: "workflow.failed",
-          adapterName: "workflow",
-          status: "failed",
-          policyDecision: "block",
-          reason: detail,
-          metadata: {
-            failedPhases: failedPhases.map((phase) => ({ name: phase.name, detail: phase.detail })),
-            findingsCreated: summary.findingsCreated,
-            candidatesCreated: summary.candidatesCreated,
-            evidenceCreated: summary.evidenceCreated,
-            actionsPlanned: summary.actionsPlanned,
-            reportsDrafted: summary.reportsDrafted,
-          },
-        });
-        this.runtime.jobs.updateStatus(job.id, "failed");
-        return summary;
+      } else {
+        const barrierResult = await new ActionExecutor(this.runtime).execute(workflowBarrier.id);
+        if (barrierResult.status !== "executed" || barrierResult.action.status !== "executed") {
+          throw new BountyPilotError(
+            "Workflow completion barrier did not reach the executed state.",
+            "WORKFLOW_BARRIER_NOT_EXECUTED",
+          );
+        }
       }
 
-      summary.status = "completed";
-      summary.completedAt = nowIso();
-      this.refreshSummaryState(summary);
+      finalizationAttempted = true;
+      const finalizedJob = this.runtime.jobs.finalize(job.id);
+      if (finalizedJob.status === "completed" && this.runtime.actions.get(workflowBarrier.id)?.status !== "executed") {
+        throw new BountyPilotError(
+          "Workflow completion barrier is not executed; refusing to report completion.",
+          "WORKFLOW_BARRIER_NOT_EXECUTED",
+        );
+      }
+      this.applyFinalizedJob(summary, finalizedJob);
       summary.summaryPath = this.writeSummary(job.id, summary);
       audit.log({
         jobId: job.id,
-        actionType: "workflow.complete",
+        actionType: workflowTerminalAuditAction(finalizedJob.status),
         adapterName: "workflow",
-        status: "completed",
-        policyDecision: "allow",
+        status: finalizedJob.status,
+        policyDecision: workflowTerminalPolicyDecision(finalizedJob),
+        reason: failedPhases.length > 0
+          ? `Workflow phases reported ${failedPhases.length} failure(s); authoritative job state was derived from required actions.`
+          : workflowTerminalMessage(finalizedJob),
         metadata: {
+          pauseReason: finalizedJob.pauseReason,
+          statusDetail: finalizedJob.statusDetail,
+          failedPhases: failedPhases.map((phase) => ({ name: phase.name, detail: phase.detail })),
           findingsCreated: summary.findingsCreated,
           candidatesCreated: summary.candidatesCreated,
           evidenceCreated: summary.evidenceCreated,
@@ -261,13 +313,14 @@ export class WorkflowRunner {
           reportsDrafted: summary.reportsDrafted,
         },
       });
-      this.runtime.jobs.updateStatus(job.id, "completed");
       this.runtime.events.record({
         jobId: job.id,
         phase: "workflow",
-        status: "completed",
-        message: "Workflow completed.",
+        status: workflowTerminalEventStatus(finalizedJob.status),
+        message: workflowTerminalMessage(finalizedJob),
         metadata: {
+          pauseReason: finalizedJob.pauseReason,
+          statusDetail: finalizedJob.statusDetail,
           findingsCreated: summary.findingsCreated,
           candidatesCreated: summary.candidatesCreated,
           evidenceCreated: summary.evidenceCreated,
@@ -278,6 +331,29 @@ export class WorkflowRunner {
       return summary;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      if (finalizationAttempted) {
+        throw error;
+      }
+      if (mission && error instanceof BountyPilotError && error.code === "POLICY_BLOCKED") {
+        const finalizedJob = this.runtime.jobs.finalize(job.id);
+        this.applyFinalizedJob(summary, finalizedJob);
+        this.recordPhase(summary, { name: "workflow", status: "failed", detail: message });
+        summary.summaryPath = this.writeSummary(job.id, summary);
+        audit.log({
+          jobId: job.id,
+          actionType: "workflow.failed",
+          adapterName: "workflow",
+          status: finalizedJob.status,
+          policyDecision: "block",
+          reason: "Typed mission was blocked by current local policy.",
+          metadata: {
+            pauseReason: finalizedJob.pauseReason,
+            statusDetail: finalizedJob.statusDetail,
+            missionDigest: mission.missionDigest,
+          },
+        });
+        return summary;
+      }
       summary.status = "failed";
       summary.failedAt = nowIso();
       this.recordPhase(summary, { name: "workflow", status: "failed", detail: message });
@@ -290,7 +366,35 @@ export class WorkflowRunner {
         policyDecision: "block",
         reason: message,
       });
-      this.runtime.jobs.updateStatus(job.id, "failed");
+      // Keep terminal job derivation behind the action lifecycle. A direct
+      // status mutation here could leave the queue/barrier and
+      // the job tuple inconsistent, and would bypass the single completion
+      // gate. Enqueue a sanitized required failure marker, then let the
+      // authoritative finalizer derive `failed` from that row.
+      try {
+        this.runtime.actions.enqueue({
+          jobId: job.id,
+          adapter: "workflow",
+          actionType: "workflow.internal_failure",
+          riskLevel: "low",
+          requiresApproval: false,
+          requiredForCompletion: true,
+          status: "failed",
+          metadata: {
+            internal: true,
+            purpose: "workflow_failure",
+            reasonCode: "WORKFLOW_PHASE_FAILED",
+          },
+        });
+        const finalizedJob = this.runtime.jobs.finalize(job.id);
+        this.applyFinalizedJob(summary, finalizedJob);
+      } catch {
+        // Preserve the original workflow error if a secondary persistence
+        // fault prevents recording the lifecycle failure marker.
+        summary.status = "failed";
+        summary.failedAt = nowIso();
+      }
+      summary.summaryPath = this.writeSummary(job.id, summary);
       throw error;
     }
   }
@@ -359,6 +463,7 @@ This note is local program context only. It is not authorization beyond the impo
     let plannedCount = 0;
     let pending = 0;
     let blocked = 0;
+    let firstBlockedReason: string | undefined;
     for (const seed of seeds) {
       const actions = plannedComponentActions(seed, components);
       for (const action of actions) {
@@ -370,29 +475,43 @@ This note is local program context only. It is not authorization beyond the impo
           target: seed,
           mode,
           riskLevel: action.riskLevel,
+          requiredForCompletion: false,
+          metadata: {
+            planningOnly: true,
+            handoffOnly: true,
+            phase: "dry-run",
+          },
         });
         plannedCount += 1;
-        if (result.decision === "require_approval") pending += 1;
-        if (result.decision === "block") blocked += 1;
+        if (result.action.status === "pending") pending += 1;
+        if (result.decision === "block") {
+          blocked += 1;
+          firstBlockedReason ??= result.reason;
+        }
         summary.actionsPlanned += 1;
       }
     }
 
+    const detail = `${plannedCount} actions planned (${pending} pending handoff, ${blocked} blocked by policy).`;
+    if (blocked > 0) {
+      this.recordPhase(summary, { name: "action-planning", status: "failed", detail: firstBlockedReason ?? detail });
+      throw new BountyPilotError(firstBlockedReason ?? "One or more planned actions were blocked by policy.", "POLICY_BLOCKED");
+    }
     this.recordPhase(summary, {
       name: "action-planning",
-      status: blocked > 0 || pending > 0 ? "planned" : "completed",
-      detail: `${plannedCount} actions planned (${pending} pending approval, ${blocked} blocked by policy).`,
+      status: pending > 0 ? "planned" : "completed",
+      detail,
     });
   }
 
-  private runResearchSkill(
+  private async runResearchSkill(
     jobId: string,
     mode: ExecutionMode,
     seeds: string[],
     components: Set<string>,
     summary: WorkflowSummary,
     resumeSkipPhases: Set<string>,
-  ): void {
+  ): Promise<void> {
     const componentName = "d-research-skill";
     if (!components.has(componentName)) {
       return;
@@ -411,6 +530,8 @@ This note is local program context only. It is not authorization beyond the impo
 
     const audit = createJobAuditLogger(this.runtime.paths, jobId);
     const actions: ActionRecord[] = [];
+    const executor = new ActionExecutor(this.runtime);
+    let failed = 0;
     for (const seed of seeds) {
       const planned = this.planWorkflowAction({
         audit,
@@ -423,10 +544,29 @@ This note is local program context only. It is not authorization beyond the impo
         capability: "research.public",
       });
       summary.actionsPlanned += 1;
-      if (planned.allowed) {
-        actions.push(this.runtime.actions.markExecuted(planned.action.id));
-      } else {
+      if (!planned.allowed) {
         actions.push(planned.action);
+        continue;
+      }
+      try {
+        const result = await executor.execute(planned.action.id);
+        actions.push(result.action);
+        summary.evidenceCreated += result.evidenceCreated;
+        summary.candidatesCreated += result.candidatesCreated;
+        summary.findingsCreated += result.findingsCreated;
+      } catch (error) {
+        failed += 1;
+        actions.push(this.runtime.actions.get(planned.action.id) ?? planned.action);
+        audit.log({
+          jobId,
+          actionType: "research.public",
+          url: seed,
+          adapterName: componentName,
+          status: "failed",
+          policyDecision: "block",
+          reason: errorMessage(error),
+          metadata: { actionId: planned.action.id },
+        });
       }
     }
 
@@ -462,8 +602,8 @@ ${actions.map((action) => `- ${action.id}: ${action.target ?? "program"} (${acti
     summary.evidenceCreated += 1;
     this.recordPhase(summary, {
       name: componentName,
-      status: "completed",
-      detail: `${actions.length} local public research actions recorded. Ledger: ${artifact.path}`,
+      status: failed > 0 ? "failed" : actions.some((action) => action.status === "pending") ? "planned" : "completed",
+      detail: `${actions.length} local public research actions recorded (${failed} failed). Ledger: ${artifact.path}`,
     });
   }
 
@@ -510,89 +650,17 @@ ${actions.map((action) => `- ${action.id}: ${action.target ?? "program"} (${acti
       }
 
       try {
-        await this.runtime.rateLimiter.wait(scope.url);
-        const started = Date.now();
-        const result = await runSafeChecks(scope.url);
-        const artifact = this.runtime.evidence.writeTextArtifact({
-          jobId,
-          adapterName: "safe-checks",
-          kind: "tool_output",
-          sourceUrl: scope.url,
-          relativePath: path.join(jobId, `${safeFileName(scope.host)}-safe-checks.json`),
-          content: JSON.stringify(result, null, 2),
-        });
-        summary.evidenceCreated += 1;
-
-        for (const candidate of result.findings) {
-          const duplicate = new DuplicateRiskEngine().estimate(
-            {
-              title: candidate.title,
-              asset: scope.host,
-              url: scope.url,
-              category: candidate.category,
-            },
-            this.runtime.findings.list(),
-          );
-          const readiness = evaluateFindingCandidateReadiness({
-            confidence: candidate.confidence,
-            severity: candidate.severityEstimate,
-            evidenceCount: 1,
-            duplicateRisk: duplicate.risk,
-          });
-          const finding = this.runtime.findings.create({
-            title: candidate.title,
-            asset: scope.host,
-            url: scope.url,
-            category: candidate.category,
-            severityEstimate: candidate.severityEstimate,
-            confidence: candidate.confidence,
-            status: "needs_validation",
-            evidencePaths: [artifact.path],
-            remediation: candidate.remediation,
-            duplicateRisk: duplicate.risk,
-            reportabilityScore: candidateBaselineReportabilityScore(readiness),
-          });
-          this.runtime.evidence.linkToFinding(artifact.id, finding.id);
-          this.runtime.candidates.create({
-            jobId,
-            title: candidate.title,
-            asset: scope.host,
-            url: scope.url,
-            category: candidate.category,
-            severityEstimate: candidate.severityEstimate,
-            confidence: candidate.confidence,
-            status: readiness.status,
-            evidenceIds: [artifact.id],
-            findingId: finding.id,
-            falsePositiveRisk: readiness.falsePositiveRisk,
-            duplicateRisk: duplicate.risk,
-            reportability: readiness.reportability,
-            reasoningSummary: readiness.reasoningSummary,
-            nextManualSteps: readiness.nextManualSteps,
-          });
-          summary.candidatesCreated += 1;
-          summary.findingsCreated += 1;
-        }
-
-        audit.log({
-          jobId,
-          actionType: "http.get",
-          url: scope.url,
-          adapterName: "safe-checks",
-          status: result.status,
-          durationMs: Date.now() - started,
-          policyDecision: "allow",
-          metadata: { findings: result.findings.length },
-        });
-        this.runtime.actions.markExecuted(planned.action.id);
+        const result = await new ActionExecutor(this.runtime).execute(planned.action.id);
+        summary.evidenceCreated += result.evidenceCreated;
+        summary.candidatesCreated += result.candidatesCreated;
+        summary.findingsCreated += result.findingsCreated;
         this.recordPhase(summary, {
           name: "safe-checks",
           status: "completed",
           target: scope.url,
-          detail: `${scope.host}: ${result.findings.length} candidates.`,
+          detail: `${scope.host}: ${result.message}.`,
         });
       } catch (error) {
-        this.runtime.actions.fail(planned.action.id);
         this.recordPhase(summary, { name: "safe-checks", status: "failed", target: scope.url, detail: `${scope.url}: ${errorMessage(error)}` });
       }
     }
@@ -640,119 +708,21 @@ ${actions.map((action) => `- ${action.id}: ${action.target ?? "program"} (${acti
         continue;
       }
 
-      const fetchText = async (requestUrl: string): Promise<string> => {
-        return fetchScopedText(requestUrl, {
-          allowUrl: (url) => this.runtime.scopeGuard.test(url).allowed,
-          wait: async (url) => {
-            const requestScope = this.runtime.scopeGuard.assertAllowed(url);
-            await this.runtime.rateLimiter.wait(requestScope.url);
-          },
-          headers: { "User-Agent": "BountyPilot/0.1 workflow-js-analyzer" },
-          onRequest: (event) => {
-            audit.log({
-              jobId,
-              actionType: "http.get",
-              method: "GET",
-              url: event.url,
-              status: event.status,
-              adapterName: "js-analyzer",
-              durationMs: event.durationMs,
-              policyDecision: "allow",
-              metadata: { redirectHop: event.redirectHop, redirectedFrom: event.redirectedFrom },
-            });
-          },
-          onBlockedRedirect: (event) => {
-            audit.log({
-              jobId,
-              actionType: "http.redirect",
-              method: "GET",
-              url: event.targetUrl,
-              status: event.redirectStatus,
-              adapterName: "js-analyzer",
-              policyDecision: "block",
-              reason: "Redirect target blocked by ScopeGuard",
-              metadata: { fromUrl: event.fromUrl, location: event.location, redirectHop: event.redirectHop },
-            });
-          },
-        });
-      };
-
       try {
-        const result = await analyzeJavaScript(scope.url, {
-          allowUrl: (requestUrl) => this.runtime.scopeGuard.test(requestUrl).allowed,
-          fetchText,
-        });
-        this.recordPlannerCandidates(summary, scope.url, result);
-        const artifact = this.runtime.evidence.writeTextArtifact({
-          jobId,
-          adapterName: "js-analyzer",
-          kind: "tool_output",
-          sourceUrl: scope.url,
-          relativePath: path.join(jobId, `${safeFileName(scope.host)}-js-analysis.json`),
-          content: JSON.stringify(result, null, 2),
-        });
-        summary.evidenceCreated += 1;
-
-        if (result.possibleSecrets.length > 0) {
-          const duplicate = new DuplicateRiskEngine().estimate(
-            {
-              title: "Possible secret-like pattern observed in public client-side content",
-              asset: scope.host,
-              url: scope.url,
-              category: "public_js_secret_pattern",
-            },
-            this.runtime.findings.list(),
-          );
-          const readiness = evaluateFindingCandidateReadiness({
-            confidence: "low",
-            severity: "medium",
-            evidenceCount: 1,
-            duplicateRisk: duplicate.risk,
-          });
-          const finding = this.runtime.findings.create({
-            title: "Possible secret-like pattern observed in public client-side content",
-            asset: scope.host,
-            url: scope.url,
-            category: "public_js_secret_pattern",
-            severityEstimate: "medium",
-            confidence: "low",
-            status: "needs_manual_review",
-            evidencePaths: [artifact.path],
-            remediation: "Manually verify whether the masked value is a real secret before reporting or validating impact.",
-            duplicateRisk: duplicate.risk,
-            reportabilityScore: candidateBaselineReportabilityScore(readiness),
-          });
-          this.runtime.evidence.linkToFinding(artifact.id, finding.id);
-          this.runtime.candidates.create({
-            jobId,
-            title: finding.title,
-            asset: scope.host,
-            url: scope.url,
-            category: finding.category,
-            severityEstimate: finding.severityEstimate,
-            confidence: finding.confidence,
-            status: readiness.status,
-            evidenceIds: [artifact.id],
-            findingId: finding.id,
-            falsePositiveRisk: readiness.falsePositiveRisk,
-            duplicateRisk: duplicate.risk,
-            reportability: readiness.reportability,
-            reasoningSummary: readiness.reasoningSummary,
-            nextManualSteps: readiness.nextManualSteps,
-          });
-          summary.candidatesCreated += 1;
-          summary.findingsCreated += 1;
+        const result = await new ActionExecutor(this.runtime).execute(planned.action.id);
+        summary.evidenceCreated += result.evidenceCreated;
+        summary.candidatesCreated += result.candidatesCreated;
+        summary.findingsCreated += result.findingsCreated;
+        if (result.plannerCandidates) {
+          this.recordPlannerCandidateUrls(summary, scope.url, result.plannerCandidates);
         }
-
-        this.runtime.actions.markExecuted(planned.action.id);
         this.recordPhase(summary, {
           name: "js-analyzer",
           status: "completed",
           target: scope.url,
-          detail: `${scope.host}: ${result.scriptUrls.length} scripts, ${result.endpointCandidates.length} endpoint candidates.`,
+          detail: `${scope.host}: ${result.message}.`,
         });
       } catch (error) {
-        this.runtime.actions.fail(planned.action.id);
         this.recordPhase(summary, { name: "js-analyzer", status: "failed", target: scope.url, detail: `${scope.url}: ${errorMessage(error)}` });
       }
     }
@@ -801,60 +771,17 @@ ${actions.map((action) => `- ${action.id}: ${action.target ?? "program"} (${acti
       }
 
       try {
-        await this.runtime.rateLimiter.wait(scope.url);
-        const result = await crawlWithPlaywright({
-          url: scope.url,
-          evidenceDir: this.runtime.paths.evidenceDir,
-          jobId,
-          evidence: {
-            screenshots: this.runtime.config.evidence.screenshots,
-            har: this.runtime.config.evidence.har,
-            consoleLogs: this.runtime.config.evidence.console_logs,
-            domSnapshot: this.runtime.config.evidence.dom_snapshot,
-            browserTrace: this.runtime.config.evidence.browser_trace,
-            video: this.runtime.config.evidence.video,
-          },
-          allowUrl: (requestUrl) => this.runtime.scopeGuard.test(requestUrl).allowed,
-          onRequest: (event) => {
-            audit.log({
-              jobId,
-              actionType: "browser.request",
-              method: event.method,
-              url: event.url,
-              adapterName: "playwright",
-              policyDecision: event.allowed ? "allow" : "block",
-              reason: event.allowed ? "Request remained in scope" : "Request blocked by ScopeGuard",
-            });
-          },
-        });
-
-        for (const artifact of result.evidence) {
-          this.runtime.evidence.create(artifact);
-          summary.evidenceCreated += 1;
-        }
-        this.runtime.crawlGraph.upsertPage({ url: scope.url, title: result.title });
-        for (const link of result.links.filter((link) => this.runtime.scopeGuard.test(link).allowed)) {
-          this.runtime.crawlGraph.upsertPage({ url: link });
-          this.runtime.crawlGraph.addEdge(scope.url, link);
-        }
-        this.runtime.evidence.writeTextArtifact({
-          jobId,
-          adapterName: "playwright",
-          kind: "crawl_graph",
-          sourceUrl: scope.url,
-          relativePath: path.join(jobId, `${safeFileName(scope.host)}-crawl-graph.json`),
-          content: JSON.stringify({ url: result.url, title: result.title, links: result.links }, null, 2),
-        });
-        summary.evidenceCreated += 1;
-        this.runtime.actions.markExecuted(planned.action.id);
+        const result = await new ActionExecutor(this.runtime).execute(planned.action.id);
+        summary.evidenceCreated += result.evidenceCreated;
+        summary.candidatesCreated += result.candidatesCreated;
+        summary.findingsCreated += result.findingsCreated;
         this.recordPhase(summary, {
           name: "playwright",
           status: "completed",
           target: scope.url,
-          detail: `${scope.host}: captured ${result.evidence.length + 1} artifacts and ${result.links.length} links.`,
+          detail: `${scope.host}: ${result.message}.`,
         });
       } catch (error) {
-        this.runtime.actions.fail(planned.action.id);
         this.recordPhase(summary, { name: "playwright", status: "failed", target: scope.url, detail: `${scope.url}: ${errorMessage(error)}` });
       }
     }
@@ -924,14 +851,20 @@ ${actions.map((action) => `- ${action.id}: ${action.target ?? "program"} (${acti
     });
     summary.evidenceCreated += 1;
     const audit = createJobAuditLogger(this.runtime.paths, jobId);
+    const executor = new ActionExecutor(this.runtime);
 
     let enqueued = 0;
+    let executed = 0;
     let pending = 0;
     let blocked = 0;
+    let failed = 0;
+    const executionFailures: string[] = [];
     for (const action of planLoop.actions) {
       if (!this.runtime.scopeGuard.test(action.target).allowed) {
         continue;
       }
+      const surface = productionActionSurface(action.adapter, action.actionType, action.riskLevel);
+      const planningOnly = surface === undefined;
       const planned = this.planWorkflowAction({
         audit,
         jobId,
@@ -940,10 +873,47 @@ ${actions.map((action) => `- ${action.id}: ${action.target ?? "program"} (${acti
         target: action.target,
         mode,
         riskLevel: action.riskLevel,
+        requiredForCompletion: !planningOnly,
+        ...(planningOnly
+          ? {
+              metadata: {
+                planningOnly: true,
+                handoffOnly: true,
+                phase: "planner",
+              },
+            }
+          : {}),
       });
       enqueued += 1;
-      if (planned.decision === "require_approval") pending += 1;
       if (planned.decision === "block") blocked += 1;
+
+      const autoExecutableBuiltin =
+        action.riskLevel === "low" &&
+        planned.allowed &&
+        planned.decision === "allow" &&
+        planned.action.requiresApproval === false &&
+        (surface === "safe-checks" ||
+          surface === "js-analyzer" ||
+          surface === "playwright" ||
+          surface === "public-research");
+      if (!autoExecutableBuiltin) {
+        if (planned.action.status === "pending") pending += 1;
+        continue;
+      }
+
+      try {
+        const result = await executor.execute(planned.action.id);
+        summary.evidenceCreated += result.evidenceCreated;
+        summary.candidatesCreated += result.candidatesCreated;
+        summary.findingsCreated += result.findingsCreated;
+        if (result.plannerCandidates) {
+          this.recordPlannerCandidateUrls(summary, action.target, result.plannerCandidates);
+        }
+        executed += 1;
+      } catch (error) {
+        failed += 1;
+        executionFailures.push(`${action.adapter} ${action.target}: ${errorMessage(error)}`);
+      }
     }
     summary.actionsPlanned += enqueued;
     const suppressed = planLoop.iterations.reduce(
@@ -953,8 +923,8 @@ ${actions.map((action) => `- ${action.id}: ${action.target ?? "program"} (${acti
     );
     this.recordPhase(summary, {
       name: "planner",
-      status: pending > 0 || blocked > 0 ? "planned" : "completed",
-      detail: `${enqueued} safe next actions queued (${pending} pending approval, ${blocked} blocked by policy, ${suppressed} suppressed). Plan: ${plannerArtifact.path}`,
+      status: failed > 0 ? "failed" : pending > 0 || blocked > 0 ? "planned" : "completed",
+      detail: `${enqueued} safe next actions queued (${executed} low-risk builtins executed, ${pending} pending approval/manual execution, ${blocked} blocked by policy, ${failed} failed, ${suppressed} suppressed). Plan: ${plannerArtifact.path}${executionFailures[0] ? ` First failure: ${executionFailures[0]}` : ""}`,
     });
   }
 
@@ -988,7 +958,7 @@ ${actions.map((action) => `- ${action.id}: ${action.target ?? "program"} (${acti
       this.recordPhase(summary, {
         name: component.name,
         status: "skipped",
-        detail: "No in-scope seeds were available for external component execution.",
+        detail: "No in-scope seeds were available for external component planning.",
       });
       return;
     }
@@ -1004,20 +974,8 @@ ${actions.map((action) => `- ${action.id}: ${action.target ?? "program"} (${acti
       return;
     }
 
-    const readiness = externalWorkflowExecutionReadiness(integration);
-    if (!readiness.ok) {
-      this.recordPhase(summary, {
-        name: component.name,
-        status: "skipped",
-        detail: readiness.detail,
-      });
-      return;
-    }
-
     const audit = createJobAuditLogger(this.runtime.paths, jobId);
-    const executor = new ActionExecutor(this.runtime);
     let planned = 0;
-    let executed = 0;
     let pending = 0;
     let failed = 0;
     let blocked = 0;
@@ -1033,13 +991,40 @@ ${actions.map((action) => `- ${action.id}: ${action.target ?? "program"} (${acti
         mode,
         riskLevel: component.riskLevel,
       });
-      if (!validation.ok) {
-        blocked += 1;
-        reasons.push(`${scope.url}: ${validation.reasons.join("; ")}`);
-        continue;
-      }
-
       try {
+        if (!validation.ok) {
+          const action = this.runtime.actions.enqueue({
+            jobId,
+            adapter: component.name,
+            actionType: component.actionType,
+            target: scope.url,
+            riskLevel: component.riskLevel,
+            requiresApproval: false,
+            status: "blocked",
+            requiredForCompletion: false,
+            metadata: {
+              capability: component.capability,
+              external: true,
+              planningOnly: true,
+              handoffOnly: true,
+            },
+          });
+          audit.log({
+            jobId,
+            actionType: component.actionType,
+            url: scope.url,
+            adapterName: component.name,
+            policyDecision: "block",
+            reason: validation.reasons.join("; "),
+            metadata: { actionId: action.id, execute: false },
+          });
+          summary.actionsPlanned += 1;
+          planned += 1;
+          blocked += 1;
+          reasons.push(`${scope.url}: ${validation.reasons.join("; ")}`);
+          continue;
+        }
+
         const action = this.planWorkflowAction({
           audit,
           jobId,
@@ -1049,19 +1034,23 @@ ${actions.map((action) => `- ${action.id}: ${action.target ?? "program"} (${acti
           mode,
           riskLevel: component.riskLevel,
           capability: component.capability,
+          requiredForCompletion: false,
+          metadata: {
+            capability: component.capability,
+            external: true,
+            planningOnly: true,
+            handoffOnly: true,
+          },
         });
         summary.actionsPlanned += 1;
         planned += 1;
-        if (!action.allowed) {
+        if (action.decision === "block") {
+          blocked += 1;
+          reasons.push(`${scope.url}: ${action.reason}`);
+        } else {
           pending += 1;
-          continue;
+          reasons.push(`${scope.url}: external adapter retained as a human handoff; no process or MCP dispatch is permitted.`);
         }
-
-        const result = await executor.execute(action.action.id);
-        summary.evidenceCreated += result.evidenceCreated;
-        summary.findingsCreated += result.findingsCreated;
-        summary.candidatesCreated += result.candidatesCreated;
-        executed += 1;
       } catch (error) {
         failed += 1;
         reasons.push(`${scope.url}: ${errorMessage(error)}`);
@@ -1070,8 +1059,15 @@ ${actions.map((action) => `- ${action.id}: ${action.target ?? "program"} (${acti
 
     this.recordPhase(summary, {
       name: component.name,
-      status: externalWorkflowPhaseStatus({ executed, pending, failed, blocked }),
-      detail: externalWorkflowPhaseDetail(component.name, { planned, executed, pending, failed, blocked, reasons }),
+      status: externalWorkflowPhaseStatus({ executed: 0, pending, failed, blocked }),
+      detail: externalWorkflowPhaseDetail(component.name, {
+        planned,
+        executed: 0,
+        pending,
+        failed,
+        blocked,
+        reasons: ["External workflow execution is disabled at the authoritative lifecycle boundary.", ...reasons],
+      }),
     });
   }
 
@@ -1175,6 +1171,8 @@ ${actions.map((action) => `- ${action.id}: ${action.target ?? "program"} (${acti
     stateChanging?: boolean;
     destructive?: boolean;
     capability?: string;
+    requiredForCompletion?: boolean;
+    metadata?: Record<string, unknown>;
   }): { action: ActionRecord; allowed: boolean; decision: PolicyDecision; reason: string } {
     const policy = this.runtime.policyGate.evaluate({
       mode: input.mode,
@@ -1195,6 +1193,8 @@ ${actions.map((action) => `- ${action.id}: ${action.target ?? "program"} (${acti
       riskLevel: input.riskLevel,
       requiresApproval: policy.decision === "require_approval",
       status: policy.decision === "block" ? "blocked" : undefined,
+      requiredForCompletion: input.requiredForCompletion,
+      metadata: input.metadata,
     });
 
     input.audit.log({
@@ -1207,7 +1207,7 @@ ${actions.map((action) => `- ${action.id}: ${action.target ?? "program"} (${acti
       metadata: { actionId: action.id, actionStatus: action.status },
     });
 
-    if (policy.decision === "block") {
+    if (policy.decision === "block" && input.requiredForCompletion !== false) {
       throw new BountyPilotError(policy.reason, "POLICY_BLOCKED");
     }
 
@@ -1219,11 +1219,15 @@ ${actions.map((action) => `- ${action.id}: ${action.target ?? "program"} (${acti
     };
   }
 
-  private recordPlannerCandidates(summary: WorkflowSummary, baseUrl: string, result: JsAnalysisResult): void {
+  private recordPlannerCandidateUrls(
+    summary: WorkflowSummary,
+    baseUrl: string,
+    result: { endpointCandidates: string[]; jsAssets: string[] },
+  ): void {
     summary.plannerCandidates ??= { endpointCandidates: [], jsAssets: [] };
     summary.plannerCandidates.jsAssets = mergeUniqueScopedUrls(
       summary.plannerCandidates.jsAssets,
-      result.scriptUrls,
+      result.jsAssets,
       baseUrl,
       this.runtime,
     );
@@ -1299,6 +1303,18 @@ ${actions.map((action) => `- ${action.id}: ${action.target ?? "program"} (${acti
     summary.updatedAt = nowIso();
   }
 
+  private applyFinalizedJob(summary: WorkflowSummary, job: JobRecord): void {
+    summary.status = job.status;
+    delete summary.completedAt;
+    delete summary.failedAt;
+    if (job.status === "completed") {
+      summary.completedAt = nowIso();
+    } else if (job.status === "failed") {
+      summary.failedAt = nowIso();
+    }
+    this.refreshSummaryState(summary);
+  }
+
   private writeCheckpoint(summary: WorkflowSummary): string {
     this.refreshSummaryState(summary);
     const checkpointPath = summary.checkpointPath ?? workflowCheckpointPath(this.runtime.paths.jobsDir, summary.jobId);
@@ -1321,6 +1337,59 @@ ${actions.map((action) => `- ${action.id}: ${action.target ?? "program"} (${acti
     });
     return artifact.path;
   }
+}
+
+function assertMissionWorkflowOptions(
+  runtime: Runtime,
+  options: WorkflowOptions,
+  mission: MissionRecordV1,
+  components: Set<string>,
+): void {
+  const plan = missionExecutionPlan(mission.request.profile);
+  const expectedComponents = new Set(plan.components);
+  const componentsMatch =
+    components.size === expectedComponents.size &&
+    [...components].every((component) => expectedComponents.has(component));
+  if (
+    mission.request.program !== runtime.config.program ||
+    options.target !== mission.request.target ||
+    options.mode !== plan.mode ||
+    options.dryRun !== true ||
+    options.draftReports === true ||
+    !componentsMatch
+  ) {
+    throw new BountyPilotError(
+      "Mission workflow options conflict with the typed zero-live mission record.",
+      "MISSION_WORKFLOW_UNSAFE",
+    );
+  }
+}
+
+function workflowTerminalAuditAction(status: JobStatus): string {
+  if (status === "completed") return "workflow.complete";
+  return `workflow.${status}`;
+}
+
+function workflowTerminalPolicyDecision(job: JobRecord): "allow" | "block" | "require_approval" {
+  if (job.status === "failed") return "block";
+  if (job.status === "paused") return "require_approval";
+  return "allow";
+}
+
+function workflowTerminalEventStatus(status: JobStatus): WorkflowEventStatus {
+  return status === "queued" ? "planned" : status;
+}
+
+function workflowTerminalMessage(job: JobRecord): string {
+  if (job.status === "completed") return "Workflow completed; all required actions are executed or none were required.";
+  if (job.status === "failed") return "Workflow failed according to the required-action lifecycle.";
+  if (job.status === "paused") {
+    return job.pauseReason
+      ? `Workflow paused for human handoff (${job.pauseReason}).`
+      : "Workflow paused for human handoff.";
+  }
+  if (job.status === "running") return "Workflow remains running because a required action is running.";
+  return "Workflow remains queued.";
 }
 
 function componentSet(mode: ExecutionMode, selected?: string[]): Set<string> {
@@ -1399,53 +1468,6 @@ const EXTERNAL_WORKFLOW_COMPONENTS: ExternalWorkflowComponent[] = [
   },
 ];
 
-function externalWorkflowExecutionReadiness(integration: ResolvedIntegration): { ok: boolean; detail: string } {
-  if (integration.status !== "configured") {
-    return {
-      ok: false,
-      detail: `Integration ${integration.name} is ${integration.status}: ${integration.message ?? "not ready"}.`,
-    };
-  }
-  if (!integrationExecutionEnabled(integration)) {
-    return {
-      ok: false,
-      detail: `Integration ${integration.name} is planning-only; set allow_execute=true or execution.enabled=true to run it inside a workflow.`,
-    };
-  }
-  if (integration.type === "mcp" && (integration.config.transport ?? integration.registration?.mcp?.defaultTransport) !== "stdio") {
-    return {
-      ok: false,
-      detail: `Integration ${integration.name} is configured for non-stdio MCP transport; workflow execution currently supports stdio MCP only.`,
-    };
-  }
-  if (!hasExternalProcessLaunchConfig(integration)) {
-    return {
-      ok: false,
-      detail: `Integration ${integration.name} has no execution command or pinned package entrypoint configured.`,
-    };
-  }
-  return { ok: true, detail: `Integration ${integration.name} is ready for workflow execution.` };
-}
-
-function integrationExecutionEnabled(integration: ResolvedIntegration): boolean {
-  return integration.config.allow_execute === true || integration.config.execution?.enabled === true;
-}
-
-function hasExternalProcessLaunchConfig(integration: ResolvedIntegration): boolean {
-  return Boolean(integration.config.execution?.command ?? integration.config.command) || hasPackageEntrypointConfig(integration);
-}
-
-function hasPackageEntrypointConfig(integration: ResolvedIntegration): boolean {
-  const packageName = integration.config.execution?.package ?? integration.config.package;
-  const packageVersion = integration.config.execution?.package_version ?? integration.config.package_version;
-  const entrypoint = integration.config.execution?.entrypoint ?? integration.config.entrypoint;
-  return hasConfigValue(packageName) && hasConfigValue(packageVersion) && hasConfigValue(entrypoint);
-}
-
-function hasConfigValue(value: unknown): boolean {
-  return Array.isArray(value) ? value.length > 0 : value !== undefined && value !== "";
-}
-
 function researchSkillSource(config: unknown): string | undefined {
   if (!config || typeof config !== "object" || Array.isArray(config)) {
     return undefined;
@@ -1471,7 +1493,7 @@ function externalWorkflowPhaseDetail(
   componentName: string,
   input: { planned: number; executed: number; pending: number; failed: number; blocked: number; reasons: string[] },
 ): string {
-  const summary = `${componentName}: ${input.planned} actions planned, ${input.executed} executed, ${input.pending} pending approval, ${input.blocked} blocked, ${input.failed} failed.`;
+  const summary = `${componentName}: ${input.planned} actions planned, ${input.executed} executed, ${input.pending} pending handoff, ${input.blocked} blocked, ${input.failed} failed.`;
   const reason = input.reasons[0];
   return reason ? `${summary} First detail: ${reason}` : summary;
 }
@@ -1533,9 +1555,11 @@ function emptyActionCounts(): ActionQueueSummary {
     total: 0,
     pending: 0,
     approved: 0,
+    running: 0,
     executed: 0,
     blocked: 0,
     failed: 0,
+    outcome_unknown: 0,
   };
 }
 
@@ -1560,7 +1584,7 @@ function resumeProgressFromPhaseNames(phaseNames: string[]): ResumeProgress {
 
 function hasResumeExecutionOverrides(
   previous: WorkflowSummary,
-  overrides: Partial<Omit<WorkflowOptions, "resumeFromJobId" | "resumeSkipPhases">>,
+  overrides: Partial<Omit<WorkflowOptions, "resumeFromJobId" | "resumeSkipPhases" | "mission">>,
 ): boolean {
   return (
     targetOverrideChangesExecution(previous, overrides.target) ||
@@ -1790,7 +1814,8 @@ function isWorkflowSummary(value: unknown, jobId: string): value is WorkflowSumm
     (candidate.resumeSkippedPhases === undefined ||
       (Array.isArray(candidate.resumeSkippedPhases) && candidate.resumeSkippedPhases.every((item) => typeof item === "string"))) &&
     (candidate.resumeSkippedWork === undefined ||
-      (Array.isArray(candidate.resumeSkippedWork) && candidate.resumeSkippedWork.every(isWorkflowSkippedWork)))
+      (Array.isArray(candidate.resumeSkippedWork) && candidate.resumeSkippedWork.every(isWorkflowSkippedWork))) &&
+    (candidate.mission === undefined || isMissionRecordV1(candidate.mission))
   );
 }
 

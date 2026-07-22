@@ -15,14 +15,18 @@ export class RateLimiter {
     const host = toHost(urlOrHost);
     const now = Date.now();
     const state = this.states.get(host) ?? { host, nextAllowedAt: now };
-    const delay = Math.max(0, state.nextAllowedAt - now);
+    // Reserve the next slot synchronously, before yielding to the timer. This
+    // makes concurrent callers serialize instead of observing the same slot
+    // and then bursting together after one shared delay.
+    const scheduledAt = Math.max(now, state.nextAllowedAt);
+    this.states.set(host, {
+      host,
+      nextAllowedAt: scheduledAt + this.intervalMs,
+    });
+    const delay = Math.max(0, scheduledAt - now);
     if (delay > 0) {
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
-    this.states.set(host, {
-      host,
-      nextAllowedAt: Date.now() + this.intervalMs,
-    });
   }
 }
 

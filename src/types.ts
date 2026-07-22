@@ -166,6 +166,7 @@ export interface ToolAdapterRunResult {
 
 export interface PlaybookResult {
   ok: boolean;
+  paused?: boolean;
   bugClass: BugClass;
   target: string;
   live: boolean;
@@ -175,5 +176,8 @@ export interface PlaybookResult {
   findingsCreated: NormalizedFinding[];
   evidence: EvidenceArtifact[];
   actionsPlanned: number;
+  actionsExecuted: number;
+  actionsPending: number;
+  actionsBlocked: number;
   nextCommands: string[];
 }

@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import {
+  cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -130,9 +131,97 @@ function walkFiles(root: string): string[] {
   return files;
 }
 
+interface ProfileSafetyConfig {
+  delegation: {
+    max_iterations: number;
+    max_concurrent_children: number;
+    max_spawn_depth: number;
+    orchestrator_enabled: boolean;
+    child_timeout_seconds: number;
+  };
+  agent: {
+    disabled_toolsets: string[];
+    operator_note?: string;
+  };
+  terminal: {
+    backend: string;
+    cwd: string;
+    home_mode: string;
+    docker_network: boolean;
+    docker_mount_cwd_to_workspace: boolean;
+    docker_persist_across_processes: boolean;
+    container_persistent: boolean;
+    docker_forward_env: string[];
+    env_passthrough: string[];
+    command_timeout_seconds?: number;
+  };
+  approvals: {
+    mode: string;
+    cron_mode: string;
+  };
+  security: {
+    allow_lazy_installs: boolean;
+  };
+  operator_metadata?: {
+    canary: string;
+  };
+}
+
+function safeProfileConfigObject(canary = "PROFILE_CONFIG_CANARY_SAFE"): ProfileSafetyConfig {
+  return {
+    delegation: {
+      max_iterations: 30,
+      max_concurrent_children: 3,
+      max_spawn_depth: 1,
+      orchestrator_enabled: true,
+      child_timeout_seconds: 1800,
+    },
+    agent: {
+      disabled_toolsets: [
+        "web",
+        "browser",
+        "mcp",
+        "delegation",
+        "cronjob",
+        "messaging",
+        "homeassistant",
+        "code_execution",
+        "unrelated-local-toolset",
+      ],
+      operator_note: "unrelated profile-owned key",
+    },
+    terminal: {
+      backend: "docker",
+      cwd: "/workspace",
+      home_mode: "profile",
+      docker_network: false,
+      docker_mount_cwd_to_workspace: true,
+      docker_persist_across_processes: false,
+      container_persistent: false,
+      docker_forward_env: [],
+      env_passthrough: [],
+      command_timeout_seconds: 900,
+    },
+    approvals: {
+      mode: "manual",
+      cron_mode: "deny",
+    },
+    security: {
+      allow_lazy_installs: false,
+    },
+    operator_metadata: { canary },
+  };
+}
+
+function safeProfileConfig(canary?: string): string {
+  return YAML.stringify(safeProfileConfigObject(canary));
+}
+
 function makeProfile(homeRoot: string, name = "bugbounty"): string {
   const profileDir = path.join(homeRoot, "profiles", name);
   mkdirSync(profileDir, { recursive: true });
+  writeText(path.join(profileDir, "config.yaml"), safeProfileConfig());
+  writeText(path.join(profileDir, "SOUL.md"), "PROFILE_SOUL_CANARY_SAFE\n");
   return profileDir;
 }
 
@@ -222,34 +311,63 @@ Enforce server-side ownership on the requested account identifier before loading
 }
 
 describe("Hermes BountyPilot skill distribution", () => {
+  it.each([
+    { relativePath: "README.md", directory: false },
+    { relativePath: "credentials", directory: true },
+    { relativePath: path.join("skills", "personal"), directory: true },
+  ])("rejects unexpected copied distribution entry $relativePath", async ({ relativePath, directory }) => {
+    const root = makeTempRoot();
+    const copied = path.join(root, "distribution");
+    cpSync(distributionRoot, copied, { recursive: true });
+    const unexpected = path.join(copied, relativePath);
+    if (directory) {
+      mkdirSync(unexpected, { recursive: true });
+    } else {
+      writeText(unexpected, "UNEXPECTED_DISTRIBUTION_ENTRY");
+    }
+
+    await expect(installer.validateDistributionSource(copied)).rejects.toThrow(
+      /unexpected top-level entry|exactly the security skill category/i,
+    );
+  });
+
   it("ships a strict credential-free manifest and the expected bundle", async () => {
     await expect(installer.validateDistributionSource(distributionRoot)).resolves.toBe(
       path.resolve(distributionRoot),
     );
 
-    expect(readdirSync(distributionRoot).sort()).toEqual([
-      "SOUL.md",
-      "distribution.yaml",
-      "skill-bundles",
-      "skills",
-    ]);
+    for (const entry of ["SOUL.md", "config.yaml", "distribution.yaml", "skill-bundles", "skills"]) {
+      expect(existsSync(path.join(distributionRoot, entry)), entry).toBe(true);
+    }
 
     const packageJson = JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8")) as {
       version: string;
+      bin: Record<string, string>;
       files: string[];
       scripts: Record<string, string>;
     };
     const manifest = YAML.parse(
       readFileSync(path.join(distributionRoot, "distribution.yaml"), "utf8"),
     ) as Record<string, unknown>;
+    expect(packageJson.version).toBe("0.2.0");
     expect(manifest).toMatchObject({
       name: "bountypilot-agent",
-      version: packageJson.version,
+      version: "0.2.0",
       hermes_requires: ">=0.17.0",
       license: "MIT",
     });
     expect(manifest).not.toHaveProperty("env_requires");
-    expect(packageJson.files).toContain("hermes");
+    expect(packageJson.files).toEqual([
+      "dist",
+      "examples",
+      "hermes",
+      "skills",
+      "scripts",
+      "README.md",
+    ]);
+    expect(packageJson.bin).toMatchObject({
+      "bountypilot-hermes": "./scripts/install-hermes-bountypilot.mjs",
+    });
     expect(packageJson.scripts).toMatchObject({
       "hermes:plan": "node scripts/install-hermes-bountypilot.mjs --dry-run",
       "hermes:install": "node scripts/install-hermes-bountypilot.mjs --apply",
@@ -258,12 +376,20 @@ describe("Hermes BountyPilot skill distribution", () => {
     const readme = readFileSync(path.join(repoRoot, "README.md"), "utf8");
     expect(readme).toContain("hermes profile use bugbounty");
     expect(readme).toContain("hermes chat");
+    expect(readme).toContain("npm install -g .");
+    expect(readme).toContain("bounty --version");
+    expect(readme).toContain("codex/hermes-bountypilot-agent");
+    expect(readme).toContain("The current v1 receipt is terminal for Hermes");
     expect(readme).not.toContain("hermes chat -p bugbounty");
     expect(readme).not.toContain("hermes -p bugbounty chat");
     expect(readme).toContain("--name bugbounty");
+    expect(readme).not.toMatch(/hermes profile install\s+github\.com\//i);
+    expect(readme).not.toMatch(/repository root is an installable Hermes/i);
+    expect(readme).not.toMatch(/profile manifest is at the repository root/i);
 
     const expectedOwned = [
       "SOUL.md",
+      "config.yaml",
       "distribution.yaml",
       "skill-bundles/bountypilot.yaml",
       ...expectedSkillNames.map((name) => `skills/security/${name}`),
@@ -321,12 +447,31 @@ describe("Hermes BountyPilot skill distribution", () => {
       expect(agent.interface.default_prompt, skillName).toContain(`$${skillName}`);
     }
 
-    const allText = walkFiles(distributionRoot)
+    const rootDistributionFiles = [
+      path.join(distributionRoot, "SOUL.md"),
+      path.join(distributionRoot, "config.yaml"),
+      path.join(distributionRoot, "distribution.yaml"),
+      path.join(distributionRoot, "skill-bundles", "bountypilot.yaml"),
+    ];
+    const skillDistributionFiles = walkFiles(securitySkillsRoot)
       .filter((name) => /\.(?:md|mjs|ya?ml)$/u.test(name))
-      .map((name) => readFileSync(path.join(distributionRoot, ...name.split("/")), "utf8"))
+      .map((name) => path.join(securitySkillsRoot, ...name.split("/")));
+    const allText = [...rootDistributionFiles, ...skillDistributionFiles]
+      .map((file) => readFileSync(file, "utf8"))
       .join("\n");
     expect(allText).not.toMatch(/(?:^|\s)hermes\b[^\n]*(?:\s-z\b|--oneshot\b|--yolo\b)/im);
     expect(allText).not.toMatch(/bounty\b[^\n]*--live\b/i);
+    expect(allText).not.toMatch(/after (?:a|the) (?:valid )?mission receipt[^\n]*delegate/i);
+
+    const orchestratorText = readFileSync(
+      path.join(securitySkillsRoot, "bountypilot-orchestrate", "SKILL.md"),
+      "utf8",
+    );
+    expect(orchestratorText).toContain("Require exactly `0.2.0`");
+    expect(orchestratorText).toContain("`agentTerminal` is `true`");
+    expect(orchestratorText).toContain("`workflow.reportsDrafted: 0`");
+    expect(orchestratorText).toMatch(/Do not call\s+`delegate_task`/);
+    expect(orchestratorText).not.toMatch(/may write one local draft after/i);
 
     const zeroLiveFiles = [
       path.join(securitySkillsRoot, "bountypilot-validate", "SKILL.md"),
@@ -361,62 +506,179 @@ describe("Hermes BountyPilot skill distribution", () => {
 });
 
 describe("Hermes BountyPilot helper behavior", () => {
-  it("emits a dry-run plan but blocks every live mode and unsafe target token", () => {
+  it("emits exactly one typed one-request mission argv and no legacy stage command", () => {
     const base = [
       "--program",
       "acme-security",
-      "--stage",
+      "--target",
+      "https://api.example.test/v1/status",
+      "--goal",
+      "local-report-draft",
+      "--profile",
       "recon",
       "--session",
       "normal",
-      "--program-imported",
-      "--scope-confirmed",
-      "--policy-confirmed",
-      "--target",
-      "https://api.example.test/v1/status",
       "--json",
     ];
-    const dryRun = runNode(preflightPath, [...base, "--mode", "dry-run"]);
-    expect(dryRun.status, dryRun.stderr).toBe(0);
-    const dryResult = JSON.parse(dryRun.stdout) as Record<string, unknown>;
-    expect(dryResult).toMatchObject({
-      decision: "DRY_RUN",
-      mode: "dry-run",
-      untrustedClaims: {
-        exactProgramImported: true,
-        scopeConfirmed: true,
-        policyConfirmed: true,
-      },
-    });
-    expect(dryResult.plannedBountyPilotArgv).toEqual([
+    const planned = runNode(preflightPath, base);
+    expect(planned.status, planned.stderr).toBe(0);
+    const result = JSON.parse(planned.stdout) as Record<string, unknown>;
+    expect(result.plannedBountyPilotArgv).toEqual([
       "bounty",
       "--program",
       "acme-security",
-      "hunt",
-      "recon",
-      "https://api.example.test/v1/status",
+      "mission",
+      "start",
+      "--goal",
+      "local-report-draft",
       "--profile",
-      "passive",
-      "--dry-run",
+      "recon",
+      "--session",
+      "normal",
+      "--target",
+      "https://api.example.test/v1/status",
       "--json",
     ]);
+    const argvFields = Object.entries(result).filter(
+      ([key, value]) => /argv/i.test(key) && Array.isArray(value),
+    );
+    expect(argvFields).toEqual([["plannedBountyPilotArgv", result.plannedBountyPilotArgv]]);
 
-    const live = runNode(preflightPath, [...base, "--mode", "live"]);
-    expect(live.status, live.stderr).toBe(0);
-    expect(JSON.parse(live.stdout)).toMatchObject({
-      decision: "BLOCK",
-      plannedBountyPilotArgv: null,
-    });
-
-    const unsafe = runNode(preflightPath, [
-      ...base.slice(0, -2),
-      "https://api.example.test/v1/status?next=x&cmd=y",
-      "--json",
-      "--mode",
-      "dry-run",
+    const serialized = JSON.stringify(result);
+    expect(result.invariants).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/generic human_handoff receipt/i),
+        expect.stringMatching(/proves no bug, finding, evidence, validation, or report/i),
+      ]),
+    );
+    expect(serialized).not.toContain("human_action_handoff");
+    for (const forbidden of [
+      "--program-imported",
+      "--scope-confirmed",
+      "--policy-confirmed",
+      '"untrustedClaims"',
+      '"stage"',
+      '"mode"',
+      '"finding"',
+      '"prompt"',
+    ]) {
+      expect(serialized).not.toContain(forbidden);
+    }
+    const argv = result.plannedBountyPilotArgv as string[];
+    expect(argv.slice(argv.indexOf("mission"), argv.indexOf("mission") + 2)).toEqual([
+      "mission",
+      "start",
     ]);
-    expect(unsafe.status).toBe(2);
-    expect(unsafe.stderr).toMatch(/query|shell-safe/i);
+    expect(argv).not.toContain("hunt");
+    expect(argv).not.toContain("programs");
+    expect(argv).not.toContain("reproduce");
+    expect(argv).not.toContain("triage");
+    expect(argv).not.toContain("reports");
+  });
+
+  it.each(["normal", "one-shot", "yolo", "approval-bypassed"])(
+    "keeps the %s session in the same zero-live, zero-submit typed mission contract",
+    (session) => {
+      const run = runNode(preflightPath, [
+        "--program",
+        "acme-security",
+        "--target",
+        "https://api.example.test/v1/status",
+        "--goal",
+        "local-report-draft",
+        "--profile",
+        "recon",
+        "--session",
+        session,
+        "--json",
+      ]);
+      expect(run.status, run.stderr).toBe(0);
+      const result = JSON.parse(run.stdout) as {
+        missionRequest: {
+          constraints: { liveTargetEffects: boolean; automaticSubmission: boolean };
+        };
+        plannedBountyPilotArgv: string[];
+      };
+      expect(result.missionRequest.constraints).toEqual({
+        liveTargetEffects: false,
+        automaticSubmission: false,
+      });
+      expect(result.plannedBountyPilotArgv).toContain(session);
+      expect(result.plannedBountyPilotArgv).not.toContain("--live");
+      expect(result.plannedBountyPilotArgv).not.toContain("submit");
+    },
+  );
+
+  it.each([
+    { forbidden: ["--program-imported"] },
+    { forbidden: ["--scope-confirmed"] },
+    { forbidden: ["--policy-confirmed"] },
+    { forbidden: ["--stage", "recon"] },
+    { forbidden: ["--mode", "dry-run"] },
+    { forbidden: ["--finding", "finding-1"] },
+    { forbidden: ["--live"] },
+  ])("rejects obsolete or untrusted preflight vector $forbidden", ({ forbidden }) => {
+    const run = runNode(preflightPath, [
+      "--program",
+      "acme-security",
+      "--target",
+      "https://api.example.test/v1/status",
+      "--goal",
+      "local-report-draft",
+      "--profile",
+      "recon",
+      "--session",
+      "normal",
+      ...forbidden,
+      "--json",
+    ]);
+    expect(run.status).toBe(2);
+    expect(run.stdout).not.toContain("plannedBountyPilotArgv");
+    expect(run.stderr).toMatch(/unknown|unsupported|unexpected/i);
+  });
+
+  it.each([
+    ["--goal", "find-and-submit-everything"],
+    ["--profile", "lab-aggressive"],
+    ["--profile", "safe-checks,playwright"],
+  ])("rejects arbitrary mission semantics %j", (replacement) => {
+    const args = [
+      "--program",
+      "acme-security",
+      "--target",
+      "https://api.example.test/v1/status",
+      "--goal",
+      "local-report-draft",
+      "--profile",
+      "recon",
+      "--session",
+      "normal",
+      "--json",
+    ];
+    const index = args.indexOf(replacement[0]!);
+    args[index + 1] = replacement[1]!;
+    const run = runNode(preflightPath, args);
+    expect(run.status).toBe(2);
+    expect(run.stdout).not.toContain("plannedBountyPilotArgv");
+  });
+
+  it("rejects a bare hostname target", () => {
+    const run = runNode(preflightPath, [
+      "--program",
+      "acme-security",
+      "--target",
+      "api.example.test",
+      "--goal",
+      "local-report-draft",
+      "--profile",
+      "recon",
+      "--session",
+      "normal",
+      "--json",
+    ]);
+    expect(run.status).toBe(2);
+    expect(run.stdout).not.toContain("plannedBountyPilotArgv");
+    expect(run.stderr).toMatch(/absolute HTTP\(S\) URL/i);
   });
 
   it("rejects unresolved report templates and accepts a completed canonical report", () => {
@@ -460,8 +722,8 @@ describe("Hermes BountyPilot safe merge installer", () => {
     const canaries = new Map<string, string>([
       [path.join(profileDir, ".env"), "ENV_CANARY_71d0"],
       [path.join(profileDir, "auth.json"), "AUTH_CANARY_71d0"],
-      [path.join(profileDir, "config.yaml"), "CONFIG_CANARY_71d0"],
-      [path.join(profileDir, "SOUL.md"), "SOUL_CANARY_71d0"],
+      [path.join(profileDir, "config.yaml"), safeProfileConfig("CONFIG_CANARY_71d0")],
+      [path.join(profileDir, "SOUL.md"), "SOUL_CANARY_71d0\n"],
       [path.join(profileDir, "skills", "personal", "unrelated", "SKILL.md"), "SKILL_CANARY_71d0"],
       [path.join(profileDir, "skill-bundles", "unrelated.yaml"), "name: unrelated\nskills: [personal/unrelated]\n"],
       [path.join(otherProfile, ".env"), "OTHER_PROFILE_CANARY_71d0"],
@@ -492,6 +754,8 @@ describe("Hermes BountyPilot safe merge installer", () => {
     );
     expect(cliPlan.status, cliPlan.stderr).toBe(0);
     for (const value of canaries.values()) expect(cliPlan.stdout).not.toContain(value);
+    expect(cliPlan.stdout).not.toContain("CONFIG_CANARY_71d0");
+    expect(cliPlan.stdout).not.toContain("SOUL_CANARY_71d0");
     expect(cliPlan.stdout).not.toContain(root);
 
     const applied = await installer.applyManagedEntries({ profileDir });
@@ -521,6 +785,236 @@ describe("Hermes BountyPilot safe merge installer", () => {
     writeText(installedSkill, `${readFileSync(installedSkill, "utf8")}\nDRIFT\n`);
     await expect(installer.verifyInstallation({ profileDir })).resolves.toMatchObject({ ok: false });
   });
+
+  const unsafeProfileCases: Array<{
+    label: string;
+    mutate: (config: ProfileSafetyConfig) => void;
+  }> = [
+    {
+      label: "a required disabled toolset is absent",
+      mutate: (config) => {
+        config.agent.disabled_toolsets = config.agent.disabled_toolsets.filter(
+          (toolset) => toolset !== "web",
+        );
+      },
+    },
+    {
+      label: "delegation iteration bound drifts",
+      mutate: (config) => {
+        config.delegation.max_iterations = 31;
+      },
+    },
+    {
+      label: "delegation concurrency bound drifts",
+      mutate: (config) => {
+        config.delegation.max_concurrent_children = 4;
+      },
+    },
+    {
+      label: "delegation depth bound drifts",
+      mutate: (config) => {
+        config.delegation.max_spawn_depth = 2;
+      },
+    },
+    {
+      label: "delegation orchestrator is disabled",
+      mutate: (config) => {
+        config.delegation.orchestrator_enabled = false;
+      },
+    },
+    {
+      label: "delegation child timeout drifts",
+      mutate: (config) => {
+        config.delegation.child_timeout_seconds = 1801;
+      },
+    },
+    {
+      label: "terminal backend is local",
+      mutate: (config) => {
+        config.terminal.backend = "local";
+      },
+    },
+    {
+      label: "terminal working directory exposes a host path",
+      mutate: (config) => {
+        config.terminal.cwd = "/host/workspace";
+      },
+    },
+    {
+      label: "terminal home mode is not profile-isolated",
+      mutate: (config) => {
+        config.terminal.home_mode = "host";
+      },
+    },
+    {
+      label: "Docker networking is enabled",
+      mutate: (config) => {
+        config.terminal.docker_network = true;
+      },
+    },
+    {
+      label: "workspace mount is disabled",
+      mutate: (config) => {
+        config.terminal.docker_mount_cwd_to_workspace = false;
+      },
+    },
+    {
+      label: "Docker process persistence is enabled",
+      mutate: (config) => {
+        config.terminal.docker_persist_across_processes = true;
+      },
+    },
+    {
+      label: "container persistence is enabled",
+      mutate: (config) => {
+        config.terminal.container_persistent = true;
+      },
+    },
+    {
+      label: "an environment variable is forwarded",
+      mutate: (config) => {
+        config.terminal.docker_forward_env = ["SECRET_CANARY_FORWARD"];
+      },
+    },
+    {
+      label: "an environment variable is passed through",
+      mutate: (config) => {
+        config.terminal.env_passthrough = ["SECRET_CANARY_PASSTHROUGH"];
+      },
+    },
+    {
+      label: "approval mode is automatic",
+      mutate: (config) => {
+        config.approvals.mode = "automatic";
+      },
+    },
+    {
+      label: "cron approval is allowed",
+      mutate: (config) => {
+        config.approvals.cron_mode = "allow";
+      },
+    },
+    {
+      label: "lazy installs are enabled",
+      mutate: (config) => {
+        config.security.allow_lazy_installs = true;
+      },
+    },
+  ];
+
+  it.each(unsafeProfileCases)(
+    "rejects before planning when $label",
+    async ({ mutate }) => {
+      const root = makeTempRoot();
+      const profileDir = makeProfile(path.join(root, "home"));
+      const configPath = path.join(profileDir, "config.yaml");
+      const soulPath = path.join(profileDir, "SOUL.md");
+      const config = safeProfileConfigObject("UNSAFE_CONFIG_CANARY_4b90");
+      mutate(config);
+      const configText = YAML.stringify(config);
+      const soulText = "UNSAFE_SOUL_CANARY_4b90\n";
+      writeText(configPath, configText);
+      writeText(soulPath, soulText);
+
+      await expect(installer.createInstallPlan({ profileDir })).rejects.toThrow(
+        /zero-live safety contract/i,
+      );
+      expect(readFileSync(configPath, "utf8")).toBe(configText);
+      expect(readFileSync(soulPath, "utf8")).toBe(soulText);
+      expect(existsSync(path.join(profileDir, "local"))).toBe(false);
+    },
+  );
+
+  it.each([
+    { label: "plan", mode: ["--dry-run"] },
+    { label: "apply", mode: ["--apply"] },
+    { label: "verify", mode: ["--verify"] },
+  ])(
+    "rejects an unsafe target config before $label without leaking or mutation",
+    ({ mode }) => {
+      const root = makeTempRoot();
+      const home = path.join(root, "home");
+      const profileDir = makeProfile(home);
+      const configPath = path.join(profileDir, "config.yaml");
+      const soulPath = path.join(profileDir, "SOUL.md");
+      const config = safeProfileConfigObject("CLI_UNSAFE_CONFIG_CANARY_e112");
+      config.terminal.docker_network = true;
+      const configText = YAML.stringify(config);
+      const soulText = "CLI_UNSAFE_SOUL_CANARY_e112\n";
+      writeText(configPath, configText);
+      writeText(soulPath, soulText);
+      const managedCanaryPath = path.join(
+        profileDir,
+        "skills",
+        "security",
+        expectedSkillNames[0],
+        "SKILL.md",
+      );
+      writeText(managedCanaryPath, "CLI_UNSAFE_MANAGED_CANARY_e112");
+
+      const run = spawnSync(
+        process.execPath,
+        [
+          installerPath,
+          ...mode,
+          "--json",
+          "--hermes-home",
+          home,
+          "--profile",
+          "bugbounty",
+        ],
+        { cwd: repoRoot, encoding: "utf8", shell: false },
+      );
+      expect(run.status).toBe(1);
+      const output = `${run.stdout}\n${run.stderr}`;
+      expect(output).not.toContain("CLI_UNSAFE_CONFIG_CANARY_e112");
+      expect(output).not.toContain("CLI_UNSAFE_SOUL_CANARY_e112");
+      expect(output).not.toContain("CLI_UNSAFE_MANAGED_CANARY_e112");
+      expect(output).not.toContain(root);
+      expect(readFileSync(configPath, "utf8")).toBe(configText);
+      expect(readFileSync(soulPath, "utf8")).toBe(soulText);
+      expect(readFileSync(managedCanaryPath, "utf8")).toBe("CLI_UNSAFE_MANAGED_CANARY_e112");
+      expect(existsSync(path.join(profileDir, "local"))).toBe(false);
+    },
+  );
+
+  it.each([
+    { label: "plan", mode: ["--dry-run"] },
+    { label: "apply", mode: ["--apply"] },
+    { label: "verify", mode: ["--verify"] },
+  ])(
+    "rejects a missing target config before $label without leaking or mutation",
+    ({ mode }) => {
+      const root = makeTempRoot();
+      const home = path.join(root, "home");
+      const profileDir = makeProfile(home);
+      const soulPath = path.join(profileDir, "SOUL.md");
+      const soulText = "CLI_MISSING_CONFIG_SOUL_CANARY_a11f\n";
+      writeText(soulPath, soulText);
+      rmSync(path.join(profileDir, "config.yaml"));
+
+      const run = spawnSync(
+        process.execPath,
+        [
+          installerPath,
+          ...mode,
+          "--json",
+          "--hermes-home",
+          home,
+          "--profile",
+          "bugbounty",
+        ],
+        { cwd: repoRoot, encoding: "utf8", shell: false },
+      );
+      expect(run.status).toBe(1);
+      const output = `${run.stdout}\n${run.stderr}`;
+      expect(output).not.toContain("CLI_MISSING_CONFIG_SOUL_CANARY_a11f");
+      expect(output).not.toContain(root);
+      expect(readFileSync(soulPath, "utf8")).toBe(soulText);
+      expect(existsSync(path.join(profileDir, "config.yaml"))).toBe(false);
+      expect(existsSync(path.join(profileDir, "local"))).toBe(false);
+    },
+  );
 
   it("rolls back an injected failure and rejects type conflicts before mutation", async () => {
     const root = makeTempRoot();

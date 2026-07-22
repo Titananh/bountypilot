@@ -43,8 +43,14 @@ source_spec="${BOUNTYPILOT_SOURCE:-}"
 if [[ -z "${source_spec}" ]]; then
   if [[ -n "${BOUNTYPILOT_REPO:-}" ]]; then
     source_spec="github:${BOUNTYPILOT_REPO}"
+  elif [[ -n "${BOUNTYPILOT_VERSION:-}" ]]; then
+    # A version variable is an explicit opt-in to the npm package. Never fall
+    # back to an unpublished or third-party registry package implicitly.
+    source_spec="bountypilot@${BOUNTYPILOT_VERSION}"
   else
-    source_spec="bountypilot"
+    echo "BOUNTYPILOT_SOURCE is required; no npm registry package is selected implicitly." >&2
+    echo "Use github:OWNER/REPO#REF, or explicitly set bountypilot@VERSION after an npm release is published." >&2
+    exit 1
   fi
 fi
 

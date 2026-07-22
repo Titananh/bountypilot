@@ -557,7 +557,9 @@ describe("CLI skill commands", () => {
       mode: "passive",
       dryRun: true,
     });
-    expect(parsed.recon.tools.map((tool: any) => tool.status)).toEqual(expect.arrayContaining(["planned"]));
+    // Planning-only tool rows remain durably `pending`; the human-facing
+    // command/status label must not imply executable approval.
+    expect(parsed.recon.tools.map((tool: any) => tool.status)).toEqual(expect.arrayContaining(["pending"]));
     expect(parsed.nextCommands).toEqual(expect.arrayContaining([expect.stringContaining("--include-artifacts")]));
     expect(parsed.nextCommands.join("\n")).not.toContain("--include-evidence");
     expect(readFileSync(path.join(workspace, ".bounty", "programs", "skill-cli", "program.yml"), "utf8")).toContain("skill-cli");

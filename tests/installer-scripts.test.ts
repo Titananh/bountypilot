@@ -36,13 +36,34 @@ describe("installer scripts", () => {
         ...process.env,
         BOUNTYPILOT_INSTALL_DRY_RUN: "1",
         BOUNTYPILOT_SOURCE: "github:OWNER/REPO",
-        BOUNTYPILOT_REF: "release/v0.1.0",
+        BOUNTYPILOT_REF: "release/v0.2.0",
       },
     });
 
     expect(result.status, outputOf(result)).toBe(0);
-    expect(outputOf(result)).toContain("Installing BountyPilot from github:OWNER/REPO#release/v0.1.0");
-    expect(outputOf(result)).toContain("Dry run: npm install -g github:OWNER/REPO#release/v0.1.0");
+    expect(outputOf(result)).toContain("Installing BountyPilot from github:OWNER/REPO#release/v0.2.0");
+    expect(outputOf(result)).toContain("Dry run: npm install -g github:OWNER/REPO#release/v0.2.0");
+  });
+
+  it("refuses an implicit npm registry fallback in Bash", () => {
+    if (!commandAvailable("bash")) return;
+
+    const result = spawnSync("bash", [path.join(repoRoot, "scripts", "install.sh")], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        BOUNTYPILOT_INSTALL_DRY_RUN: "1",
+        BOUNTYPILOT_SOURCE: "",
+        BOUNTYPILOT_REPO: "",
+        BOUNTYPILOT_VERSION: "",
+        BOUNTYPILOT_REF: "",
+      },
+    });
+
+    expect(result.status, outputOf(result)).not.toBe(0);
+    expect(outputOf(result)).toContain("BOUNTYPILOT_SOURCE is required");
+    expect(outputOf(result)).not.toContain("npm install -g bountypilot");
   });
 
   it("rejects unsupported Bash installer sources before npm install", () => {
@@ -78,13 +99,13 @@ describe("installer scripts", () => {
       env: {
         ...process.env,
         BOUNTYPILOT_INSTALL_DRY_RUN: "true",
-        BOUNTYPILOT_VERSION: "0.1.0",
+        BOUNTYPILOT_VERSION: "0.2.0",
       },
     });
 
     expect(result.status, outputOf(result)).toBe(0);
-    expect(outputOf(result)).toContain("Installing BountyPilot from bountypilot@0.1.0");
-    expect(outputOf(result)).toContain("Dry run: npm install -g bountypilot@0.1.0");
+    expect(outputOf(result)).toContain("Installing BountyPilot from bountypilot@0.2.0");
+    expect(outputOf(result)).toContain("Dry run: npm install -g bountypilot@0.2.0");
     expect(outputOf(result)).not.toContain("Install verified");
   });
 
@@ -110,6 +131,33 @@ describe("installer scripts", () => {
     expect(result.status, outputOf(result)).toBe(0);
     expect(outputOf(result)).toContain("Installing BountyPilot from github:OWNER/REPO#main");
     expect(outputOf(result)).toContain("Dry run: npm install -g github:OWNER/REPO#main");
+  });
+
+  it("refuses an implicit npm registry fallback in PowerShell", { timeout: 60_000 }, () => {
+    const shell = process.platform === "win32" ? "powershell.exe" : "pwsh";
+    if (!commandAvailable(shell)) return;
+
+    const args =
+      process.platform === "win32"
+        ? ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(repoRoot, "scripts", "install.ps1")]
+        : ["-NoProfile", "-File", path.join(repoRoot, "scripts", "install.ps1")];
+    const result = spawnSync(shell, args, {
+      cwd: repoRoot,
+      encoding: "utf8",
+      timeout: 30_000,
+      env: {
+        ...process.env,
+        BOUNTYPILOT_INSTALL_DRY_RUN: "true",
+        BOUNTYPILOT_SOURCE: "",
+        BOUNTYPILOT_REPO: "",
+        BOUNTYPILOT_VERSION: "",
+        BOUNTYPILOT_REF: "",
+      },
+    });
+
+    expect(result.status, outputOf(result)).not.toBe(0);
+    expect(outputOf(result)).toContain("BOUNTYPILOT_SOURCE is required");
+    expect(outputOf(result)).not.toContain("npm install -g bountypilot");
   });
 
   it("rejects unsupported PowerShell installer sources before npm install", () => {

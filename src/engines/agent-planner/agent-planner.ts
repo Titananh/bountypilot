@@ -1,10 +1,11 @@
+import type { ActionStatus } from "../../core/actions/action-queue.js";
 import type { EvidenceArtifact, ExecutionMode, NormalizedFinding, RiskLevel } from "../../types.js";
 
 export interface PlannerActionContext {
   adapter: string;
   actionType: string;
   target?: string;
-  status: "pending" | "approved" | "executed" | "blocked" | "failed";
+  status: ActionStatus;
 }
 
 export interface PlannerInput {

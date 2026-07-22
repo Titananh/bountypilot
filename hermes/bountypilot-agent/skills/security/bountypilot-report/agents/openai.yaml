@@ -1,4 +1,4 @@
 interface:
   display_name: "BountyPilot Report"
-  short_description: "Draft HackerOne-ready reports"
-  default_prompt: "Use $bountypilot-report to create and lint a HackerOne-ready report draft from verified evidence."
+  short_description: "Draft local reports for human review"
+  default_prompt: "Use $bountypilot-report to create and lint a local HackerOne-style draft from verified evidence for my review."

@@ -1,4 +1,5 @@
 import { maskSecrets } from "../../utils/secrets.js";
+import { BountyPilotError } from "../../utils/errors.js";
 
 export interface JsAnalysisResult {
   pageUrl: string;
@@ -17,9 +18,18 @@ const SECRET_PATTERN = /\b(?:api[_-]?key|token|secret|password)\b\s*[:=]\s*["']?
 
 export async function analyzeJavaScript(
   pageUrl: string,
-  options: { allowUrl?: (url: string) => boolean; fetchText?: FetchText } = {},
+  options: { allowUrl: (url: string) => boolean; fetchText: FetchText },
 ): Promise<JsAnalysisResult> {
-  const fetchText = options.fetchText ?? defaultFetchText;
+  if (typeof options?.allowUrl !== "function" || typeof options?.fetchText !== "function") {
+    throw new BountyPilotError(
+      "JavaScript analysis requires an authority-bound fetch context.",
+      "JS_ANALYZER_CONTEXT_REQUIRED",
+    );
+  }
+  if (!options.allowUrl(pageUrl)) {
+    throw new BountyPilotError("JavaScript analysis target is outside the approved scope.", "SCOPE_BLOCKED");
+  }
+  const fetchText = options.fetchText;
   const html = await fetchText(pageUrl);
   const scriptUrls = extractScriptUrls(pageUrl, html);
   const endpointCandidates = new Set<string>();
@@ -30,13 +40,18 @@ export async function analyzeJavaScript(
   collectMatches(html, ROUTE_PATTERN, routeCandidates);
   collectSecretMatches(html, possibleSecrets);
 
-  for (const scriptUrl of scriptUrls.filter((url) => options.allowUrl?.(url) ?? true).slice(0, 10)) {
+  for (const scriptUrl of scriptUrls.filter((url) => options.allowUrl(url)).slice(0, 10)) {
     try {
       const body = await fetchText(scriptUrl);
       collectMatches(body, ENDPOINT_PATTERN, endpointCandidates);
       collectMatches(body, ROUTE_PATTERN, routeCandidates);
       collectSecretMatches(body, possibleSecrets);
-    } catch {
+    } catch (error) {
+      // Network/content failures for an individual optional script may be
+      // skipped, but a scope or authority failure must stop the action. A
+      // broad catch here must never turn policy drift into a successful
+      // execution record.
+      if (isAuthorityBoundaryError(error)) throw error;
       continue;
     }
   }
@@ -50,12 +65,15 @@ export async function analyzeJavaScript(
   };
 }
 
-async function defaultFetchText(url: string): Promise<string> {
-  const response = await fetch(url, {
-    headers: { "User-Agent": "BountyPilot/0.1 js-analyzer" },
-    redirect: "manual",
-  });
-  return response.text();
+function isAuthorityBoundaryError(error: unknown): boolean {
+  if (!(error instanceof BountyPilotError)) return false;
+  return new Set([
+    "ACTION_AUTHORITY_DRIFT",
+    "ACTION_EFFECT_AUTHORITY_UNAVAILABLE",
+    "SCOPE_BLOCKED",
+    "POLICY_BLOCKED",
+    "PLAYWRIGHT_REQUEST_AUTHORITY_FAILED",
+  ]).has(error.code);
 }
 
 function extractScriptUrls(pageUrl: string, html: string): string[] {

@@ -36,6 +36,7 @@ export const BLOCKED_CAPABILITIES = new Set([
 ]);
 
 const PASSIVE_ACTIONS = new Set([
+  "workflow.barrier",
   "scope.test",
   "scope.list",
   "config.load",

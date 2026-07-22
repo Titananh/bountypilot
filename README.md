@@ -2,7 +2,7 @@
 
 BountyPilot is a safe, local-first, scoped bug bounty CLI for authorized security researchers. It is designed to collect evidence, coordinate safe checks, and generate report drafts while preserving scope, rate limits, auditability, reproducibility, and human control.
 
-This repository is the v0.1 foundation. It intentionally avoids unrestricted exploit automation.
+This branch is the v0.2 release candidate. It intentionally avoids unrestricted exploit automation; the immutable `v0.2.0` release exists only after review and an explicit future tag publication.
 
 ## Safety Model
 
@@ -10,7 +10,10 @@ This repository is the v0.1 foundation. It intentionally avoids unrestricted exp
 - Out-of-scope rules override in-scope rules.
 - Target actions flow through `ScopeGuard`, `PolicyGate`, `RateLimiter`, `AuditLogger`, `JobManager`, and `ActionQueue`.
 - Destructive testing, brute force, credential stuffing, spam, data exfiltration, WAF evasion, malware execution, and mass internet scanning are blocked.
+- External integrations, MCP servers, and registry tools produce plans or handoff artifacts only; BountyPilot does not dispatch them.
+- `ActionExecutor` is limited to built-in low-risk actions after the required scope, policy, rate-limit, and human-review gates pass.
 - Reports are generated as local drafts only. BountyPilot does not auto-submit reports.
+- BountyPilot does not automatically exploit targets and cannot guarantee that it will find a bug, avoid duplicates, or earn a bounty.
 
 ## CLI Interface
 
@@ -40,7 +43,7 @@ Windows PowerShell installer:
 $env:BOUNTYPILOT_SOURCE="github:OWNER/REPO#main"; irm https://raw.githubusercontent.com/OWNER/REPO/main/scripts/install.ps1 | iex
 ```
 
-Set `BOUNTYPILOT_INSTALL_DRY_RUN=1` to make either installer verify Node/npm and print the resolved `npm install -g ...` command without installing globally.
+Set `BOUNTYPILOT_INSTALL_DRY_RUN=1` to make either installer verify Node/npm and print the resolved `npm install -g ...` command without installing globally. The scripts require an explicit `BOUNTYPILOT_SOURCE`, `BOUNTYPILOT_REPO`, or `BOUNTYPILOT_VERSION`; they never fall back to an unpublished npm package name.
 
 If the package is later published to npm, the shortest install command becomes:
 
@@ -115,29 +118,70 @@ BountyPilot requires Node.js 22.13.0 or newer because the local SQLite store use
 
 ## Hermes Agent Distribution
 
-The repository includes a scope-first Hermes Agent suite with nine installed skills for program intake, safety, public-passive recon planning, local evidence, safe validation notes, duplicate-risk review, triage, orchestration, and HackerOne-style report drafting. The `bountypilot` bundle loads the safety and orchestration skills; the orchestrator loads the narrower stage skill only when needed.
+The Hermes 0.17+ profile distribution is in `hermes/bountypilot-agent`. The repository root is not a Hermes profile and must not be passed to `hermes profile install`. The distribution includes nine scope-first skills for program intake, safety, public-policy research, local evidence, validation notes, duplicate-risk review, triage, orchestration, and HackerOne-style report drafting.
 
-Install into an existing named Hermes profile without replacing its credentials, SOUL, config, memories, unrelated skills, or unrelated bundles:
+The Hermes skills require the BountyPilot CLI `0.2.0` on `PATH`. Installing the nested profile does not install the CLI. For the current reviewed candidate branch, install both from the same checkout:
 
 ```bash
-npm run hermes:plan
-npm run hermes:install
-npm run hermes:verify
+git clone --branch codex/hermes-bountypilot-agent --depth 1 https://github.com/OWNER/REPO.git bountypilot
+cd bountypilot
+npm ci
+npm install -g .
+bounty --version
+hermes profile install ./hermes/bountypilot-agent --name bugbounty --alias -y
+hermes profile use bugbounty
+```
+
+The distributed profile also disables Hermes web/browser/MCP/delegation toolsets
+and configures the terminal as an air-gapped Docker backend
+(`terminal.docker_network: false`, no forwarded environment variables). Docker
+must be available before starting Hermes; do not silently switch this profile
+to a host-local terminal. The supported one-command setup is the dedicated
+`hermes profile install` flow above because it installs the reviewed `SOUL.md`
+and the complete [`config.yaml`](hermes/bountypilot-agent/config.yaml) together.
+Do not reduce that contract to only a Docker backend and network switch: it also
+disables every target-capable Hermes toolset, persistence, environment
+forwarding, cron approvals, and lazy installs.
+
+`bounty --version` must print `0.2.0` before the profile is used. After an immutable `v0.2.0` tag is actually published, replace the branch in the clone command with `v0.2.0`. Do not create or assume that tag merely to install the current candidate branch.
+
+Never pass the repository root to `hermes profile install`, and do not use `--force` to overlay this dedicated distribution onto an existing profile.
+
+After installing BountyPilot CLI `0.2.0` from the reviewed checkout (or from an npm release only after one is published), merge the managed skills and bundle into an existing named profile without replacing its credentials, SOUL, config, memories, unrelated skills, or unrelated bundles:
+
+```bash
+bountypilot-hermes --dry-run --profile bugbounty
+bountypilot-hermes --apply --profile bugbounty
+bountypilot-hermes --verify --profile bugbounty
 hermes profile use bugbounty
 hermes chat
 ```
 
-The default profile name is `bugbounty`. The first command is read-only and prints the ten managed entries that would change. Install uses staged atomic renames with rollback and backs up only conflicting BountyPilot-managed entries under the profile's `local/bountypilot-agent/backups/` directory.
+The merge path is only for an existing profile that is already hardened to the
+full zero-live contract in the distributed `config.yaml`. The installer reads
+only the required safety fields and fails before any mutation if the profile is
+missing them or weakens them. It never prints configuration values. Review the
+existing profile's `SOUL.md` yourself as well; when in doubt, create the
+dedicated profile instead of merging.
 
-Inside the interactive Hermes session, invoke the bundle with one natural-language request:
+The default profile name is `bugbounty`. `--dry-run` is read-only, validates the
+profile safety contract, and shows the ten managed skill/bundle entries that
+would change. `--verify` validates both that safety contract and the installed
+managed entries. During `--apply`, the installer stages each managed entry and
+swaps it into place with a same-filesystem `rename`; if that process reports a
+failure, it uses its journal to roll back completed swaps. This is per-entry,
+in-process rollback, not whole-profile or power-loss atomicity. Only conflicting
+BountyPilot-managed entries are backed up under the profile's
+`local/bountypilot-agent/backups/` directory. The merge path deliberately
+preserves the existing profile's `SOUL.md` and `config.yaml`.
+
+Inside the interactive Hermes session, invoke the bundle with one natural-language request for a zero-live mission receipt:
 
 ```text
-/bountypilot Continue the exact imported program ACME. Recheck policy and scope, perform public-passive research and BountyPilot dry-runs, organize verified local evidence, assess duplicate risk, triage the finding, and produce a local HackerOne report draft for my review.
+/bountypilot Continue the exact imported program ACME as one zero-live BountyPilot dry-run mission. Return the authoritative receipt, pending action IDs, limitations, and exact human review commands. Do not claim that a bug, validation, evidence, or report exists unless the receipt explicitly records it.
 ```
 
-This v0.1 integration is deliberately plan/public-passive/dry-run-only. It never issues live target actions, trusts approval-bypass modes, or submits a report. Any target-facing action is handed back for a separate human-controlled BountyPilot workflow, and the researcher must independently validate, preview, and submit the final report.
-
-For a fresh standalone profile, first clone or check out the exact repository revision, then run `hermes profile install ./hermes/bountypilot-agent --name bugbounty`. Do not use Hermes `--force` to overlay this distribution onto an existing profile; use the safe merge installer above.
+This v0.2 integration turns one request into exactly one typed local dry-run mission. The current v1 receipt is terminal for Hermes, sets `draftReports: false`, and records `reportsDrafted: 0`; a generic `human_handoff` therefore means the mission finished, not that a report or vulnerability exists. Hermes stops at that receipt and does not delegate or continue research afterward. The other eight suite skills remain available for separate, explicitly requested local follow-up over existing sanitized artifacts. Hermes never dispatches external integrations, MCP servers, registry tools, or live target actions, and it never treats approval-bypass modes as authority. After explicit human review, only BountyPilot's built-in low-risk actions can run through `ActionExecutor`. The agent does not automatically exploit targets or submit reports. The researcher must independently validate and submit any final report, and there is no guarantee of finding a bug, producing a non-duplicate result, receiving acceptance, or earning a bounty.
 
 ## Safe Workflow Guide
 
@@ -149,10 +193,10 @@ Use the workflow as a gated loop, not a fire-and-forget scan:
    Path-scoped rules must be written as explicit URLs such as `https://api.example.com/app`; bare `api.example.com/app` is rejected to avoid accidental host-wide scope.
 4. Start every target with `bounty run <target> --dry-run`. Dry runs write local notes, workflow events, queued component actions, and a summary without target network execution. Live JS/crawl phases or `agent plan --from-job` add richer `plannerCandidates` and planner-loop evidence.
 5. Inspect the checkpoint with `bounty jobs show <job-id>`, `bounty jobs timeline <job-id>`, `bounty actions list --pending`, and `bounty actions show <action-id>`.
-6. Approve or block actions deliberately with `bounty actions approve` or `bounty actions block`. Actions that require approval stay `pending`; low-risk policy-allowed actions can appear as `approved`, but nothing in the queue runs until `actions execute` or `actions run-approved`.
-7. Move to live work only after scope, program rules, rate limits, and action approval are clear: use `bounty run <target> --mode safe`, `bounty actions execute <action-id>`, or `bounty actions run-approved --job <job-id>`.
+6. Approve or block actions deliberately with `bounty actions approve` or `bounty actions block`. Actions that require approval stay `pending`; low-risk policy-allowed actions can appear as `approved`, but built-in actions do not run until `actions execute` or `actions run-approved`.
+7. Move to live built-in checks only after scope, program rules, rate limits, and action approval are clear: use `bounty run <target> --mode safe`, `bounty actions execute <action-id>`, or `bounty actions run-approved --job <job-id>`. `ActionExecutor` rejects external, MCP, and registry-tool dispatch.
 8. Resume interrupted jobs with `bounty jobs resume <job-id>`. Resume is incremental: unchanged completed global phases are skipped, seed-scoped phases such as `safe-checks`, `js-analyzer`, and `playwright` resume per target, and `resumeSkippedWork[]` plus workflow events show what was reused or continued.
-9. Keep external components opt-in. `crawl4ai`, `playwright-mcp`, stdio MCP, and other trusted adapters execute only when the integration is configured, execution is enabled, and the local executable has been approved by absolute path and SHA-256 hash.
+9. Treat external components as handoffs. `crawl4ai`, `playwright-mcp`, other MCP servers, and registry tools can be configured and planned, but BountyPilot does not spawn or dispatch them.
 10. Export `bounty export bundle --job <job-id>` for handoff. Add `--include-artifacts` when reviewers need copied evidence files, not only manifest references.
 
 Dry-run is the recommended first command for every target because it exercises scope, policy, queueing, timeline, checkpoint, and local evidence paths without touching the target.
@@ -183,9 +227,9 @@ Dry-run is the recommended first command for every target because it exercises s
 | Release | `bounty release public-gate OWNER/REPO --online --actions --install-check --write-public-plan .bounty/release/public-readiness.md --json` | GitHub git remote and GitHub CLI when requested | Runs the final public gate by combining publish status, skill score, public-readiness plan output, and optional installed CLI verification. |
 | Release | `bounty release install-check --json` | No | Verifies an installed `bugbounty` command can boot, validate the bundled skill, score readiness, expose skill metadata, and render fresh-user quickstart JSON. |
 | Release | `npm run verify:release` | No | Runs build, docs command-snippet verification, tests, fresh-install package-bin smoke, release checks, and dry-run pack as one gate. |
-| Release | `npm run test:external-tools` | Local fixture executables only | Exercises trusted external tool parsing, approval, scoped recon execution, review-required scanner gates, and crawl graph wiring without touching the internet. |
+| Release | `npm run test:external-tools` | No | Exercises external-tool plan parsing, guard failures, handoff artifacts, and crawl graph wiring with local fixtures; it does not spawn the fixtures. |
 | Release | `npm run test:vm-lab` | Local loopback only | Installs the packed CLI into a clean consumer project, starts the demo lab, runs live lab E2E, and verifies beta readiness from the installed binary. |
-| Release | `npm run test:vm-real-tools` | Local loopback plus installed real tools | Ubuntu/VM smoke that approves real `httpx` and `katana`, runs live recon against the loopback demo lab, and verifies scoped observations. |
+| Release | `npm run test:vm-real-tools` | No target network through BountyPilot | Ubuntu/VM smoke that detects installed `httpx` and `katana` and verifies plan/handoff metadata without BountyPilot dispatching either tool. |
 | Skill | `bounty skill validate bug-bounty-pilot` | No | Validates the bundled skill policy, workflow, tool registry, playbooks, prompts, templates, and examples. |
 | Skill | `bounty skill score bug-bounty-pilot` | No | Scores skill readiness across validation, bundle verification, release gates, `layers.local`/`layers.publish`, `publicReadiness.missing[].commands`, and an ordered `publicReadiness.fixPlan`. |
 | Skill | `bounty skill score bug-bounty-pilot --repo OWNER/REPO --json` | No | Scores the skill and embeds concrete GitHub publish/bootstrap readiness for a target repository. |
@@ -215,22 +259,22 @@ Dry-run is the recommended first command for every target because it exercises s
 | Scope | `bounty scope test <url> --json` | No | Prints the ScopeGuard decision as clean machine-readable JSON. |
 | Workflow | `bounty run [target] --dry-run` | No | Plans actions, writes local notes, and skips real tool execution. |
 | Workflow | `bounty run [target] --dry-run --json` | No | Returns a machine-readable workflow summary and structured timeline events. |
-| Workflow | `bounty run [target] --mode safe` | Yes | Runs selected low-risk components only after scope and policy checks. |
-| Workflow | `bounty run [target] --mode deep-safe --with safe-checks,js-analyzer,playwright,planner` | Yes | Adds browser evidence capture, still behind scope, policy, and rate limits. |
+| Workflow | `bounty run [target] --mode safe` | Yes | Runs selected built-in low-risk components only after scope and policy checks. |
+| Workflow | `bounty run [target] --mode deep-safe --with safe-checks,js-analyzer,playwright,planner` | Yes | Adds built-in browser evidence capture, still behind scope, policy, and rate limits. |
 | Workflow | `bounty run [target] --mode lab-offensive` | Local lab only | Blocked unless the imported program config sets `rules.lab_mode: true`, includes `rules.lab_authorization_file`, and targets local/private lab assets only. |
 | Hunt | `bounty hunt profiles` | No | Lists guided recon, web, validate, and lab-aggressive hunt profiles inspired by recon-to-report bug bounty workflows. |
-| Hunt | `bounty hunt doctor <target> --profile web` | No | Checks scope, provider config, trusted tools, VM arsenal readiness, and profile gates before hunting. |
+| Hunt | `bounty hunt doctor <target> --profile web` | No | Checks scope, provider config, tool-plan readiness, VM arsenal readiness, and profile gates before hunting. |
 | Hunt | `bounty hunt plan <target> --profile web --write` | No | Builds a scoped Markdown hunt plan with phases, bug classes, validation gates, tool readiness, and next commands. |
-| Hunt | `bounty hunt recon <target> --profile web --dry-run` | No | Plans trusted recon tools, queues review-required scanners, and stores a recon job without executing external tools. |
-| Hunt | `bounty hunt recon <target> --profile web --live` | Yes for approved safe tools only | Runs approved low-risk recon tools, stores normalized observations, and leaves nuclei/ffuf/dalfox/naabu pending review. |
+| Hunt | `bounty hunt recon <target> --profile web --dry-run` | No | Plans recon tools, queues review-required scanners, and stores a recon job without dispatching external tools. |
+| Hunt | `bounty hunt recon <target> --profile web --live` | Built-in checks only | Runs eligible built-in low-risk checks and writes external-tool plans for manual handoff; it does not spawn registry tools. |
 | Hunt | `bounty hunt playbook xss <target> --dry-run` | No | Plans a bug-class playbook and records weak signals as recon observations instead of findings. |
 | Hunt | `bounty hunt playbook cors <target> --live` | Yes | Sends a safe Origin-header check, records `cors-validation.json`, and promotes credentialed reflected-origin evidence to a finding candidate. |
 | Hunt | `bounty hunt playbook ssrf <target> --live` | Lab only | Records server-fetch findings only when `rules.lab_mode=true`, the callback URL is loopback/in-scope, and response metadata proves the fetch indicator. |
 | Hunt | `bounty hunt playbook js-secrets <target> --live` | Yes | Runs safe checks and JavaScript analysis, creating finding candidates only when evidence thresholds are met. |
 | Hunt | `bounty hunt run <target> --profile recon --dry-run` | No | Runs the guided hunt profile in planning mode, queues safe next actions, and writes local workflow artifacts. |
-| Hunt | `bounty hunt run <target> --profile web --live` | Yes | Runs the selected profile only after imported scope, policy, mode, and rate-limit gates pass. |
+| Hunt | `bounty hunt run <target> --profile web --live` | Built-in checks only | Runs eligible built-in low-risk profile steps after all gates pass and leaves external steps as handoffs. |
 | Hunt | `bounty hunt autopilot <target> --profile web --dry-run --write-plan` | No | Runs plan, profile workflow, review cockpit, and optional handoff bundle as one guarded flow. |
-| Hunt | `bounty hunt autopilot <target> --profile web --live --bundle` | Yes | Runs live only after guardrails pass, then writes a job-scoped handoff bundle for review. |
+| Hunt | `bounty hunt autopilot <target> --profile web --live --bundle` | Built-in checks only | Runs eligible built-in low-risk steps after guardrails pass and bundles external plans for manual handoff. |
 | Recon | `bounty recon list [--job <job-id>] [--kind parameter]` | No | Lists normalized recon observations from previous recon/playbook/tool runs with kind/source counts. |
 | Recon | `bounty recon show <observation-id-or-fingerprint>` | No | Shows one recon observation, related job evidence, and copy-paste follow-up commands. |
 | Arsenal | `bounty arsenal profiles` | No | Lists VM-ready bug bounty tools, categories, purposes, and run policies. |
@@ -240,7 +284,7 @@ Dry-run is the recommended first command for every target because it exercises s
 | Lab | `bounty lab demo --port 8080` | Local loopback only | Serves a built-in read-only demo lab on loopback for practicing BountyPilot workflows without touching third-party assets. |
 | Lab | `bounty lab e2e <local-url>` | No by default; local lab only with `--live` | Runs lab-mode, authorization, scope, and policy gates, then creates a dry-run checkpoint unless `--live` is explicit. |
 | Lab | `bounty lab e2e <local-url> --live --with safe-checks,js-analyzer` | Local lab only | Runs selected workflow components against an explicitly in-scope local/private lab target and records workflow evidence. |
-| Workflow | `bounty run [target] --with crawl4ai,playwright-mcp` | Yes only when explicitly enabled | Runs external workflow components only when integration execution is enabled and its executable approval hash matches; otherwise records a skipped phase or fails closed before spawn. |
+| Workflow | `bounty run [target] --with crawl4ai,playwright-mcp` | No external dispatch | Validates the requested adapters and records plan/handoff artifacts; it does not start either component. |
 | Workflow | `bounty run [target] --with d-research-skill` | No external skill execution | Records a local public research ledger inside the workflow timeline without expanding scope. |
 | Browser | `bounty crawl <url> --playwright` | Yes | Non-destructive crawl, blocks out-of-scope requests. |
 | Browser | `bounty crawl <url> --engine playwright-mcp` | No external MCP execution | Validates and records a Playwright MCP crawl plan with `execute=false`. |
@@ -288,28 +332,28 @@ Dry-run is the recommended first command for every target because it exercises s
 | Audit | `bounty audit export --job <job-id>` | No | Exports job audit events as JSON for handoff or review. |
 | Actions | `bounty actions list --pending` | No | Shows queued actions that need review. |
 | Actions | `bounty actions list --job <job-id> --json` | No | Prints queued actions as clean machine-readable JSON. |
-| Actions | `bounty actions review --job <job-id>` | No | Shows pending and approved actions with copy-paste review, block, execute, and timeline commands. |
+| Actions | `bounty actions review --job <job-id>` | No | Shows pending and approved actions with review, block, built-in execute, and timeline commands. |
 | Actions | `bounty actions review --job <job-id> --interactive` | No | Lets a human approve, block, skip, or quit one queued action at a time; it never executes actions by itself. |
 | Actions | `bounty actions show <action-id>` | No | Shows action details, review history, and related workflow events. |
 | Actions | `bounty actions approve <action-id> --note "<why>"` | No | Marks one local action approved and records a human review note. |
 | Actions | `bounty actions block <action-id> --note "<why>"` | No | Marks one local action blocked and records a human review note. |
-| Actions | `bounty actions execute <action-id>` | Yes for internal or explicitly enabled trusted external adapters | Executes one approved action through scope, policy, rate-limit, audit, and executor gates. |
-| Actions | `bounty actions run-approved --job <job-id>` | Yes for internal or explicitly enabled trusted external adapters | Executes approved actions for a job and records per-action results. |
-| Tools | `bounty tools list` | No | Shows trusted registry entries. |
-| Tools | `bounty --tool-registry examples/tool-registry.yml tools list` | No | Merges a local trusted registry YAML with built-in tool metadata. |
-| Tools | `bounty tools list --json` | No | Prints trusted registry entries as clean machine-readable JSON. |
-| Tools | `bounty tools search [category]` | No | Searches trusted registry metadata. |
-| Tools | `bounty tools search [category] --json` | No | Prints matching trusted registry entries as clean machine-readable JSON. |
-| Tools | `bounty tools install <tool>` | No | Generates a trusted install plan only. |
+| Actions | `bounty actions execute <action-id>` | Built-in low-risk action only | Executes one approved built-in action through scope, policy, rate-limit, audit, and `ActionExecutor` gates; external actions remain handoffs. |
+| Actions | `bounty actions run-approved --job <job-id>` | Built-in low-risk actions only | Executes eligible approved built-in actions for a job; external, MCP, and registry-tool actions are not dispatched. |
+| Tools | `bounty tools list` | No | Shows registry entries. |
+| Tools | `bounty --tool-registry examples/tool-registry.yml tools list` | No | Merges a local registry YAML with built-in tool metadata. |
+| Tools | `bounty tools list --json` | No | Prints registry entries as clean machine-readable JSON. |
+| Tools | `bounty tools search [category]` | No | Searches registry metadata. |
+| Tools | `bounty tools search [category] --json` | No | Prints matching registry entries as clean machine-readable JSON. |
+| Tools | `bounty tools install <tool>` | No | Generates an install plan only. |
 | Tools | `bounty tools install <tool> --json` | No | Prints the install plan as machine-readable JSON without running installers. |
-| Tools | `bounty tools run <tool> --target <url>` | No external tool execution | Validates and records a trusted tool run plan. |
-| Tools | `bounty tools run <tool> --target <url> --json` | No external tool execution | Prints the trusted run plan, action, validation, and artifact metadata as JSON. |
-| Tools | `bounty tools approve-executable <tool> --command <absolute-path>` | Local only | Approves one reviewed executable hash for a trusted tool before any live execution is allowed. |
-| Tools | `bounty tools approved-executables [tool]` | No | Lists approved tool executable hashes without running them. |
+| Tools | `bounty tools run <tool> --target <url>` | No external tool execution | Validates and records a tool run plan for handoff. |
+| Tools | `bounty tools run <tool> --target <url> --json` | No external tool execution | Prints the run plan, action, validation, and handoff artifact metadata as JSON. |
+| Tools | `bounty tools approve-executable <tool> --command <absolute-path>` | Local only | Records a reviewed executable fingerprint as handoff metadata; it does not authorize BountyPilot to spawn the tool. |
+| Tools | `bounty tools approved-executables [tool]` | No | Lists recorded executable fingerprints used in manual handoffs. |
 | Tools | `bounty tools update` | No | Plans updates only; performs no downloads. |
-| Tools | `bounty tools update --json` | No | Prints trusted update plans as machine-readable JSON. |
+| Tools | `bounty tools update --json` | No | Prints update plans as machine-readable JSON. |
 | Tools | `bounty tools doctor` | No | Checks local registry health only. |
-| Tools | `bounty tools doctor --json` | No | Prints trusted tool health checks as machine-readable JSON. |
+| Tools | `bounty tools doctor --json` | No | Prints tool-plan health checks as machine-readable JSON. |
 | Providers | `bounty providers catalog` | No | Lists built-in AI/API provider presets such as OpenAI, Anthropic, Gemini, OpenRouter, and Ollama. |
 | Providers | `bounty providers connect <id> --api-key-stdin [--model model]` | No external call | Stores a provider credential and config locally, with secrets kept separate from provider metadata like opencode's connect flow. |
 | Providers | `bounty providers connect <id> --api-key-env OPENAI_API_KEY [--model model]` | No external call | Configures a provider to read its API key from an environment variable instead of storing it. |
@@ -327,25 +371,25 @@ Dry-run is the recommended first command for every target because it exercises s
 | Integrations | `bounty integrations list` | No | Shows configured integrations. |
 | Integrations | `bounty integrations list --json` | No | Prints integration readiness as clean machine-readable JSON. |
 | Integrations | `bounty integrations show <name>` | No | Shows detailed adapter config, readiness, missing fields, and capabilities. |
-| Integrations | `bounty integrations capabilities [name]` | No | Lists trusted adapter capabilities. |
-| Integrations | `bounty integrations capabilities [name] --json` | No | Prints trusted adapter capabilities as clean machine-readable JSON. |
+| Integrations | `bounty integrations capabilities [name]` | No | Lists registered adapter capabilities. |
+| Integrations | `bounty integrations capabilities [name] --json` | No | Prints registered adapter capabilities as clean machine-readable JSON. |
 | Integrations | `bounty integrations preflight <name> <capability>` | No | Runs detailed readiness and policy preflight with `execute=false`. |
-| Integrations | `bounty integrations verify <name> <capability> --target <url>` | No | Runs a local end-to-end readiness gate for scope, config, policy, execution opt-in, and executable approval without spawning the integration. |
+| Integrations | `bounty integrations verify <name> <capability> --target <url>` | No | Runs a local readiness gate for scope, config, policy, and handoff metadata without spawning the integration. |
 | Integrations | `bounty integrations validate <name> <capability>` | No | Validates a call plan against adapter metadata and policy. |
 | Integrations | `bounty integrations validate <name> <capability> --json` | No | Prints integration validation as machine-readable JSON. |
-| Integrations | `bounty integrations setup <playwright-mcp\|crawl4ai>` | No | Writes a safe local preset, optionally pins local package hashes or approves an executable when explicit flags are provided. |
-| Integrations | `bounty integrations enable <name>` | No | Enables integration metadata in the imported program config. |
-| Integrations | `bounty integrations enable <name> --json` | No | Enables an integration and prints the saved config path as JSON. |
+| Integrations | `bounty integrations setup <playwright-mcp\|crawl4ai>` | No | Writes safe local configuration for planning and handoff. |
+| Integrations | `bounty integrations enable <name>` | No | Enables integration plan metadata in the imported program config. |
+| Integrations | `bounty integrations enable <name> --json` | No | Enables integration plan metadata and prints the saved config path as JSON. |
 | Integrations | `bounty integrations config <name> key=value` | No | Writes integration config values to `program.yml`. |
 | Integrations | `bounty integrations config <name> key=value --json` | No | Writes integration config values and prints the saved config as JSON. |
-| Integrations | `bounty integrations approve-executable <name> --command <path>` | No | Locally approves an absolute executable path and SHA-256 hash for one integration. |
-| Integrations | `bounty integrations approved-executables [name]` | No | Lists local executable approvals. |
-| Integrations | `bounty integrations doctor` | No | Checks configured integration metadata and prints copy-paste setup, preflight, plan, and execution follow-ups. |
+| Integrations | `bounty integrations approve-executable <name> --command <path>` | No | Records an absolute executable path and SHA-256 fingerprint for a manual handoff; BountyPilot still does not spawn it. |
+| Integrations | `bounty integrations approved-executables [name]` | No | Lists executable fingerprints recorded as manual-handoff metadata. |
+| Integrations | `bounty integrations doctor` | No | Checks configured integration metadata and prints setup, preflight, plan, and handoff follow-ups. |
 | Integrations | `bounty integrations doctor --json` | No | Prints integration health, MCP health, and next-command guidance as machine-readable JSON. |
 | MCP | `bounty mcp plan <server> <tool>` | No external MCP execution | Prepares a policy-safe MCP plan with `execute=false`. |
 | MCP | `bounty mcp plan <server> <tool> --json` | No external MCP execution | Prints the MCP plan as clean machine-readable JSON. |
-| MCP | `bounty mcp call <server> <tool>` | Yes for explicitly enabled stdio MCP | Executes a registered MCP tool only when execution is enabled and its executable approval hash matches. |
-| MCP | `bounty mcp session <server> --steps steps.json` | Yes for explicitly enabled stdio MCP | Executes multiple registered MCP tools in one stdio session and stores a transcript evidence artifact. |
+| MCP | `bounty mcp call <server> <tool>` | No external MCP execution | Records a single-tool MCP handoff request; it does not start a server or call the tool. |
+| MCP | `bounty mcp session <server> --steps steps.json` | No external MCP execution | Records an ordered MCP session plan for handoff; it does not open a stdio session. |
 
 ## Safe Usage Examples
 
@@ -453,7 +497,7 @@ bounty evidence
 bounty evidence verify --job <job-id>
 ```
 
-Load a local trusted tool registry:
+Load a local tool registry for planning and handoff:
 
 ```bash
 bounty --tool-registry examples/tool-registry.yml tools list
@@ -462,7 +506,7 @@ BOUNTYPILOT_TOOL_REGISTRY=examples/tool-registry.yml bounty tools doctor
 
 The repo also includes `examples/sample-finding.json`, `examples/sample-evidence-manifest.json`, `examples/sample-report.md`, and `examples/evidence/finding-example-security-header/` as safe, non-sensitive output examples.
 
-Prepare Playwright MCP without executing it, or execute it only after explicit stdio opt-in and local executable approval:
+Prepare a Playwright MCP handoff. These commands do not start an MCP server or dispatch a tool:
 
 ```bash
 bounty integrations setup playwright-mcp
@@ -470,10 +514,6 @@ bounty integrations show playwright-mcp
 bounty integrations preflight playwright-mcp browser.navigate --target https://api.example.com
 bounty integrations validate playwright-mcp browser.navigate --target https://api.example.com
 bounty mcp plan playwright-mcp browser_navigate --target https://api.example.com --arg url=https://api.example.com/
-bounty integrations setup playwright-mcp --enable-execution --approve-executable
-bounty integrations verify playwright-mcp browser.navigate --target https://api.example.com
-bounty mcp call playwright-mcp browser_navigate --target https://api.example.com --arg url=https://api.example.com/
-bounty mcp session playwright-mcp --target https://api.example.com --steps examples/mcp-steps.json
 ```
 
 Generate a local report draft:
@@ -491,9 +531,9 @@ bounty report finding-00000000-0000-0000-0000-000000000000 --platform bugcrowd
 
 ## Workflow
 
-`bounty run` is the main orchestration command. It resolves only explicit in-scope seeds, skips wildcard scope rules instead of enumerating unknown assets, records a local research note, queues actions, runs selected safe components, stores evidence, updates findings and finding candidates, writes structured workflow events, and writes `.bounty/programs/<program>/evidence/<job-id>/workflow-summary.json`.
+`bounty run` is the main orchestration command. It resolves only explicit in-scope seeds, skips wildcard scope rules instead of enumerating unknown assets, records a local research note, queues actions, runs selected built-in low-risk components, stores evidence, updates findings and finding candidates, writes structured workflow events, and writes `.bounty/programs/<program>/evidence/<job-id>/workflow-summary.json`.
 
-The normal path is dry-run, review, approval, then live execution. `--dry-run` plans without target network execution. Live runs use `--mode safe` or `--mode deep-safe` and still pass through scope, policy, rate-limit, audit, and action gates. Evidence-backed signals become finding candidates first; weak signals stay as recon observations or `needs_manual_verification`, and only candidates that pass reportability checks are ready for local drafts. The JavaScript analyzer and crawl graph add scoped `plannerCandidates` such as `endpointCandidates` and `jsAssets`; the planner ranks and de-duplicates next actions from those candidates plus local evidence, findings, and action history, then writes a `planner-loop.json` evidence artifact. Actions that require approval remain `pending` until a human approves them; low-risk policy-allowed actions may be queued as `approved`, but still require an explicit execute command.
+The normal path is dry-run, review, approval, then live execution of eligible built-in low-risk actions. `--dry-run` plans without target network execution. Live built-in runs use `--mode safe` or `--mode deep-safe` and still pass through scope, policy, rate-limit, audit, and action gates. Evidence-backed signals become finding candidates first; weak signals stay as recon observations or `needs_manual_verification`, and only candidates that pass reportability checks are ready for local drafts. The JavaScript analyzer and crawl graph add scoped `plannerCandidates` such as `endpointCandidates` and `jsAssets`; the planner ranks and de-duplicates next actions from those candidates plus local evidence, findings, and action history, then writes a `planner-loop.json` evidence artifact. Actions that require approval remain `pending` until a human approves them; built-in low-risk actions may be queued as `approved`, but still require an explicit execute command. External, MCP, and registry-tool actions remain plans or handoffs regardless of approval metadata.
 
 Use `jobs timeline <job-id>` to inspect phase progress, skipped work, planner output, action review, execution events, and resume decisions. Human workflow output includes copy-paste next-command hints for showing the job, opening the timeline, resuming failed work, reviewing actions, or returning to the dashboard. Use `jobs resume <job-id>` to continue an incomplete checkpoint; when target, mode, and components are unchanged, already terminal global phases are recorded as skipped, while repeated seed-scoped phases record `phases[].target` and only skip the targets that completed before interruption. New summaries include `checkpointVersion: 2` and `resumeSkippedWork[]`; `resumeSkippedPhases[]` remains as a compatibility summary of skipped phase names.
 
@@ -501,7 +541,7 @@ Workflow triage and report drafting are scoped to findings with evidence from th
 
 Use `export bundle --job <job-id>` for a local handoff snapshot with findings, actions, reviews, evidence manifest entries, timelines, and audit logs filtered to that job. `workspace-summary.json` remains workspace-wide; add `--include-artifacts` when you want readable evidence files copied into the bundle directory instead of only referenced by manifest metadata.
 
-Trusted execution exists for `crawler`, `research-skill`, `external-tool`, and `stdio` MCP integrations only when the program config explicitly sets `allow_execute: true` or `execution.enabled: true` and the executable is locally approved with `integrations approve-executable`. Otherwise external components are planning-only or fail closed before spawning. Executors require absolute executable paths, reject bare commands, shell interpreters, `.cmd`/`.bat`/`.ps1` shims, verify the SHA-256 hash before every spawn, use no shell, run with a constrained environment, enforce timeouts, capture stdout/stderr or MCP results, store evidence artifacts, run scope/policy checks, and write audit logs. MCP stdout evidence also includes bounded, redacted `streamEvents` for JSON-RPC responses, notifications, progress messages, log messages, and server requests; workflow timelines record a compact stream summary when notification/progress activity is observed. Stateful Playwright MCP snapshots also fail closed unless the MCP result proves the current or final page URL is still in scope. For npm-distributed tools, configure `execution.package`, `execution.package_version`, and `execution.entrypoint`; BountyPilot resolves the installed local package entrypoint and runs it as `node <absolute-entrypoint>` after the local `node` executable has been approved. Package evidence records `entrypointSha256` and `packageJsonSha256`; add `execution.entrypoint_sha256` and `execution.package_json_sha256` to fail closed when installed package code drifts from the pinned fingerprint. It never runs `npx` or downloads packages at execution time. Tool run-plan validation also enforces BountyPilot's global blocked-capability list even if a custom registry omits `blocked_capabilities`.
+External adapters, MCP servers, research skills, and registry tools are planning and handoff surfaces only. BountyPilot validates their metadata, scope, policy, arguments, and blocked capabilities, then records reviewable artifacts; it does not spawn their executables, open stdio sessions, download packages, or dispatch their calls. An executable fingerprint or integration setting is handoff metadata, not execution authority. `ActionExecutor` accepts only built-in low-risk actions and rechecks scope, policy, rate limits, approval, and audit requirements before each run.
 
 `lab-offensive` is reserved for local labs, CTFs, intentionally vulnerable apps, or assets fully owned by the researcher. A lab program must set `rules.lab_mode: true` and `rules.lab_authorization_file: <relative-file>`; the authorization file is copied into the program workspace during import and must remain present for lab-offensive runs.
 
@@ -530,12 +570,11 @@ Trusted execution exists for `crawler`, `research-skill`, `external-tool`, and `
 3. SQLite stores, JobManager, ActionQueue.
 4. Safe commands: crawl, check, js, evidence, report, reproduce.
 5. ToolManager, IntegrationManager, and plan/preflight adapters.
-6. Human-approved ActionExecutor for internal safe adapters.
+6. Human-approved `ActionExecutor` for built-in low-risk actions only.
 7. Dashboard and export summaries for local audit, handoff, and workflow recovery.
-8. Sandboxed trusted external process executor for opt-in crawler/research/external-tool adapters.
-9. Stdio MCP execution for explicitly enabled registered MCP tools.
-10. Multi-step stdio MCP sessions with transcript evidence.
-11. Release hardening: workflow resume, MCP stream evidence, planner loops, release checks, package-bin smoke tests, and local handoff/export flows.
+8. Plan and handoff adapters for external crawlers, research skills, and registry tools without process dispatch.
+9. MCP call and multi-step session plans without starting a server or opening stdio.
+10. Release hardening: workflow resume, planner loops, release checks, package-bin smoke tests, and local handoff/export flows.
 
 ## Important
 

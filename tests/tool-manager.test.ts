@@ -1,8 +1,14 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ToolManager, type ToolRegistryEntry } from "../src/integrations/tool-manager/tool-manager.js";
+
+const childProcessMocks = vi.hoisted(() => ({
+  spawnSync: vi.fn(() => ({ status: 0 })),
+}));
+
+vi.mock("node:child_process", () => childProcessMocks);
 
 describe("ToolManager", () => {
   it("lists built-in trusted tools", () => {
@@ -205,6 +211,57 @@ describe("ToolManager", () => {
     const [result] = manager.doctor();
     expect(result?.status).toBe("not_installed");
     expect(result?.checks.some((check) => check.name === "install" && check.status === "fail")).toBe(true);
+    expect(result?.message).toMatch(/not installed locally|not resolvable/i);
+  });
+
+  it("only resolves npm package metadata and does not promise executable availability", () => {
+    const manager = new ToolManager([
+      {
+        ...trustedTool("installed-package"),
+        install: { type: "npm", package: "playwright" },
+      },
+    ]);
+
+    const [result] = manager.doctor();
+    expect(result?.status).toBe("available");
+    expect(result?.message).toBe(
+      "npm package metadata for playwright is resolvable locally; executable availability is not verified.",
+    );
+    expect(result?.checks).toContainEqual({
+      name: "install",
+      status: "pass",
+      message: "npm package metadata for playwright is resolvable locally; executable availability is not verified.",
+    });
+  });
+
+  it("leaves external executable and image availability unverified without probing PATH or running processes", () => {
+    childProcessMocks.spawnSync.mockClear();
+    const manager = new ToolManager([
+      {
+        ...trustedTool("local-node"),
+        install: { type: "local", command: "node" },
+      },
+      {
+        ...trustedTool("docker-image"),
+        install: { type: "docker", image: "example/tool:1.0.0" },
+      },
+      trustedTool("manual-tool"),
+    ]);
+
+    const [local, docker, manual] = manager.doctor();
+    expect(local).toMatchObject({
+      status: "manual",
+      message: expect.stringMatching(/registry metadata only.*unverified.*does not probe PATH/i),
+    });
+    expect(docker).toMatchObject({
+      status: "manual",
+      message: expect.stringMatching(/registry metadata only.*unverified.*does not invoke Docker/i),
+    });
+    expect(manual).toMatchObject({
+      status: "manual",
+      message: expect.stringMatching(/unverified.*does not run installers or commands/i),
+    });
+    expect(childProcessMocks.spawnSync).not.toHaveBeenCalled();
   });
 
   it("rejects duplicate and shell-like registry metadata", () => {

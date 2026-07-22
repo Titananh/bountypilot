@@ -40,7 +40,7 @@ export const BUILT_IN_ADAPTER_REGISTRY: AdapterRegistration[] = [
     aliases: ["playwright-mcp"],
     type: "mcp",
     displayName: "Playwright MCP",
-    description: "Optional MCP bridge for browser automation. Execution requires explicit stdio allow_execute opt-in.",
+    description: "Optional MCP bridge for browser automation. BountyPilot records scope-checked plans and human handoffs only; it never starts the MCP server.",
     defaultEnabled: false,
     configuration: {
       optional: [
@@ -96,7 +96,7 @@ export const BUILT_IN_ADAPTER_REGISTRY: AdapterRegistration[] = [
     name: "crawl4ai",
     type: "crawler",
     displayName: "Crawl4AI",
-    description: "Optional external crawler adapter. Execution requires explicit allow_execute opt-in.",
+    description: "Optional external crawler adapter. BountyPilot records scoped plans and human handoffs only; it never dispatches the crawler.",
     defaultEnabled: false,
     configuration: {
       requiredWhenEnabled: ["command"],
@@ -131,7 +131,7 @@ export const BUILT_IN_ADAPTER_REGISTRY: AdapterRegistration[] = [
     aliases: ["windows-mcp"],
     type: "desktop",
     displayName: "Windows MCP",
-    description: "Optional local desktop automation MCP. Execution requires explicit stdio allow_execute opt-in and approval-gated capabilities.",
+    description: "Optional local desktop automation MCP. BountyPilot records local plans and human handoffs only; it never starts the desktop bridge.",
     defaultEnabled: false,
     configuration: {
       optional: [

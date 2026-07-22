@@ -1,4 +1,5 @@
 import type { ProgramConfig } from "../../core/config/program-schema.js";
+import { ScopeGuard } from "../../core/scope/scope-guard.js";
 import type { ExecutionMode, PolicyDecision } from "../../types.js";
 import type { AdapterCallPlanValidation, AdapterCapabilityMetadata, AdapterHealth } from "../adapters/adapter.js";
 import { AdapterRegistry, findCapability, normalizeAdapterKey } from "../adapters/registry.js";
@@ -47,12 +48,14 @@ export interface McpPreparedCallPlan {
 
 export class McpClientManager {
   private readonly integrations: IntegrationManager;
+  private readonly scopeGuard: ScopeGuard;
 
   constructor(
     private readonly config: ProgramConfig,
     registry: AdapterRegistry = new AdapterRegistry(),
   ) {
     this.integrations = new IntegrationManager(config, registry);
+    this.scopeGuard = new ScopeGuard(config);
   }
 
   listServers(): McpServerRecord[] {
@@ -114,6 +117,11 @@ export class McpClientManager {
       return blocked(`MCP tool ${plan.tool} is not registered for ${integration.name}`, integration.name, plan.tool);
     }
 
+    const scopeFailure = validateMcpPlanScope(plan, this.scopeGuard);
+    if (scopeFailure) {
+      return blocked(scopeFailure, integration.name, plan.tool);
+    }
+
     const validation: AdapterCallPlanValidation = this.integrations.validateCallPlan({
       integration: integration.name,
       capability: capability.id,
@@ -147,9 +155,169 @@ export class McpClientManager {
       target: plan.target,
       arguments: plan.arguments ?? {},
       validation,
-      message: "This is a policy-safe planned call only. Use `mcp call` only for explicitly enabled stdio MCP integrations.",
+      message: "zero-execution, scope-checked MCP handoff only; no external connection or tool execution is performed.",
     };
   }
+}
+
+const TARGET_LIKE_ARGUMENT_KEYS = new Set([
+  "url",
+  "uri",
+  "endpoint",
+  "origin",
+  "host",
+  "hostname",
+  "domain",
+  "target",
+]);
+const MAX_ARGUMENT_DEPTH = 32;
+const MAX_ARGUMENT_NODES = 10_000;
+
+interface ArgumentNode {
+  value: unknown;
+  path: string;
+  depth: number;
+  targetLike: boolean;
+}
+
+function validateMcpPlanScope(plan: McpCallPlan, scopeGuard: ScopeGuard): string | undefined {
+  if (plan.target !== undefined) {
+    if (typeof plan.target !== "string") {
+      return "MCP plan target must be a string";
+    }
+    const failure = scopeFailure(scopeGuard, plan.target, "MCP plan target");
+    if (failure) return failure;
+  }
+
+  if (plan.arguments === undefined) return undefined;
+  if (!isPlainRecord(plan.arguments)) {
+    return "MCP arguments must be a plain object";
+  }
+
+  const seen = new WeakSet<object>();
+  const nodes: ArgumentNode[] = [{ value: plan.arguments, path: "arguments", depth: 0, targetLike: false }];
+  let visited = 0;
+
+  try {
+    while (nodes.length > 0) {
+      const node = nodes.pop()!;
+      visited += 1;
+      if (visited > MAX_ARGUMENT_NODES) {
+        return `MCP arguments exceed the ${MAX_ARGUMENT_NODES}-node safety limit`;
+      }
+
+      if (node.targetLike && typeof node.value !== "string") {
+        return `${node.path} must contain a string target`;
+      }
+
+      if (typeof node.value === "string") {
+        if (node.targetLike || looksLikeAbsoluteHttpUrl(node.value)) {
+          const failure = scopeFailure(scopeGuard, node.value, `MCP argument ${node.path}`);
+          if (failure) return failure;
+        }
+        continue;
+      }
+      if (node.value === null || typeof node.value === "boolean") continue;
+      if (typeof node.value === "number") {
+        if (!Number.isFinite(node.value)) return `${node.path} contains a non-finite number`;
+        continue;
+      }
+      if (typeof node.value !== "object") {
+        return `${node.path} contains an unsupported ${typeof node.value} value`;
+      }
+      if (node.depth >= MAX_ARGUMENT_DEPTH) {
+        return `MCP arguments exceed the ${MAX_ARGUMENT_DEPTH}-level nesting limit at ${node.path}`;
+      }
+      if (seen.has(node.value)) {
+        return `MCP arguments contain a cycle or repeated object reference at ${node.path}`;
+      }
+      seen.add(node.value);
+
+      const arrayValue = Array.isArray(node.value) ? node.value : undefined;
+      const isArray = arrayValue !== undefined;
+      const prototype = Object.getPrototypeOf(node.value);
+      if ((!isArray && prototype !== Object.prototype && prototype !== null) || (isArray && prototype !== Array.prototype)) {
+        return `${node.path} contains a non-plain object`;
+      }
+
+      const descriptors = Object.getOwnPropertyDescriptors(node.value);
+      const keys = Reflect.ownKeys(descriptors);
+      for (const key of keys) {
+        if (typeof key === "symbol") return `${node.path} contains a symbol-keyed property`;
+        if (isArray && key === "length") continue;
+
+        const descriptor = descriptors[key];
+        if (!descriptor || !("value" in descriptor) || descriptor.get || descriptor.set) {
+          return `${formatArgumentPath(node.path, key, isArray)} contains an accessor property`;
+        }
+        if (!descriptor.enumerable) {
+          return `${formatArgumentPath(node.path, key, isArray)} is a non-enumerable property`;
+        }
+        if (arrayValue && !isArrayIndex(key, arrayValue.length)) {
+          return `${formatArgumentPath(node.path, key, true)} is not a valid array element`;
+        }
+
+        nodes.push({
+          value: descriptor.value,
+          path: formatArgumentPath(node.path, key, isArray),
+          depth: node.depth + 1,
+          targetLike: !isArray && TARGET_LIKE_ARGUMENT_KEYS.has(key.toLowerCase()),
+        });
+      }
+
+      if (arrayValue && keys.length - 1 !== arrayValue.length) {
+        return `${node.path} contains sparse array elements`;
+      }
+    }
+  } catch (error) {
+    return `MCP arguments could not be inspected safely: ${errorMessage(error)}`;
+  }
+
+  return undefined;
+}
+
+function scopeFailure(scopeGuard: ScopeGuard, candidate: string, label: string): string | undefined {
+  try {
+    const result = scopeGuard.test(candidate);
+    return result.allowed ? undefined : `${label} blocked by ScopeGuard: ${result.reason}`;
+  } catch (error) {
+    return `${label} is invalid: ${errorMessage(error)}`;
+  }
+}
+
+function looksLikeAbsoluteHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return /^[\u0000-\u0020]*https?:/i.test(value);
+  }
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object") return false;
+  try {
+    if (Array.isArray(value)) return false;
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null;
+  } catch {
+    return false;
+  }
+}
+
+function isArrayIndex(key: string, length: number): boolean {
+  if (!/^(0|[1-9]\d*)$/.test(key)) return false;
+  const index = Number(key);
+  return Number.isSafeInteger(index) && index >= 0 && index < length && index < 2 ** 32 - 1;
+}
+
+function formatArgumentPath(parent: string, key: string, parentIsArray: boolean): string {
+  if (parentIsArray && /^\d+$/.test(key)) return `${parent}[${key}]`;
+  return /^[A-Za-z_$][\w$]*$/.test(key) ? `${parent}.${key}` : `${parent}[${JSON.stringify(key)}]`;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function isMcpIntegration(integration: ResolvedIntegration): boolean {

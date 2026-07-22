@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { existsSync, readFileSync } from "node:fs";
 import { parse } from "yaml";
@@ -912,6 +911,7 @@ function doctorResult(
 ): ToolDoctorResult {
   const failing = checks.find((check) => check.status === "fail");
   const warning = checks.find((check) => check.status === "warn");
+  const install = checks.find((check) => check.name === "install");
   return {
     name: tool.name,
     category: tool.category,
@@ -919,48 +919,67 @@ function doctorResult(
     installType: tool.install.type,
     allowedModes: [...tool.safety.allowed_modes],
     status,
-    message: failing?.message ?? warning?.message ?? `${tool.category} registry entry is trusted and pinned to ${tool.version}.`,
+    message:
+      failing?.message ??
+      warning?.message ??
+      install?.message ??
+      `${tool.category} registry entry is trusted and pinned to ${tool.version}.`,
     checks,
   };
 }
 
 function checkInstall(tool: ToolRegistryEntry): ToolDoctorCheck {
   if (tool.install.type === "manual") {
-    return { name: "install", status: "warn", message: "Manual install required; no automated installer is run." };
+    return {
+      name: "install",
+      status: "warn",
+      message:
+        "Manual installation and executable availability are unverified; doctor does not run installers or commands.",
+    };
   }
 
   if (tool.install.type === "npm" && tool.install.package) {
     try {
       requireFromHere.resolve(`${tool.install.package}/package.json`);
-      return { name: "install", status: "pass", message: `npm package ${tool.install.package} is resolvable locally.` };
+      return {
+        name: "install",
+        status: "pass",
+        message: `npm package metadata for ${tool.install.package} is resolvable locally; executable availability is not verified.`,
+      };
     } catch {
-      return { name: "install", status: "fail", message: `npm package ${tool.install.package} is not installed locally.` };
+      return {
+        name: "install",
+        status: "fail",
+        message: `npm package ${tool.install.package} is not installed locally or its package metadata is not resolvable.`,
+      };
     }
   }
 
   if (tool.install.type === "docker") {
-    return commandExists("docker")
-      ? { name: "install", status: "pass", message: "Docker CLI is available; image presence is not pulled automatically." }
-      : { name: "install", status: "fail", message: "Docker CLI is not available locally." };
+    return {
+      name: "install",
+      status: "warn",
+      message: `Docker image ${tool.install.image ?? "metadata"} is registry metadata only; Docker CLI and image availability are unverified because doctor does not invoke Docker.`,
+    };
   }
 
   if (tool.install.type === "local" && tool.install.command) {
-    return commandExists(tool.install.command)
-      ? { name: "install", status: "pass", message: `Command ${tool.install.command} is available on PATH.` }
-      : { name: "install", status: "fail", message: `Command ${tool.install.command} is not available on PATH.` };
+    return {
+      name: "install",
+      status: "warn",
+      message: `Local command ${tool.install.command} is registry metadata only; executable availability is unverified because doctor does not probe PATH.`,
+    };
   }
 
-  return { name: "install", status: "warn", message: "No install check is configured for this tool." };
+  return {
+    name: "install",
+    status: "warn",
+    message: "Install availability is unverified; no safe package-resolution check is configured for this tool.",
+  };
 }
 
 function blockedCapabilitiesFor(tool: ToolRegistryEntry): Set<string> {
   return new Set([...BLOCKED_CAPABILITIES, ...tool.safety.blocked_capabilities]);
-}
-
-function commandExists(command: string): boolean {
-  const checker = process.platform === "win32" ? "where.exe" : "which";
-  const result = spawnSync(checker, [command], { stdio: "ignore" });
-  return result.status === 0;
 }
 
 function maxRisk(left?: RiskLevel, right?: RiskLevel): RiskLevel | undefined {

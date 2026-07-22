@@ -1,7 +1,11 @@
 import path from "node:path";
+import { randomBytes } from "node:crypto";
 import type { Command } from "commander";
+import { ActionApprovalService } from "../core/actions/action-approval-service.js";
+import { ActionLifecycle } from "../core/actions/action-lifecycle.js";
 import { ActionQueue } from "../core/actions/action-queue.js";
 import { ActionReviewStore } from "../core/actions/action-review-store.js";
+import { createProductionActionAuthorityDependencies } from "../core/actions/production-action-authority.js";
 import { AuditLogger } from "../core/audit/audit-logger.js";
 import { loadWorkspaceProgram } from "../core/config/config-loader.js";
 import type { ProgramConfig } from "../core/config/program-schema.js";
@@ -37,6 +41,8 @@ export interface Runtime {
   events: WorkflowEventStore;
   actions: ActionQueue;
   reviews: ActionReviewStore;
+  actionApproval: ActionApprovalService;
+  actionLifecycle: ActionLifecycle;
 }
 
 export function getRootOptions(command: Command): { program?: string } {
@@ -51,6 +57,18 @@ export function createRuntime(program?: string): Runtime {
   const loaded = loadWorkspaceProgram(process.cwd(), program);
   const paths = ensureProgramWorkspace(loaded.config.program, process.cwd());
   const db = openBountyDatabase(paths.dbFile);
+  const authority = createProductionActionAuthorityDependencies({
+    programFile: loaded.programFile,
+  });
+  const actionApproval = new ActionApprovalService(db, {
+    ...authority,
+    now: () => new Date(),
+  });
+  const actionLifecycle = new ActionLifecycle(db, {
+    ...authority,
+    now: () => new Date(),
+    generateExecutionToken: () => randomBytes(32).toString("hex"),
+  });
   return {
     config: loaded.config,
     paths,
@@ -70,6 +88,8 @@ export function createRuntime(program?: string): Runtime {
     events: new WorkflowEventStore(db),
     actions: new ActionQueue(db),
     reviews: new ActionReviewStore(db),
+    actionApproval,
+    actionLifecycle,
   };
 }
 
@@ -85,7 +105,7 @@ export function createJobAuditLogger(paths: ProgramWorkspace, jobId: string): Au
   return new AuditLogger(path.join(paths.jobsDir, jobId, "audit.log"));
 }
 
-export async function planAllowedAction(input: {
+export interface PlanAllowedActionInput {
   runtime: Runtime;
   audit: AuditLogger;
   jobId: string;
@@ -97,7 +117,27 @@ export async function planAllowedAction(input: {
   stateChanging?: boolean;
   destructive?: boolean;
   capability?: string;
-}): Promise<boolean> {
+  requiredForCompletion?: boolean;
+  /**
+   * Non-authoritative annotations for planning/handoff surfaces. Metadata is
+   * persisted with the immutable action so review tooling can distinguish a
+   * plan-only row from an effect-capable row; it never grants execution
+   * authority.
+   */
+  metadata?: Record<string, unknown>;
+}
+
+export interface PlannedAllowedAction {
+  allowed: boolean;
+  action: import("../core/actions/action-queue.js").ActionRecord;
+}
+
+export async function planAllowedAction(input: PlanAllowedActionInput): Promise<boolean> {
+  const result = await planAllowedActionWithRecord(input);
+  return result.allowed;
+}
+
+export async function planAllowedActionWithRecord(input: PlanAllowedActionInput): Promise<PlannedAllowedAction> {
   const policy = input.runtime.policyGate.evaluate({
     mode: input.mode,
     actionType: input.actionType,
@@ -127,20 +167,29 @@ export async function planAllowedAction(input: {
       riskLevel: input.riskLevel,
       requiresApproval: false,
       status: "blocked",
+      requiredForCompletion: input.requiredForCompletion,
+      metadata: input.metadata,
     });
+    input.runtime.jobs.finalize(input.jobId);
     throw new BountyPilotError(policy.reason, "POLICY_BLOCKED");
   }
 
-  input.runtime.actions.enqueue({
+  const action = input.runtime.actions.enqueue({
     jobId: input.jobId,
     adapter: input.adapter,
     actionType: input.actionType,
     target: input.target,
     riskLevel: input.riskLevel,
     requiresApproval: policy.decision === "require_approval",
+    requiredForCompletion: input.requiredForCompletion,
+    metadata: input.metadata,
   });
+  // Enqueuing into an existing terminal job must immediately re-derive its
+  // authoritative tuple before an approval/claim attempt. JobManager.finalize
+  // is the only path that may reopen it based on newly-required work.
+  input.runtime.jobs.finalize(input.jobId);
 
-  return policy.decision === "allow";
+  return { allowed: policy.decision === "allow", action };
 }
 
 export function printJson(value: unknown): void {

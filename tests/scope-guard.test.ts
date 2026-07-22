@@ -61,6 +61,7 @@ describe("ScopeGuard", () => {
     expect(guard.test("https://api.example.com/app").allowed).toBe(true);
     expect(guard.test("https://api.example.com/app/dashboard").allowed).toBe(true);
     expect(guard.test("http://api.example.com/app").allowed).toBe(false);
+    expect(guard.test("https://api.example.com:8443/app").allowed).toBe(false);
     expect(guard.test("https://api.example.com/admin").allowed).toBe(false);
   });
 
@@ -73,6 +74,16 @@ describe("ScopeGuard", () => {
 
     expect(guard.test("https://api.example.com:8443").allowed).toBe(true);
     expect(guard.test("https://api.example.com").allowed).toBe(false);
+  });
+
+  it("preserves path case in explicit scope rules", () => {
+    const guard = new ScopeGuard({
+      ...config,
+      in_scope: ["https://api.example.com/App"],
+      out_of_scope: [],
+    });
+    expect(guard.test("https://api.example.com/App").allowed).toBe(true);
+    expect(guard.test("https://api.example.com/app").allowed).toBe(false);
   });
 
   it("applies out-of-scope URL path prefixes before host allow rules", () => {
@@ -93,5 +104,32 @@ describe("ScopeGuard", () => {
 
     expect(result.allowed).toBe(false);
     expect(result.reason).toContain("http and https");
+  });
+
+  it("blocks credentials in target URLs", () => {
+    const result = new ScopeGuard(config).test("https://user:password@api.example.com/private");
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("Credentials");
+  });
+
+  it("does not broaden invalid non-http or query-bearing scope patterns", () => {
+    const guard = new ScopeGuard({
+      ...config,
+      in_scope: ["ftp://api.example.com", "https://api.example.com/app?tenant=one"],
+      out_of_scope: [],
+    });
+    expect(guard.test("https://api.example.com/").allowed).toBe(false);
+    expect(guard.test("https://api.example.com/app?tenant=two").allowed).toBe(false);
+  });
+
+  it("rejects encoded path octets before prefix matching", () => {
+    const guard = new ScopeGuard({
+      ...config,
+      in_scope: ["https://api.example.com/allowed"],
+      out_of_scope: ["https://api.example.com/admin"],
+    });
+    expect(guard.test("https://api.example.com/allowed/%2e%2e%2fadmin").allowed).toBe(false);
+    expect(guard.test("https://api.example.com/allowed/%252e%252e%252fadmin").allowed).toBe(false);
+    expect(guard.test("https://api.example.com/%41dmin").allowed).toBe(false);
   });
 });

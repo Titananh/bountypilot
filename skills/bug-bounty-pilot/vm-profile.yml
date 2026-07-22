@@ -31,4 +31,4 @@ full_level_tools:
 notes:
   - Bootstrap commands are generated as scripts and are not executed by the CLI.
   - Review generated scripts before running them manually.
-  - External tools still require approved absolute executables before live use.
+  - External executable paths and checksums are handoff metadata only; BountyPilot does not spawn them.

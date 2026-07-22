@@ -35,8 +35,12 @@ $SourceSpec = $env:BOUNTYPILOT_SOURCE
 if ([string]::IsNullOrWhiteSpace($SourceSpec)) {
   if (-not [string]::IsNullOrWhiteSpace($env:BOUNTYPILOT_REPO)) {
     $SourceSpec = "github:$($env:BOUNTYPILOT_REPO)"
+  } elseif (-not [string]::IsNullOrWhiteSpace($env:BOUNTYPILOT_VERSION)) {
+    # A version variable is an explicit opt-in to the npm package. Never fall
+    # back to an unpublished or third-party registry package implicitly.
+    $SourceSpec = "bountypilot@$($env:BOUNTYPILOT_VERSION)"
   } else {
-    $SourceSpec = "bountypilot"
+    Write-Error "BOUNTYPILOT_SOURCE is required; no npm registry package is selected implicitly. Use github:OWNER/REPO#REF, or explicitly set bountypilot@VERSION after an npm release is published."
   }
 }
 
